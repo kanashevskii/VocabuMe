@@ -1,11 +1,13 @@
 import os
 import threading
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
+
 import django
 from django.core.management import execute_from_command_line
-from vocab.bot import run_telegram_bot
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
+
+from vocab.bot import run_telegram_bot
 
 
 def run_server():
