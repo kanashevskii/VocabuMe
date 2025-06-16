@@ -19,6 +19,7 @@ from telegram.ext import (
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement
 from .openai_utils import generate_word_data
+from .utils import clean_word
 from .tts import generate_tts_audio
 from django.db import IntegrityError
 from django.db.models import Count, Q, Min
@@ -40,13 +41,13 @@ def get_or_create_user(chat_id, username):
 
 @sync_to_async
 def word_already_exists(user, word):
-    norm = word.strip().lower()
+    norm = clean_word(word)
     return VocabularyItem.objects.filter(user=user, normalized_word=norm).exists()
 
 @sync_to_async
 def save_word(user, original_input, data):
-    word = data["word"].strip()
-    normalized = word.lower()
+    word = clean_word(data["word"])  # sanitized
+    normalized = word
     tr = data["transcription"]
     if any(c in tr for c in "абвгдеёжзийклмнопрстуфхцчшщыэюя"):
         tr = ""
@@ -134,19 +135,19 @@ async def process_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
             replies.append(f"⚠️ Не удалось получить данные для: *{original_input}*")
             continue
 
-        norm = data["word"].strip().lower()
+        norm = clean_word(data["word"])
         if await word_already_exists(user, norm):
-            replies.append(f"⛔ Слово уже есть у тебя: *{data['word']}*")
+            replies.append(f"⛔ Слово уже есть у тебя: *{norm}*")
             continue
 
         try:
             await save_word(user, original_input, data)
-            reply = f"""✅ *{data['word']}*
+            reply = f"""✅ *{norm}*
 📖 {data['translation']}
 🗣️ /{data['transcription']}/
 ✏️ _{data['example']}_"""
         except IntegrityError:
-            reply = f"⛔ Ошибка сохранения для: *{data['word']}*"
+            reply = f"⛔ Ошибка сохранения для: *{norm}*"
 
         replies.append(reply)
 
