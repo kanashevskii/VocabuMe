@@ -274,23 +274,38 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         word_obj.example_translation = translate_to_ru(word_obj.example)
         await sync_to_async(word_obj.save)()
 
-    # Озвучка перед вопросом
-    audio_path = await generate_tts_audio(word_obj.word)
-    with open(audio_path, "rb") as audio:
-        if update.message:
-            await update.message.reply_audio(audio)
-        elif update.callback_query:
-            await update.callback_query.message.reply_audio(audio)
-
-    fakes = await get_fake_translations(user, exclude_word=word_obj.word, part_of_speech=word_obj.part_of_speech)
-    all_options = fakes + [word_obj.translation]
-    random.shuffle(all_options)
+    try:
+        fakes = await get_fake_translations(
+            user,
+            exclude_word=word_obj.word,
+            part_of_speech=word_obj.part_of_speech,
+        )
+        all_options = list(set(fakes + [word_obj.translation]))
+        random.shuffle(all_options)
+        if len(all_options) < 2:
+            logging.error("Not enough options for word %s", word_obj.word)
+            await safe_reply(update, "⚠️ Не удалось подготовить варианты ответа. Попробуй позже.")
+            return
+    except Exception as e:
+        logging.exception("Failed to prepare options for %s: %s", word_obj.word, e)
+        await safe_reply(update, "⚠️ Ошибка подготовки вопроса. Попробуй позже.")
+        return
 
     keyboard = [
         [InlineKeyboardButton(text=opt, callback_data=f"{word_obj.id}|{opt}")]
         for opt in all_options
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
+
+    try:
+        audio_path = await generate_tts_audio(word_obj.word)
+        with open(audio_path, "rb") as audio:
+            if update.message:
+                await update.message.reply_audio(audio)
+            elif update.callback_query:
+                await update.callback_query.message.reply_audio(audio)
+    except Exception as e:
+        logging.exception("Failed to send audio for %s: %s", word_obj.word, e)
 
     msg = (
         f"💬 *{esc(word_obj.word)}*\n"
