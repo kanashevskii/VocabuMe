@@ -6,7 +6,7 @@ from decouple import config
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 django.setup()
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -35,6 +35,7 @@ MAX_WORDS_PER_SESSION = 20
 user_lessons = {}
 
 SET_REMINDER_TIME = 1
+LISTENING = 2
 
 @sync_to_async
 def get_or_create_user(chat_id, username):
@@ -110,17 +111,25 @@ def get_praise(correct: int, total: int) -> str:
 
 # --- START ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        ["➕ /add", "🎯 /learn"],
+        ["🔄 /learnreverse", "🎧 /listen"],
+        ["📘 /mywords", "📊 /progress"],
+        ["⚙️ /settings"],
+    ]
     await update.message.reply_text(
         "👋 Привет! Я помогу тебе выучить английские слова — просто и эффективно.\n\n"
         "Вот что я умею:\n"
         "➕ /add — добавить новые слова\n"
         "🎯 /learn — начать тренировку (перевод с англ. на рус.)\n"
         "🔄 /learnreverse — обратный режим (с рус. на англ.)\n"
+        "🎧 /listen — тренировка аудирования\n"
         "📘 /mywords — список слов, которые ты учишь\n"
         "📊 /progress — посмотреть свою статистику и достижения\n"
         "⚙️ /settings — изменить настройки обучения и напоминаний\n\n"
         "⏰ Я могу напоминать тебе о занятиях каждый день или через день — настрой это через /settings!\n\n"
-        "🚀 Готов начать? Жми /add или /learn!"
+        "🚀 Готов начать? Жми /add или /learn!",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
 
 
@@ -358,6 +367,13 @@ def run_telegram_bot():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
+    listen_conv = ConversationHandler(
+        entry_points=[CommandHandler("listen", listen)],
+        states={
+            LISTENING: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_listen_answer)],
+        },
+        fallbacks=[CommandHandler("stop", stop)],
+    )
     reminder_time_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_settings_callback, pattern="^set_reminder_time$")],
         states={
@@ -369,6 +385,7 @@ def run_telegram_bot():
     app.add_handler(reminder_time_conv)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
+    app.add_handler(listen_conv)
     app.add_handler(CommandHandler("learn", learn))
     app.add_handler(CommandHandler("learnreverse", learn_reverse))
     app.add_handler(CommandHandler("stop", stop))
@@ -822,3 +839,71 @@ def get_fake_words(user, exclude_word, part_of_speech=None, count=3):
         .distinct()
         .order_by("?")[:count]
     )
+
+
+async def listen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("learning_stopped"):
+        context.user_data["learning_stopped"] = False
+        return
+
+    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    lesson = user_lessons.get(f"listen_{update.effective_chat.id}")
+    session = context.user_data.get("listen_info")
+
+    if not lesson:
+        if session:
+            correct = session.get("correct", 0)
+            total = session.get("total", 0)
+            praise = get_praise(correct, total)
+            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            context.user_data.pop("listen_info", None)
+            return
+
+        words = await get_unlearned_words(user, count=MAX_WORDS_PER_SESSION)
+        if not words:
+            await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
+            return
+        user_lessons[f"listen_{update.effective_chat.id}"] = words
+        context.user_data["listen_info"] = {"correct": 0, "total": len(words), "answered": 0}
+        lesson = words
+
+    word_obj = lesson.pop(0)
+    context.user_data["current_listen_word_id"] = word_obj.id
+
+    audio_path = await generate_tts_audio(word_obj.word)
+    with open(audio_path, "rb") as audio:
+        if update.message:
+            await update.message.reply_audio(audio)
+        elif update.callback_query:
+            await update.callback_query.message.reply_audio(audio)
+
+    await safe_reply(update, "Напиши услышанное слово:")
+    return LISTENING
+
+
+async def handle_listen_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    word_id = context.user_data.get("current_listen_word_id")
+    if not word_id:
+        await update.message.reply_text("Используй /listen, чтобы начать занятие.")
+        return ConversationHandler.END
+
+    item = await get_word_by_id(word_id)
+    guess = clean_word(update.message.text)
+    is_correct = guess == item.word.lower()
+
+    await update_correct_count(item.id, correct=is_correct)
+
+    reply = (
+        f"✅ Верно! {item.word}" if is_correct else f"❌ Неверно. Правильно: {item.word}"
+    )
+    await update.message.reply_text(reply)
+
+    session = context.user_data.get("listen_info")
+    if session:
+        session["answered"] += 1
+        if is_correct:
+            session["correct"] += 1
+        context.user_data["listen_info"] = session
+
+    await listen(update, context)
+    return LISTENING
