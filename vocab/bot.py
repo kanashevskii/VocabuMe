@@ -230,7 +230,14 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
+            ])
+            await safe_reply(
+                update,
+                f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
+                reply_markup=keyboard,
+            )
             context.user_data.pop("session_info", None)
             return
 
@@ -417,6 +424,7 @@ def run_telegram_bot():
 
     app.add_handler(reminder_time_conv)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(start, pattern="^start$") )
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("learn", learn))
     app.add_handler(CallbackQueryHandler(learn, pattern="^start_learn$"))
@@ -929,7 +937,14 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
+            ])
+            await safe_reply(
+                update,
+                f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
+                reply_markup=keyboard,
+            )
             context.user_data.pop("session_info", None)
             return
 
@@ -1026,7 +1041,14 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE, fo
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
+            ])
+            await safe_reply(
+                update,
+                f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
+                reply_markup=keyboard,
+            )
             context.user_data.pop(info_key, None)
             return
 
@@ -1128,7 +1150,14 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
+            ])
+            await safe_reply(
+                update,
+                f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
+                reply_markup=keyboard,
+            )
             context.user_data.pop("aud_session_info", None)
             return
 
