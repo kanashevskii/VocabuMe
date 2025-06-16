@@ -11,7 +11,7 @@ class TelegramUserAdmin(admin.ModelAdmin):
 class VocabularyItemAdmin(admin.ModelAdmin):
     list_display = ("word", "translation", "part_of_speech", "user", "is_learned", "correct_count", "created_at")
     list_filter = ("is_learned", "part_of_speech")
-    search_fields = ("word", "translation", "example", "user__username")
+    search_fields = ("word", "translation", "example", "example_translation", "user__username")
     ordering = ("-created_at",)
 
 @admin.register(Achievement)
