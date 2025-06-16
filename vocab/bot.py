@@ -2,7 +2,7 @@ import os
 import random
 import django
 from decouple import config
-from .irregular_verbs import IRREGULAR_VERBS
+from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
@@ -1094,6 +1094,18 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
     word = lesson.pop(0)
     correct = f"{word['past']} {word['participle']}"
     options = [correct] + word["wrong_pairs"]
+    unique_options = []
+    for opt in options:
+        if opt not in unique_options:
+            unique_options.append(opt)
+
+    while len(unique_options) < 4:
+        extra = get_random_pairs(word, 1, unique_options)
+        if not extra:
+            break
+        unique_options.extend(extra)
+
+    options = unique_options[:4]
     random.shuffle(options)
 
     keyboard = [
