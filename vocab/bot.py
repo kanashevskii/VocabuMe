@@ -24,7 +24,7 @@ from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement
 from .openai_utils import generate_word_data
 from .utils import clean_word, translate_to_ru
-from .tts import generate_tts_audio
+from .tts import generate_tts_audio, generate_temp_audio
 from django.db import IntegrityError
 from django.db.models import Count, Q, Min
 from django.utils.timezone import now
@@ -1240,13 +1240,14 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lesson = word_list
 
     word_obj = lesson.pop(0)
-    audio_path = await generate_tts_audio(word_obj.word)
+    audio_path = await generate_temp_audio(word_obj.word)
     with open(audio_path, "rb") as audio:
         await safe_reply(update, "🔊 Слушай внимательно:")
         if update.message:
             await update.message.reply_audio(audio)
         elif update.callback_query:
             await update.callback_query.message.reply_audio(audio)
+    os.remove(audio_path)
 
     mode = context.user_data.get("aud_mode", "word")
     keyboard = InlineKeyboardMarkup(
