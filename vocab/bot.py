@@ -9,6 +9,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 django.setup()
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
+from telegram.helpers import escape_markdown
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -39,6 +41,11 @@ user_lessons = {}
 SET_REMINDER_TIME = 1
 
 MAX_IRREGULAR_PER_SESSION = 10
+
+
+def esc(text: str) -> str:
+    """Escape text for safe use in MarkdownV2 messages."""
+    return escape_markdown(text, version=2) if text else ""
 
 @sync_to_async
 def get_or_create_user(chat_id, username):
@@ -286,13 +293,18 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
 
     msg = (
-        f"💬 *{word_obj.word}*\n"
-        f"🗣️ /{word_obj.transcription}/\n"
-        f"✏️ _{word_obj.example}_\n"
-        f"||{word_obj.example_translation}||\n\n"
+        f"💬 *{esc(word_obj.word)}*\n"
+        f"🗣️ /{esc(word_obj.transcription)}/\n"
+        f"✏️ _{esc(word_obj.example)}_\n"
+        f"||{esc(word_obj.example_translation)}||\n\n"
         "Выбери правильный перевод:"
     )
-    await safe_reply(update, msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    await safe_reply(
+        update,
+        msg,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 # --- HANDLE ANSWER ---
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -303,8 +315,8 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, item_id = query.data.split("|")
         item = await get_word_by_id(item_id)
         await query.edit_message_text(
-            f"⏭ Пропущено: *{item.word}* — {item.translation}",
-            parse_mode="Markdown"
+            f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
         session = context.user_data.get("session_info")
         if session:
@@ -317,8 +329,8 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, item_id = query.data.split("|")
         item = await get_word_by_id(item_id)
         await query.edit_message_text(
-            f"⏭ Пропущено: *{item.translation}* — {item.word}",
-            parse_mode="Markdown"
+            f"⏭ Пропущено: *{esc(item.translation)}* — {esc(item.word)}",
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
 
         session = context.user_data.get("session_info")
@@ -342,12 +354,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update_correct_count(item.id, correct=is_correct)
 
         response = (
-            f"✅ Верно! *{item.translation}* = {item.word}"
+            f"✅ Верно! *{esc(item.translation)}* = {esc(item.word)}"
             if is_correct else
-            f"❌ Неверно. *{item.translation}* = {item.word}"
+            f"❌ Неверно. *{esc(item.translation)}* = {esc(item.word)}"
         )
 
-        await query.edit_message_text(response, parse_mode="Markdown")
+        await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
         session = context.user_data.get("session_info")
         if session:
             session["answered"] += 1
@@ -370,11 +382,11 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update_correct_count(item.id, correct=is_correct)
 
     if is_correct:
-        response = f"✅ Верно! *{item.word}* = {item.translation}"
+        response = f"✅ Верно! *{esc(item.word)}* = {esc(item.translation)}"
     else:
-        response = f"❌ Неверно. *{item.word}* = {item.translation}"
+        response = f"❌ Неверно. *{esc(item.word)}* = {esc(item.translation)}"
 
-    await query.edit_message_text(response, parse_mode="Markdown")
+    await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
     session = context.user_data.get("session_info")
     if session:
         session["answered"] += 1
@@ -1002,10 +1014,15 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"revskip|{word_obj.id}")])
 
-    msg = f"""💬 *{word_obj.translation}*
+    msg = f"""💬 *{esc(word_obj.translation)}*
 
 Выбери правильный английский эквивалент:"""
-    await safe_reply(update, msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    await safe_reply(
+        update,
+        msg,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 @sync_to_async
 def get_fake_words(user, exclude_word, part_of_speech=None, count=3):
@@ -1265,21 +1282,21 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
         is_correct = user_answer == correct
         await update_correct_count(item.id, correct=is_correct)
         response = (
-            f"✅ Верно! *{item.translation}* — {item.word}"
+            f"✅ Верно! *{esc(item.translation)}* — {esc(item.word)}"
             if is_correct else
-            f"❌ Неверно. *{item.translation}* — {item.word}"
+            f"❌ Неверно. *{esc(item.translation)}* — {esc(item.word)}"
         )
     else:
         correct = item.word.lower()
         is_correct = user_answer == correct
         await update_correct_count(item.id, correct=is_correct)
         response = (
-            f"✅ Верно! *{item.word}* — {item.translation}"
+            f"✅ Верно! *{esc(item.word)}* — {esc(item.translation)}"
             if is_correct else
-            f"❌ Неверно. *{item.word}* — {item.translation}"
+            f"❌ Неверно. *{esc(item.word)}* — {esc(item.translation)}"
         )
 
-    await update.message.reply_text(response, parse_mode="Markdown")
+    await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
     session = context.user_data.get("aud_session_info")
     if session:
         session["answered"] += 1
@@ -1301,8 +1318,8 @@ async def handle_listening_skip(update: Update, context: ContextTypes.DEFAULT_TY
     item = await get_word_by_id(item_id)
 
     await query.edit_message_text(
-        f"⏭ Пропущено: *{item.word}* — {item.translation}",
-        parse_mode="Markdown",
+        f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
 
     session = context.user_data.get("aud_session_info")
