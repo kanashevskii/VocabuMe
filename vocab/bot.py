@@ -298,6 +298,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- RUN ---
 def run_telegram_bot():
+    # Application.run_polling() relies on an asyncio event loop. When running
+    # the bot in a separate thread (as done in run.py) there is no loop by
+    # default, which results in "There is no current event loop" errors.
+    import asyncio
+
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     conv_handler = ConversationHandler(
