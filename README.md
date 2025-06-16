@@ -42,6 +42,14 @@ VocabuMe is a Telegram bot built with Django that helps users learn English voca
    python run.py
    ```
 
+## Maintenance
+If you updated the bot to sanitize words, run the following script once to clean
+existing entries:
+
+```bash
+python scripts/clean_existing_words.py
+```
+
 ## Deployment
 A sample GitHub Actions workflow is provided in `.github/workflows/deploy.yml`. It pulls the latest code on the server, installs dependencies, runs migrations and restarts the `englishbot.service` systemd unit. Configure SSH credentials and the deployment path via repository secrets:
 - `SSH_HOST`
