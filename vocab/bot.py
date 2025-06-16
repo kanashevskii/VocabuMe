@@ -488,9 +488,12 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("irregular", irregular_menu))
     app.add_handler(CallbackQueryHandler(irregular_menu, pattern="^start_irregular$"))
     app.add_handler(CommandHandler("stop", stop))
+    # Support both new and legacy callback data formats
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^ans\|"))
+    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^skip\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev\|"))
+    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
     app.add_handler(CallbackQueryHandler(handle_listening_skip, pattern="^audskip$"))
     app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr"))
