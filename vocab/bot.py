@@ -449,8 +449,13 @@ def run_telegram_bot():
     app.add_handler(
         CallbackQueryHandler(
             handle_settings_callback,
-            pattern="^(set_repeat_|toggle_review|toggle_reminder|set_review_days_|set_reminder_interval_|set_reminder_time$)"
-        ))
+            pattern=(
+                "^(settings_repeat|settings_review|settings_reminders|back_to_settings|"
+                "set_repeat_|toggle_review|toggle_reminder|set_review_days_|"
+                "set_reminder_interval_|set_reminder_time$)"
+            ),
+        )
+    )
     print("Telegram bot is running...")
     # When running inside a background thread (see run.py) the default
     # signal handlers used by run_polling() can't be registered. Setting
@@ -510,55 +515,14 @@ def update_user_repeat_threshold(user, value: int):
 def get_user_by_chat(chat_id):
     return TelegramUser.objects.get(chat_id=chat_id)
 
-async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user, _ = await get_or_create_user(
-        update.effective_chat.id,
-        update.effective_chat.username
-    )
-
-    # Строки текущих настроек
+def _main_settings_text(user):
     repeat_text = f"Слово изучается после *{user.repeat_threshold}* правильных ответов"
     review_text = "включено" if user.enable_review_old_words else "выключено"
     reminder_text = "включены" if user.reminder_enabled else "отключены"
 
     interval_map = {1: "каждый день", 2: "через день"}
     interval_text = interval_map.get(user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней")
-
     time_text = user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
-
-    keyboard = [
-        [
-            InlineKeyboardButton("1", callback_data="set_repeat_1"),
-            InlineKeyboardButton("2", callback_data="set_repeat_2"),
-            InlineKeyboardButton("3", callback_data="set_repeat_3"),
-            InlineKeyboardButton("4", callback_data="set_repeat_4"),
-            InlineKeyboardButton("5", callback_data="set_repeat_5"),
-        ],
-        [
-            InlineKeyboardButton(
-                f"🔁 Повторение {review_text}",
-                callback_data="toggle_review"
-            )
-        ],
-        [
-            InlineKeyboardButton("⏱ Неделя", callback_data="set_review_days_7"),
-            InlineKeyboardButton("📆 Месяц", callback_data="set_review_days_30"),
-            InlineKeyboardButton("🗓 3 месяца", callback_data="set_review_days_90"),
-        ],
-        [
-            InlineKeyboardButton(
-                f"⏰ Напоминания {reminder_text}",
-                callback_data="toggle_reminder"
-            )
-        ],
-        [
-            InlineKeyboardButton("📅 Период: каждый день", callback_data="set_reminder_interval_1"),
-            InlineKeyboardButton("📅 Через день", callback_data="set_reminder_interval_2"),
-        ],
-        [
-            InlineKeyboardButton("🕒 Установить своё время", callback_data="set_reminder_time"),
-        ]
-    ]
 
     text = (
         "⚙️ *Настройки обучения и напоминаний:*\n\n"
@@ -568,12 +532,88 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 Интервал: *{interval_text}*\n"
         f"🕒 Время: *{time_text}*"
     )
+    return text
 
+def _main_settings_keyboard():
+    return [
+        [InlineKeyboardButton("🔁 Повтор", callback_data="settings_repeat")],
+        [InlineKeyboardButton("📅 Повтор старых слов", callback_data="settings_review")],
+        [InlineKeyboardButton("⏰ Напоминания", callback_data="settings_reminders")],
+    ]
+
+def _repeat_settings_keyboard():
+    return [
+        [
+            InlineKeyboardButton("1", callback_data="set_repeat_1"),
+            InlineKeyboardButton("2", callback_data="set_repeat_2"),
+            InlineKeyboardButton("3", callback_data="set_repeat_3"),
+            InlineKeyboardButton("4", callback_data="set_repeat_4"),
+            InlineKeyboardButton("5", callback_data="set_repeat_5"),
+        ],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
+    ]
+
+def _repeat_menu_text(user):
+    return (
+        "🔁 *Повтор слов*\n\n"
+        f"Текущий порог: *{user.repeat_threshold}*\n"
+        "Выберите значение:"
+    )
+
+def _review_settings_keyboard():
+    return [
+        [InlineKeyboardButton("🔁 Переключить", callback_data="toggle_review")],
+        [
+            InlineKeyboardButton("⏱ Неделя", callback_data="set_review_days_7"),
+            InlineKeyboardButton("📆 Месяц", callback_data="set_review_days_30"),
+            InlineKeyboardButton("🗓 3 месяца", callback_data="set_review_days_90"),
+        ],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
+    ]
+
+def _review_menu_text(user):
+    status = "включено" if user.enable_review_old_words else "выключено"
+    return (
+        "📅 *Повтор старых слов*\n\n"
+        f"Сейчас: *{status}*\n"
+        f"Интервал: {user.days_before_review} дней"
+    )
+
+def _reminder_settings_keyboard():
+    return [
+        [InlineKeyboardButton("🔔 Переключить", callback_data="toggle_reminder")],
+        [
+            InlineKeyboardButton("📅 Каждый день", callback_data="set_reminder_interval_1"),
+            InlineKeyboardButton("📅 Через день", callback_data="set_reminder_interval_2"),
+        ],
+        [InlineKeyboardButton("🕒 Установить время", callback_data="set_reminder_time")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
+    ]
+
+def _reminder_menu_text(user):
+    reminder_text = "включены" if user.reminder_enabled else "отключены"
+    interval_map = {1: "каждый день", 2: "через день"}
+    interval_text = interval_map.get(user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней")
+    time_text = user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
+    return (
+        "⏰ *Напоминания*\n\n"
+        f"Сейчас: *{reminder_text}*\n"
+        f"Интервал: *{interval_text}*\n"
+        f"Время: *{time_text}*"
+    )
+
+async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user, _ = await get_or_create_user(
+        update.effective_chat.id,
+        update.effective_chat.username
+    )
+
+    text = _main_settings_text(user)
     await safe_reply(
         update,
         text,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=InlineKeyboardMarkup(_main_settings_keyboard()),
     )
 
 async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -585,48 +625,84 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
     username = update.effective_chat.username
     user, _ = await get_or_create_user(chat_id, username)
 
+    if data == "settings_repeat":
+        await query.edit_message_text(
+            _repeat_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_repeat_settings_keyboard()),
+        )
+        return
+
+    if data == "settings_review":
+        await query.edit_message_text(
+            _review_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard()),
+        )
+        return
+
+    if data == "settings_reminders":
+        await query.edit_message_text(
+            _reminder_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard()),
+        )
+        return
+
+    if data == "back_to_settings":
+        await query.edit_message_text(
+            _main_settings_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_main_settings_keyboard()),
+        )
+        return
+
     if data.startswith("set_repeat_"):
         value = int(data.split("_")[-1])
         await update_user_repeat_threshold(user, value)
         await query.edit_message_text(
-            f"✅ Готово! Теперь слова считаются выученными после {value} правильных ответов."
+            _repeat_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_repeat_settings_keyboard()),
         )
-
+        
     elif data == "toggle_review":
         user.enable_review_old_words = not user.enable_review_old_words
         await save_user(user)
-        status = "включено" if user.enable_review_old_words else "выключено"
         await query.edit_message_text(
-            f"🔁 Повторение старых слов *{status}*.", parse_mode="Markdown"
+            _review_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard()),
         )
 
     elif data.startswith("set_review_days_"):
         days = int(data.split("_")[-1])
         user.days_before_review = days
         await save_user(user)
-        labels = {7: "неделя", 30: "месяц", 90: "3 месяца"}
-        label = labels.get(days, f"{days} дней")
         await query.edit_message_text(
-            f"📅 Слова для повтора будут показываться через *{label}* после изучения.",
-            parse_mode="Markdown"
+            _review_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard()),
         )
 
     elif data == "toggle_reminder":
         user.reminder_enabled = not user.reminder_enabled
         await save_user(user)
-        status = "включены" if user.reminder_enabled else "отключены"
         await query.edit_message_text(
-            f"⏰ Напоминания *{status}*.", parse_mode="Markdown"
+            _reminder_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard()),
         )
 
     elif data.startswith("set_reminder_interval_"):
         interval = int(data.split("_")[-1])
         user.reminder_interval_days = interval
         await save_user(user)
-        text = "📅 Напоминания будут приходить " + (
-            "каждый день." if interval == 1 else "через день."
+        await query.edit_message_text(
+            _reminder_menu_text(user),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard()),
         )
-        await query.edit_message_text(text)
 
     elif data == "set_reminder_time":
         await query.edit_message_text(
@@ -725,7 +801,11 @@ async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         parsed_time = datetime.strptime(text, "%H:%M").time()
         await update_user_reminder_time(user, parsed_time)
-        await update.message.reply_text(f"✅ Напоминания будут приходить в *{parsed_time.strftime('%H:%M')}*.", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"✅ Напоминания будут приходить в *{parsed_time.strftime('%H:%M')}*.",
+            parse_mode="Markdown",
+        )
+        await settings(update, context)
     except ValueError:
         await update.message.reply_text("⚠️ Неверный формат. Попробуй ещё раз в формате `HH:MM`, например `09:00`", parse_mode="Markdown")
         return SET_REMINDER_TIME
