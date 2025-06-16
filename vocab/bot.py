@@ -436,8 +436,6 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(listening_translate, pattern="^listening_translate$"))
     app.add_handler(CommandHandler("irregular", irregular_menu))
     app.add_handler(CallbackQueryHandler(irregular_menu, pattern="^start_irregular$"))
-    app.add_handler(CallbackQueryHandler(start_irregular_v2, pattern="^irregular_v2$"))
-    app.add_handler(CallbackQueryHandler(start_irregular_v3, pattern="^irregular_v3$"))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
@@ -739,7 +737,8 @@ def get_user_progress(user):
         "learned": learned,
         "learning": learning,
         "start_date": start_date,
-        "rank_percent": rank_percent
+        "rank_percent": rank_percent,
+        "irregular": user.irregular_correct,
     }
 
 async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -759,7 +758,8 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔹 Всего слов: *{stats['total']}*\n"
         f"✅ Выучено: *{stats['learned']}*\n"
         f"🧠 В процессе: *{stats['learning']}*\n"
-        f"📅 Начало обучения: *{started}*"
+        f"📅 Начало обучения: *{started}*\n"
+        f"🔤 Неправильные глаголы: *{stats['irregular']}*"
     )
 
     if stats["rank_percent"] is not None:
@@ -826,6 +826,7 @@ def get_user_achievements(user):
     today = now().date()
 
     days = user.consecutive_days or 0
+    irregular = user.irregular_correct or 0
 
     achievements = []
 
@@ -838,6 +839,14 @@ def get_user_achievements(user):
         achievements.append("🎯 Выучено 100 слов — Опытный!")
     if learned >= 200:
         achievements.append("🚀 Выучено 200+ слов — Гуру слов!")
+
+    # Неправильные глаголы
+    if irregular >= 10:
+        achievements.append("🔤 10 неправильных глаголов освоено!")
+    if irregular >= 30:
+        achievements.append("🚀 30 неправильных глаголов — Продвинутый!")
+    if irregular >= 60:
+        achievements.append("🏆 60 неправильных глаголов — Мастер!")
 
     # По дням подряд
     if days >= 3:
@@ -853,6 +862,7 @@ def get_user_achievements(user):
 def get_new_achievements(user):
     learned_words = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     days = user.consecutive_days or 0
+    irregular = user.irregular_correct or 0
 
     word_achievements = [
         (10, "words_10", "🎉 Выучено 10 слов — Первый шаг!"),
@@ -876,6 +886,12 @@ def get_new_achievements(user):
         (365, "days_365", "🌈 365 дней подряд — Год знаний!"),
     ]
 
+    irregular_achievements = [
+        (10, "irr_10", "🔤 10 неправильных глаголов освоено!"),
+        (30, "irr_30", "🚀 30 неправильных глаголов — Продвинутый!"),
+        (60, "irr_60", "🏆 60 неправильных глаголов — Мастер!"),
+    ]
+
     earned = Achievement.objects.filter(user=user).values_list("code", flat=True)
     new_achievements = []
 
@@ -886,6 +902,11 @@ def get_new_achievements(user):
 
     for threshold, code, text in day_achievements:
         if days >= threshold and code not in earned:
+            Achievement.objects.create(user=user, code=code)
+            new_achievements.append(text)
+
+    for threshold, code, text in irregular_achievements:
+        if irregular >= threshold and code not in earned:
             Achievement.objects.create(user=user, code=code)
             new_achievements.append(text)
 
@@ -1017,18 +1038,12 @@ async def listening_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- IRREGULAR VERBS ---
 async def irregular_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("V2", callback_data="irregular_v2")],
-        [InlineKeyboardButton("V3", callback_data="irregular_v3")],
-    ]
-    await safe_reply(
-        update,
-        "Выбери форму для тренировки неправильных глаголов:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
+    """Start training irregular verbs without choosing the form."""
+    await irregular_train(update, context)
 
 
-async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE, form: str):
+async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Train user on irregular verbs using V2/V3 pairs."""
     chat_id = update.effective_chat.id
     key = f"irr_{chat_id}"
     info_key = f"irr_info_{chat_id}"
@@ -1052,37 +1067,39 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE, fo
             context.user_data.pop(info_key, None)
             return
 
-        words = random.sample(IRREGULAR_VERBS, min(len(IRREGULAR_VERBS), MAX_IRREGULAR_PER_SESSION))
+        words = random.sample(
+            IRREGULAR_VERBS,
+            min(len(IRREGULAR_VERBS), MAX_IRREGULAR_PER_SESSION),
+        )
         user_lessons[key] = words
-        context.user_data[info_key] = {"correct": 0, "total": len(words), "answered": 0}
+        context.user_data[info_key] = {
+            "correct": 0,
+            "total": len(words),
+            "answered": 0,
+        }
         lesson = words
 
     word = lesson.pop(0)
-    correct = word["past"] if form == "v2" else word["participle"]
-    variants = [w["past"] if form == "v2" else w["participle"] for w in IRREGULAR_VERBS if w != word]
-    options = random.sample(variants, 3) + [correct]
+    correct = f"{word['past']} {word['participle']}"
+    options = [correct] + word["wrong_pairs"]
     random.shuffle(options)
 
     keyboard = [
-        [InlineKeyboardButton(opt, callback_data=f"irrans|{form}|{word['base']}|{opt}")]
+        [InlineKeyboardButton(opt, callback_data=f"irrans|{word['base']}|{opt}")]
         for opt in options
     ]
-    keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"irrskip|{form}|{word['base']}")])
+    keyboard.append([
+        InlineKeyboardButton(
+            "⏭ Пропустить", callback_data=f"irrskip|{word['base']}"
+        )
+    ])
 
     await safe_reply(
         update,
-        f"🔤 *{word['base']}* — выбери форму {form.upper()}:",
+        f"🔤 *{word['base']}* — выбери правильную пару V2/V3:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
-
-
-async def start_irregular_v2(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await irregular_train(update, context, "v2")
-
-
-async def start_irregular_v3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await irregular_train(update, context, "v3")
 
 
 async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1091,28 +1108,28 @@ async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_
 
     data = query.data
     if data.startswith("irrskip"):
-        _, form, base = data.split("|")
+        _, base = data.split("|")
         word = next((w for w in IRREGULAR_VERBS if w["base"] == base), None)
         if not word:
             return
-        correct = word["past"] if form == "v2" else word["participle"]
+        correct = f"{word['past']} {word['participle']}"
         await query.edit_message_text(f"⏭ Пропущено: {word['base']} → {correct}")
         info_key = f"irr_info_{query.message.chat.id}"
         session = context.user_data.get(info_key)
         if session:
             session["answered"] += 1
             context.user_data[info_key] = session
-        await irregular_train(update, context, form)
+        await irregular_train(update, context)
         return
 
     if not data.startswith("irrans"):
         return
 
-    _, form, base, chosen = data.split("|")
+    _, base, chosen = data.split("|")
     word = next((w for w in IRREGULAR_VERBS if w["base"] == base), None)
     if not word:
         return
-    correct = word["past"] if form == "v2" else word["participle"]
+    correct = f"{word['past']} {word['participle']}"
     is_correct = chosen == correct
 
     response = (
@@ -1128,7 +1145,18 @@ async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_
             session["correct"] += 1
         context.user_data[info_key] = session
 
-    await irregular_train(update, context, form)
+    # update user's irregular stats
+    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    if is_correct:
+        user.irregular_correct += 1
+        await save_user(user)
+
+    # check for achievements
+    new_achievements = await get_new_achievements(user)
+    for a in new_achievements:
+        await safe_reply(update, f"🏆 {a}")
+
+    await irregular_train(update, context)
 
 
 async def listening_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
