@@ -9,7 +9,7 @@ VocabuMe is a Telegram bot built with Django that helps users learn English voca
 - **/listening** – listening practice
 - **/mywords** – view your vocabulary list
 - **/progress** – show statistics and achievements
-- Daily reminders via scheduled management command
+- Daily reminders run automatically without cron
 
 ## Requirements
 - Python 3.10+
@@ -33,6 +33,7 @@ VocabuMe is a Telegram bot built with Django that helps users learn English voca
    DB_PORT=5432
    TELEGRAM_TOKEN=your-telegram-token
    OPENAI_API_KEY=your-openai-key
+   ALERT_CHAT_ID=your-telegram-id
    ```
 3. Apply database migrations:
    ```bash
