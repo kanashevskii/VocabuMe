@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("vocab", "0010_vocabularyitem_part_of_speech"),
+        ("vocab", "0011_telegramuser_irregular_correct"),
     ]
 
     operations = [
