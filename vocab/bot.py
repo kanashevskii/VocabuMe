@@ -3,6 +3,7 @@ import random
 import django
 from decouple import config
 from .irregular_verbs import IRREGULAR_VERBS
+import logging
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 django.setup()
@@ -464,7 +465,7 @@ def run_telegram_bot():
             ),
         )
     )
-    print("Telegram bot is running...")
+    logging.info("Telegram bot is running...")
     # When running inside a background thread (see run.py) the default
     # signal handlers used by run_polling() can't be registered. Setting
     # ``stop_signals=None`` prevents the library from trying to register
