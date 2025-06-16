@@ -2,6 +2,10 @@ import os
 import random
 import django
 from decouple import config
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
+django.setup()
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -20,10 +24,6 @@ from django.db import IntegrityError
 from django.db.models import Count, Q, Min
 from django.utils.timezone import now
 from datetime import timedelta, datetime
-
-# Django init
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
-django.setup()
 
 TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
 ADD_WORDS, LEARNING = range(2)
