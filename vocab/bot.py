@@ -6,7 +6,7 @@ from decouple import config
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 django.setup()
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -128,10 +128,19 @@ def get_praise(correct: int, total: int) -> str:
 # --- START ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        ["➕ /add", "🎯 /learn"],
-        ["🔄 /learnreverse", "🎧 /listening"],
-        ["📘 /mywords", "📊 /progress"],
-        ["⚙️ /settings"],
+        [
+            InlineKeyboardButton("➕ Добавить", callback_data="start_add"),
+            InlineKeyboardButton("🎯 Учить", callback_data="start_learn"),
+        ],
+        [
+            InlineKeyboardButton("🔄 Обратный режим", callback_data="start_learnreverse"),
+            InlineKeyboardButton("🎧 Аудирование", callback_data="start_listening"),
+        ],
+        [
+            InlineKeyboardButton("📘 Мои слова", callback_data="start_mywords"),
+            InlineKeyboardButton("📊 Прогресс", callback_data="start_progress"),
+        ],
+        [InlineKeyboardButton("⚙️ Настройки", callback_data="start_settings")],
     ]
 
     await update.message.reply_text(
@@ -146,14 +155,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚙️ /settings — изменить настройки обучения и напоминаний\n\n"
         "⏰ Я могу напоминать тебе о занятиях каждый день или через день — настрой это через /settings!\n\n"
         "🚀 Готов начать? Жми /add или /learn!",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 # --- ADD ---
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "✍️ Введи слово или фразу. Можно несколько — каждое с новой строки.\n\nКогда закончишь — просто отправь сообщение."
+    await safe_reply(
+        update,
+        "✍️ Введи слово или фразу. Можно несколько — каждое с новой строки.\n\nКогда закончишь — просто отправь сообщение.",
     )
     return ADD_WORDS
 
@@ -381,7 +391,10 @@ def run_telegram_bot():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("add", add_command)],
+        entry_points=[
+            CommandHandler("add", add_command),
+            CallbackQueryHandler(add_command, pattern="^start_add$"),
+        ],
         states={
             ADD_WORDS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_words)],
         },
@@ -399,8 +412,11 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("learn", learn))
+    app.add_handler(CallbackQueryHandler(learn, pattern="^start_learn$"))
     app.add_handler(CommandHandler("learnreverse", learn_reverse))
+    app.add_handler(CallbackQueryHandler(learn_reverse, pattern="^start_learnreverse$"))
     app.add_handler(CommandHandler("listening", listening))
+    app.add_handler(CallbackQueryHandler(listening, pattern="^start_listening$"))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
@@ -408,9 +424,12 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
     app.add_handler(CommandHandler("mywords", mywords))
+    app.add_handler(CallbackQueryHandler(mywords, pattern="^start_mywords$"))
     app.add_handler(CallbackQueryHandler(handle_mywords_pagination, pattern="^mywords_"))
     app.add_handler(CommandHandler("settings", settings))
+    app.add_handler(CallbackQueryHandler(settings, pattern="^start_settings$"))
     app.add_handler(CommandHandler("progress", progress))
+    app.add_handler(CallbackQueryHandler(progress, pattern="^start_progress$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_listening_answer))
     app.add_handler(
         CallbackQueryHandler(
@@ -535,10 +554,11 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🕒 Время: *{time_text}*"
     )
 
-    await update.message.reply_text(
+    await safe_reply(
+        update,
         text,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -631,7 +651,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = await get_user_progress(user)
 
     if stats["total"] == 0:
-        await update.message.reply_text("📜 У тебя пока нет слов. Добавь их через /add")
+        await safe_reply(update, "📜 У тебя пока нет слов. Добавь их через /add")
         return
 
     started = stats["start_date"].strftime("%d.%m.%Y") if stats["start_date"] else "неизвестно"
@@ -651,7 +671,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if earned:
         message += "\n\n🎖 *Твои достижения:*\n" + "\n".join(f"• {a}" for a in earned)
 
-    await update.message.reply_text(message, parse_mode="Markdown")
+    await safe_reply(update, message, parse_mode="Markdown")
 
 @sync_to_async
 def get_unlearned_words(user, count=10, part_of_speech=None):
@@ -902,7 +922,10 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_path = await generate_tts_audio(word_obj.word)
     with open(audio_path, "rb") as audio:
         await safe_reply(update, "🔊 Слушай внимательно:")
-        await update.message.reply_audio(audio)
+        if update.message:
+            await update.message.reply_audio(audio)
+        elif update.callback_query:
+            await update.callback_query.message.reply_audio(audio)
     await safe_reply(update, "Напиши услышанное слово:")
     context.user_data["aud_current_word"] = word_obj.id
 
