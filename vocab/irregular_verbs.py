@@ -19,3 +19,14 @@ IRREGULAR_VERBS = [
     {"base": "take", "past": "took", "participle": "taken", "translation": "брать"},
     {"base": "write", "past": "wrote", "participle": "written", "translation": "писать"},
 ]
+
+# Prepare wrong options for each verb (not random, generated once)
+for v in IRREGULAR_VERBS:
+    past = v["past"]
+    part = v["participle"]
+    base = v["base"]
+    v["wrong_pairs"] = [
+        f"{past} {base}",
+        f"{base} {part}",
+        f"{part} {past}",
+    ]
