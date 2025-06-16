@@ -29,6 +29,7 @@ from datetime import timedelta, datetime
 TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
 ADD_WORDS, LEARNING = range(2)
 WORDS_PER_PAGE = 10
+MAX_WORDS_PER_SESSION = 20
 
 # Память сессии (временно)
 user_lessons = {}
@@ -92,6 +93,20 @@ async def safe_reply(update: Update, text: str, **kwargs):
         await update.message.reply_text(text, **kwargs)
     elif update.callback_query:
         await update.callback_query.message.reply_text(text, **kwargs)
+
+def get_praise(correct: int, total: int) -> str:
+    if total == 0:
+        return ""
+    ratio = correct / total
+    if ratio >= 0.9:
+        return "🌟 Великолепно! Ты мастер слова!"
+    if ratio >= 0.75:
+        return "👍 Отличный результат!"
+    if ratio >= 0.5:
+        return "🙂 Хорошая работа!"
+    if ratio >= 0.25:
+        return "😐 Продолжай практиковаться!"
+    return "💡 Не сдавайся и попробуй ещё раз!"
 
 # --- START ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,22 +182,28 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     lesson = user_lessons.get(update.effective_chat.id)
+    session_info = context.user_data.get("session_info")
 
     if not lesson:
-        # повторный запуск — загружаем новые слова
-        part_of_speech = context.user_data.get("session_part", None)
-        if not lesson:
-            # новая сессия
-            parts = await get_available_parts(user)
-            selected_part = random.choice(parts) if parts else None
-            context.user_data["session_part"] = selected_part
-            word_list = await get_unlearned_words(user, count=10, part_of_speech=selected_part)
+        if session_info:
+            correct = session_info.get("correct", 0)
+            total = session_info.get("total", 0)
+            praise = get_praise(correct, total)
+            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            context.user_data.pop("session_info", None)
+            return
 
-        word_list = await get_unlearned_words(user, count=10, part_of_speech=part_of_speech)
+        parts = await get_available_parts(user)
+        selected_part = random.choice(parts) if parts else None
+        context.user_data["session_part"] = selected_part
+        word_list = await get_unlearned_words(user, count=MAX_WORDS_PER_SESSION, part_of_speech=selected_part)
+
         if not word_list:
             await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
             return
+
         user_lessons[update.effective_chat.id] = word_list
+        context.user_data["session_info"] = {"correct": 0, "total": len(word_list), "answered": 0}
         lesson = word_list
 
     word_obj = lesson.pop(0)
@@ -224,6 +245,10 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏭ Пропущено: *{item.word}* — {item.translation}",
             parse_mode="Markdown"
         )
+        session = context.user_data.get("session_info")
+        if session:
+            session["answered"] += 1
+            context.user_data["session_info"] = session
         await learn(update, context)
         return
 
@@ -234,6 +259,11 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏭ Пропущено: *{item.translation}* — {item.word}",
             parse_mode="Markdown"
         )
+
+        session = context.user_data.get("session_info")
+        if session:
+            session["answered"] += 1
+            context.user_data["session_info"] = session
 
         # 🗣️ Озвучка пропущенного
         audio_path = await generate_tts_audio(item.word)
@@ -257,6 +287,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         await query.edit_message_text(response, parse_mode="Markdown")
+        session = context.user_data.get("session_info")
+        if session:
+            session["answered"] += 1
+            if is_correct:
+                session["correct"] += 1
+            context.user_data["session_info"] = session
 
         # 🗣️ Озвучка после ответа
         audio_path = await generate_tts_audio(item.word)
@@ -278,6 +314,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = f"❌ Неверно. *{item.word}* = {item.translation}"
 
     await query.edit_message_text(response, parse_mode="Markdown")
+    session = context.user_data.get("session_info")
+    if session:
+        session["answered"] += 1
+        if is_correct:
+            session["correct"] += 1
+        context.user_data["session_info"] = session
     await learn(update, context)
 
     # 🎖️ Проверка новых достижений
@@ -290,6 +332,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["learning_stopped"] = True
     user_lessons.pop(update.effective_chat.id, None)
+    context.user_data.pop("session_info", None)
     await update.message.reply_text("🛑 Обучение остановлено. Возвращайся, когда будешь готов 🙌")
 
 # --- CANCEL ---
@@ -733,13 +776,23 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     lesson = user_lessons.get(f"rev_{update.effective_chat.id}")
+    session_info = context.user_data.get("session_info")
 
     if not lesson:
-        word_list = await get_unlearned_words(user, count=10)
+        if session_info:
+            correct = session_info.get("correct", 0)
+            total = session_info.get("total", 0)
+            praise = get_praise(correct, total)
+            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            context.user_data.pop("session_info", None)
+            return
+
+        word_list = await get_unlearned_words(user, count=MAX_WORDS_PER_SESSION)
         if not word_list:
             await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
             return
         user_lessons[f"rev_{update.effective_chat.id}"] = word_list
+        context.user_data["session_info"] = {"correct": 0, "total": len(word_list), "answered": 0}
         lesson = word_list
 
     word_obj = lesson.pop(0)
