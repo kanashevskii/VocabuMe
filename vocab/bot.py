@@ -20,7 +20,7 @@ from telegram.ext import (
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement
 from .openai_utils import generate_word_data
-from .utils import clean_word
+from .utils import clean_word, translate_to_ru
 from .tts import generate_tts_audio
 from django.db import IntegrityError
 from django.db.models import Count, Q, Min
@@ -56,6 +56,10 @@ def save_word(user, original_input, data):
     if any(c in tr for c in "абвгдеёжзийклмнопрстуфхцчшщыэюя"):
         tr = ""
 
+    example_trans = data.get("example_translation")
+    if not example_trans:
+        example_trans = translate_to_ru(data["example"])
+
     return VocabularyItem.objects.create(
         user=user,
         word=word,
@@ -63,6 +67,7 @@ def save_word(user, original_input, data):
         translation=data["translation"],
         transcription=tr,
         example=data["example"],
+        example_translation=example_trans,
         part_of_speech=data.get("part_of_speech", "unknown")
     )
 
@@ -256,6 +261,10 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     word_obj = lesson.pop(0)
 
+    if not word_obj.example_translation:
+        word_obj.example_translation = translate_to_ru(word_obj.example)
+        await sync_to_async(word_obj.save)()
+
     # Озвучка перед вопросом
     audio_path = await generate_tts_audio(word_obj.word)
     with open(audio_path, "rb") as audio:
@@ -274,11 +283,13 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
 
-    msg = f"""💬 *{word_obj.word}*
-🗣️ /{word_obj.transcription}/
-✏️ _{word_obj.example}_
-
-Выбери правильный перевод:"""
+    msg = (
+        f"💬 *{word_obj.word}*\n"
+        f"🗣️ /{word_obj.transcription}/\n"
+        f"✏️ _{word_obj.example}_\n"
+        f"||{word_obj.example_translation}||\n\n"
+        "Выбери правильный перевод:"
+    )
     await safe_reply(update, msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # --- HANDLE ANSWER ---
