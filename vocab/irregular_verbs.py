@@ -1,3 +1,5 @@
+import random
+
 IRREGULAR_VERBS = [
     {"base": "be", "past": "was/were", "participle": "been", "translation": "быть"},
     {"base": "become", "past": "became", "participle": "become", "translation": "становиться"},
@@ -64,8 +66,27 @@ for v in IRREGULAR_VERBS:
     past = v["past"]
     part = v["participle"]
     base = v["base"]
-    v["wrong_pairs"] = [
-        f"{past} {base}",
-        f"{base} {part}",
-        f"{part} {past}",
-    ]
+    v["wrong_pairs"] = list(
+        {
+            f"{past} {base}",
+            f"{base} {part}",
+            f"{part} {past}",
+        }
+    )
+
+
+def get_random_pairs(current, count=1, exclude=None):
+    """Return unique random V2/V3 pairs excluding given options."""
+    exclude = set(exclude or [])
+    correct = f"{current['past']} {current['participle']}"
+    exclude.add(correct)
+    pairs = []
+    verbs = [v for v in IRREGULAR_VERBS if v is not current]
+    random.shuffle(verbs)
+    for v in verbs:
+        pair = f"{v['past']} {v['participle']}"
+        if pair not in exclude and pair not in pairs:
+            pairs.append(pair)
+            if len(pairs) >= count:
+                break
+    return pairs
