@@ -18,6 +18,7 @@ class TelegramUser(models.Model):
     total_study_days = models.PositiveIntegerField(default=0)
     consecutive_days = models.PositiveIntegerField(default=0)
     last_study_date = models.DateField(null=True, blank=True)
+    irregular_correct = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return f"{self.username or 'User'} ({self.chat_id})"
