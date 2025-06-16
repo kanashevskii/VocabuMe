@@ -436,6 +436,7 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^skip\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
+    app.add_handler(CallbackQueryHandler(handle_listening_skip, pattern="^audskip$"))
     app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr"))
     app.add_handler(CommandHandler("mywords", mywords))
     app.add_handler(CallbackQueryHandler(mywords, pattern="^start_mywords$"))
@@ -1069,10 +1070,21 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.callback_query.message.reply_audio(audio)
 
     mode = context.user_data.get("aud_mode", "word")
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⏭ Пропустить", callback_data="audskip")]]
+    )
     if mode == "translate":
-        await safe_reply(update, "Напиши перевод услышанного слова:")
+        await safe_reply(
+            update,
+            "Напиши перевод услышанного слова:",
+            reply_markup=keyboard,
+        )
     else:
-        await safe_reply(update, "Напиши услышанное слово:")
+        await safe_reply(
+            update,
+            "Напиши услышанное слово:",
+            reply_markup=keyboard,
+        )
 
     context.user_data["aud_current_word"] = word_obj.id
 
@@ -1111,6 +1123,29 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
         session["answered"] += 1
         if is_correct:
             session["correct"] += 1
+        context.user_data["aud_session_info"] = session
+
+    await listening(update, context)
+
+
+async def handle_listening_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if "aud_current_word" not in context.user_data:
+        return
+
+    item_id = context.user_data.pop("aud_current_word")
+    item = await get_word_by_id(item_id)
+
+    await query.edit_message_text(
+        f"⏭ Пропущено: *{item.word}* — {item.translation}",
+        parse_mode="Markdown",
+    )
+
+    session = context.user_data.get("aud_session_info")
+    if session:
+        session["answered"] += 1
         context.user_data["aud_session_info"] = session
 
     await listening(update, context)
