@@ -1,5 +1,6 @@
 from openai import OpenAI
 from decouple import config
+import logging
 
 client = OpenAI(api_key=config("OPENAI_API_KEY"))
 
@@ -53,5 +54,5 @@ Only return the JSON object. No extra text.
 
         return eval(content) | {"word": word}
     except Exception as e:
-        print("OpenAI error:", e)
+        logging.exception("OpenAI error: %s", e)
         return None
