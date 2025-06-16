@@ -415,8 +415,10 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(learn, pattern="^start_learn$"))
     app.add_handler(CommandHandler("learnreverse", learn_reverse))
     app.add_handler(CallbackQueryHandler(learn_reverse, pattern="^start_learnreverse$"))
-    app.add_handler(CommandHandler("listening", listening))
-    app.add_handler(CallbackQueryHandler(listening, pattern="^start_listening$"))
+    app.add_handler(CommandHandler("listening", listening_menu))
+    app.add_handler(CallbackQueryHandler(listening_menu, pattern="^start_listening$"))
+    app.add_handler(CallbackQueryHandler(listening_word, pattern="^listening_word$"))
+    app.add_handler(CallbackQueryHandler(listening_translate, pattern="^listening_translate$"))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
@@ -892,6 +894,24 @@ def get_fake_words(user, exclude_word, part_of_speech=None, count=3):
     return words
 
 # --- LISTENING ---
+async def listening_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🇬🇧 Написать слово", callback_data="listening_word")],
+        [InlineKeyboardButton("🇷🇺 Написать перевод", callback_data="listening_translate")],
+    ]
+    await safe_reply(update, "Выбери режим аудирования:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def listening_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["aud_mode"] = "word"
+    await listening(update, context)
+
+
+async def listening_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["aud_mode"] = "translate"
+    await listening(update, context)
+
+
 async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("learning_stopped"):
         context.user_data["learning_stopped"] = False
@@ -926,7 +946,13 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_audio(audio)
         elif update.callback_query:
             await update.callback_query.message.reply_audio(audio)
-    await safe_reply(update, "Напиши услышанное слово:")
+
+    mode = context.user_data.get("aud_mode", "word")
+    if mode == "translate":
+        await safe_reply(update, "Напиши перевод услышанного слова:")
+    else:
+        await safe_reply(update, "Напиши услышанное слово:")
+
     context.user_data["aud_current_word"] = word_obj.id
 
 
@@ -937,15 +963,27 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
     user_answer = update.message.text.strip().lower()
     item_id = context.user_data.pop("aud_current_word")
     item = await get_word_by_id(item_id)
-    correct_word = item.word.lower()
-    is_correct = user_answer == correct_word
-    await update_correct_count(item.id, correct=is_correct)
+    mode = context.user_data.get("aud_mode", "word")
 
-    response = (
-        f"✅ Верно! *{item.word}* — {item.translation}"
-        if is_correct else
-        f"❌ Неверно. *{item.word}* — {item.translation}"
-    )
+    if mode == "translate":
+        correct = item.translation.lower()
+        is_correct = user_answer == correct
+        await update_correct_count(item.id, correct=is_correct)
+        response = (
+            f"✅ Верно! *{item.translation}* — {item.word}"
+            if is_correct else
+            f"❌ Неверно. *{item.translation}* — {item.word}"
+        )
+    else:
+        correct = item.word.lower()
+        is_correct = user_answer == correct
+        await update_correct_count(item.id, correct=is_correct)
+        response = (
+            f"✅ Верно! *{item.word}* — {item.translation}"
+            if is_correct else
+            f"❌ Неверно. *{item.word}* — {item.translation}"
+        )
+
     await update.message.reply_text(response, parse_mode="Markdown")
     session = context.user_data.get("aud_session_info")
     if session:
