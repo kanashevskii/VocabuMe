@@ -6,6 +6,7 @@ VocabuMe is a Telegram bot built with Django that helps users learn English voca
 - **/add** – add new words or phrases
 - **/learn** – start training (EN→RU)
 - **/learnreverse** – reverse training (RU→EN)
+- **/listening** – listening practice
 - **/mywords** – view your vocabulary list
 - **/progress** – show statistics and achievements
 - Daily reminders via scheduled management command
