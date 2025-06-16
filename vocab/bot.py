@@ -291,9 +291,12 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, "⚠️ Ошибка подготовки вопроса. Попробуй позже.")
         return
 
+    options_map = context.user_data.setdefault("options", {})
+    options_map[str(word_obj.id)] = all_options
+
     keyboard = [
-        [InlineKeyboardButton(text=opt, callback_data=f"{word_obj.id}|{opt}")]
-        for opt in all_options
+        [InlineKeyboardButton(text=opt, callback_data=f"ans|{word_obj.id}|{i}")]
+        for i, opt in enumerate(all_options)
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
 
@@ -361,9 +364,11 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await learn_reverse(update, context)
         return
 
-    if query.data.startswith("rev_"):
-        _, item_id_chosen = query.data.split("rev_", 1)
-        item_id, chosen = item_id_chosen.split("|")
+    if query.data.startswith("rev|"):
+        _, item_id, idx = query.data.split("|")
+        options = context.user_data.get("rev_options", {}).get(item_id, [])
+        chosen = options[int(idx)] if int(idx) < len(options) else ""
+        context.user_data.get("rev_options", {}).pop(item_id, None)
         item = await get_word_by_id(item_id)
         is_correct = chosen == item.word
         await update_correct_count(item.id, correct=is_correct)
@@ -390,7 +395,13 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await learn_reverse(update, context)
         return
 
-    item_id, chosen = query.data.split("|")
+    if query.data.startswith("ans|"):
+        _, item_id, idx = query.data.split("|")
+        options = context.user_data.get("options", {}).get(item_id, [])
+        chosen = options[int(idx)] if int(idx) < len(options) else ""
+        context.user_data.get("options", {}).pop(item_id, None)
+    else:
+        item_id, chosen = query.data.split("|")
     item = await get_word_by_id(item_id)
     is_correct = chosen == item.translation
 
@@ -477,10 +488,9 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("irregular", irregular_menu))
     app.add_handler(CallbackQueryHandler(irregular_menu, pattern="^start_irregular$"))
     app.add_handler(CommandHandler("stop", stop))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
+    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^ans\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^skip\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
+    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
     app.add_handler(CallbackQueryHandler(handle_listening_skip, pattern="^audskip$"))
     app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr"))
@@ -1023,9 +1033,12 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_options = fakes + [word_obj.word]
     random.shuffle(all_options)
 
+    options_map = context.user_data.setdefault("rev_options", {})
+    options_map[str(word_obj.id)] = all_options
+
     keyboard = [
-        [InlineKeyboardButton(text=opt, callback_data=f"rev_{word_obj.id}|{opt}")]
-        for opt in all_options
+        [InlineKeyboardButton(text=opt, callback_data=f"rev|{word_obj.id}|{i}")]
+        for i, opt in enumerate(all_options)
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"revskip|{word_obj.id}")])
 
