@@ -343,7 +343,11 @@ def run_telegram_bot():
             pattern="^(set_repeat_|toggle_review|toggle_reminder|set_review_days_|set_reminder_interval_|set_reminder_time$)"
         ))
     print("Telegram bot is running...")
-    app.run_polling()
+    # When running inside a background thread (see run.py) the default
+    # signal handlers used by run_polling() can't be registered. Setting
+    # ``stop_signals=None`` prevents the library from trying to register
+    # them and avoids "set_wakeup_fd" errors.
+    app.run_polling(stop_signals=None)
 
 @sync_to_async
 def save_user(user):
