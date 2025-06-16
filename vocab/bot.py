@@ -236,6 +236,8 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_chat.username
     )
 
+    logging.info("/learn invoked by %s", update.effective_chat.id)
+
     lesson = user_lessons.get(update.effective_chat.id)
     session_info = context.user_data.get("session_info")
 
@@ -269,6 +271,12 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lesson = word_list
 
     word_obj = lesson.pop(0)
+    logging.info(
+        "Question for %s: %s (%s)",
+        update.effective_chat.id,
+        word_obj.word,
+        word_obj.id,
+    )
 
     if not word_obj.example_translation:
         word_obj.example_translation = translate_to_ru(word_obj.example)
@@ -329,9 +337,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    logging.info("handle_answer from %s: %s", query.from_user.id, query.data)
+
     if query.data.startswith("skip|"):
         _, item_id = query.data.split("|")
         item = await get_word_by_id(item_id)
+        logging.info("skip word %s for user %s", item.word, query.from_user.id)
         await query.edit_message_text(
             f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
             parse_mode=ParseMode.MARKDOWN_V2,
@@ -346,6 +357,7 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("revskip|"):
         _, item_id = query.data.split("|")
         item = await get_word_by_id(item_id)
+        logging.info("reverse skip word %s for user %s", item.word, query.from_user.id)
         await query.edit_message_text(
             f"⏭ Пропущено: *{esc(item.translation)}* — {esc(item.word)}",
             parse_mode=ParseMode.MARKDOWN_V2,
@@ -370,6 +382,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chosen = options[int(idx)] if int(idx) < len(options) else ""
         context.user_data.get("rev_options", {}).pop(item_id, None)
         item = await get_word_by_id(item_id)
+        logging.info(
+            "rev answer from %s: chosen=%s correct=%s",
+            query.from_user.id,
+            chosen,
+            item.word,
+        )
         is_correct = chosen == item.word
         await update_correct_count(item.id, correct=is_correct)
 
@@ -403,6 +421,12 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         item_id, chosen = query.data.split("|")
     item = await get_word_by_id(item_id)
+    logging.info(
+        "answer from %s: chosen=%s correct=%s",
+        query.from_user.id,
+        chosen,
+        item.translation,
+    )
     is_correct = chosen == item.translation
 
     await update_correct_count(item.id, correct=is_correct)
@@ -1243,6 +1267,7 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    logging.info("/listening invoked by %s", update.effective_chat.id)
     lesson = user_lessons.get(f"aud_{update.effective_chat.id}")
     session_info = context.user_data.get("aud_session_info")
 
@@ -1271,6 +1296,12 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lesson = word_list
 
     word_obj = lesson.pop(0)
+    logging.info(
+        "Listening question for %s: %s (%s)",
+        update.effective_chat.id,
+        word_obj.word,
+        word_obj.id,
+    )
     audio_path = await generate_temp_audio(word_obj.word)
     with open(audio_path, "rb") as audio:
         await safe_reply(update, "🔊 Слушай внимательно:")
@@ -1309,6 +1340,15 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
     item = await get_word_by_id(item_id)
     mode = context.user_data.get("aud_mode", "word")
 
+    logging.info(
+        "listening answer from %s: %s (mode=%s, correct=%s/%s)",
+        update.effective_chat.id,
+        user_answer,
+        mode,
+        item.word,
+        item.translation,
+    )
+
     if mode == "translate":
         correct = item.translation.lower()
         is_correct = user_answer == correct
@@ -1343,11 +1383,14 @@ async def handle_listening_skip(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
+    logging.info("listening skip from %s", query.from_user.id)
+
     if "aud_current_word" not in context.user_data:
         return
 
     item_id = context.user_data.pop("aud_current_word")
     item = await get_word_by_id(item_id)
+    logging.info("skipped in listening by %s: %s", query.from_user.id, item.word)
 
     await query.edit_message_text(
         f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
