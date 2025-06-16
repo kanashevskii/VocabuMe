@@ -3,7 +3,14 @@ from .models import TelegramUser, VocabularyItem, Achievement, LearningSession
 
 @admin.register(TelegramUser)
 class TelegramUserAdmin(admin.ModelAdmin):
-    list_display = ("chat_id", "username", "repeat_threshold", "reminder_enabled", "last_study_date")
+    list_display = (
+        "chat_id",
+        "username",
+        "repeat_threshold",
+        "reminder_enabled",
+        "last_study_date",
+        "irregular_correct",
+    )
     search_fields = ("chat_id", "username")
     list_filter = ("reminder_enabled", "enable_review_old_words")
 
