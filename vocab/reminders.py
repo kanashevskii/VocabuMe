@@ -2,6 +2,7 @@ from django.utils.timezone import now
 from telegram import Bot
 from decouple import config
 from .models import TelegramUser
+import logging
 
 TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
 bot = Bot(token=TELEGRAM_TOKEN)
@@ -37,4 +38,4 @@ def send_reminders():
             user.last_notified_at = current_time
             user.save()
         except Exception as e:
-            print(f"Ошибка отправки {user.chat_id}: {e}")
+            logging.exception("Ошибка отправки %s: %s", user.chat_id, e)
