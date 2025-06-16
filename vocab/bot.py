@@ -69,11 +69,28 @@ def get_fake_translations(user, exclude_word, part_of_speech=None, count=3):
     qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
-    return list(
+
+    translations = list(
         qs.values_list("translation", flat=True)
         .distinct()
         .order_by("?")[:count]
     )
+
+    if len(translations) < count:
+        remaining = count - len(translations)
+        extra_qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
+        extras = list(
+            extra_qs.values_list("translation", flat=True)
+            .distinct()
+            .order_by("?")[:remaining]
+        )
+        for t in extras:
+            if t not in translations:
+                translations.append(t)
+                if len(translations) == count:
+                    break
+
+    return translations
 
 @sync_to_async
 def update_correct_count(item_id, correct: bool):
@@ -828,17 +845,33 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Выбери правильный английский эквивалент:"""
     await safe_reply(update, msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-
 @sync_to_async
 def get_fake_words(user, exclude_word, part_of_speech=None, count=3):
     qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
-    return list(
+
+    words = list(
         qs.values_list("word", flat=True)
         .distinct()
         .order_by("?")[:count]
     )
+
+    if len(words) < count:
+        remaining = count - len(words)
+        extra_qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
+        extras = list(
+            extra_qs.values_list("word", flat=True)
+            .distinct()
+            .order_by("?")[:remaining]
+        )
+        for w in extras:
+            if w not in words:
+                words.append(w)
+                if len(words) == count:
+                    break
+
+    return words
 
 
 async def listen(update: Update, context: ContextTypes.DEFAULT_TYPE):
