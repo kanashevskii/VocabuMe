@@ -2,6 +2,7 @@ import os
 import random
 import django
 from decouple import config
+from .irregular_verbs import IRREGULAR_VERBS
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 django.setup()
@@ -35,6 +36,8 @@ MAX_WORDS_PER_SESSION = 20
 user_lessons = {}
 
 SET_REMINDER_TIME = 1
+
+MAX_IRREGULAR_PER_SESSION = 10
 
 @sync_to_async
 def get_or_create_user(chat_id, username):
@@ -136,6 +139,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🔄 Обратный режим", callback_data="start_learnreverse"),
             InlineKeyboardButton("🎧 Аудирование", callback_data="start_listening"),
         ],
+        [InlineKeyboardButton("🔥 Неправильные глаголы", callback_data="start_irregular")],
         [
             InlineKeyboardButton("📘 Мои слова", callback_data="start_mywords"),
             InlineKeyboardButton("📊 Прогресс", callback_data="start_progress"),
@@ -153,6 +157,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📘 /mywords — список слов, которые ты учишь\n"
         "📊 /progress — посмотреть свою статистику и достижения\n"
         "⚙️ /settings — изменить настройки обучения и напоминаний\n\n"
+        "🔥 /irregular — тренировать неправильные глаголы\n"
         "⏰ Я могу напоминать тебе о занятиях каждый день или через день — настрой это через /settings!\n\n"
         "🚀 Готов начать? Жми /add или /learn!",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -369,9 +374,11 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["learning_stopped"] = True
     user_lessons.pop(update.effective_chat.id, None)
     user_lessons.pop(f"aud_{update.effective_chat.id}", None)
+    user_lessons.pop(f"irr_{update.effective_chat.id}", None)
     context.user_data.pop("session_info", None)
     context.user_data.pop("aud_session_info", None)
     context.user_data.pop("aud_current_word", None)
+    context.user_data.pop(f"irr_info_{update.effective_chat.id}", None)
     await update.message.reply_text("🛑 Обучение остановлено. Возвращайся, когда будешь готов 🙌")
 
 # --- CANCEL ---
@@ -419,12 +426,17 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(listening_menu, pattern="^start_listening$"))
     app.add_handler(CallbackQueryHandler(listening_word, pattern="^listening_word$"))
     app.add_handler(CallbackQueryHandler(listening_translate, pattern="^listening_translate$"))
+    app.add_handler(CommandHandler("irregular", irregular_menu))
+    app.add_handler(CallbackQueryHandler(irregular_menu, pattern="^start_irregular$"))
+    app.add_handler(CallbackQueryHandler(start_irregular_v2, pattern="^irregular_v2$"))
+    app.add_handler(CallbackQueryHandler(start_irregular_v3, pattern="^irregular_v3$"))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^skip\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
+    app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr"))
     app.add_handler(CommandHandler("mywords", mywords))
     app.add_handler(CallbackQueryHandler(mywords, pattern="^start_mywords$"))
     app.add_handler(CallbackQueryHandler(handle_mywords_pagination, pattern="^mywords_"))
@@ -905,6 +917,115 @@ async def listening_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def listening_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["aud_mode"] = "word"
     await listening(update, context)
+
+
+# --- IRREGULAR VERBS ---
+async def irregular_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("V2", callback_data="irregular_v2")],
+        [InlineKeyboardButton("V3", callback_data="irregular_v3")],
+    ]
+    await safe_reply(
+        update,
+        "Выбери форму для тренировки неправильных глаголов:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE, form: str):
+    chat_id = update.effective_chat.id
+    key = f"irr_{chat_id}"
+    info_key = f"irr_info_{chat_id}"
+
+    lesson = user_lessons.get(key)
+    session_info = context.user_data.get(info_key)
+
+    if not lesson:
+        if session_info:
+            correct = session_info.get("correct", 0)
+            total = session_info.get("total", 0)
+            praise = get_praise(correct, total)
+            await safe_reply(update, f"📊 Результат: {correct} из {total} слов угадано.\n{praise}")
+            context.user_data.pop(info_key, None)
+            return
+
+        words = random.sample(IRREGULAR_VERBS, min(len(IRREGULAR_VERBS), MAX_IRREGULAR_PER_SESSION))
+        user_lessons[key] = words
+        context.user_data[info_key] = {"correct": 0, "total": len(words), "answered": 0}
+        lesson = words
+
+    word = lesson.pop(0)
+    correct = word["past"] if form == "v2" else word["participle"]
+    variants = [w["past"] if form == "v2" else w["participle"] for w in IRREGULAR_VERBS if w != word]
+    options = random.sample(variants, 3) + [correct]
+    random.shuffle(options)
+
+    keyboard = [
+        [InlineKeyboardButton(opt, callback_data=f"irrans|{form}|{word['base']}|{opt}")]
+        for opt in options
+    ]
+    keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"irrskip|{form}|{word['base']}")])
+
+    await safe_reply(
+        update,
+        f"🔤 *{word['base']}* — выбери форму {form.upper()}:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def start_irregular_v2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await irregular_train(update, context, "v2")
+
+
+async def start_irregular_v3(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await irregular_train(update, context, "v3")
+
+
+async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if data.startswith("irrskip"):
+        _, form, base = data.split("|")
+        word = next((w for w in IRREGULAR_VERBS if w["base"] == base), None)
+        if not word:
+            return
+        correct = word["past"] if form == "v2" else word["participle"]
+        await query.edit_message_text(f"⏭ Пропущено: {word['base']} → {correct}")
+        info_key = f"irr_info_{query.message.chat.id}"
+        session = context.user_data.get(info_key)
+        if session:
+            session["answered"] += 1
+            context.user_data[info_key] = session
+        await irregular_train(update, context, form)
+        return
+
+    if not data.startswith("irrans"):
+        return
+
+    _, form, base, chosen = data.split("|")
+    word = next((w for w in IRREGULAR_VERBS if w["base"] == base), None)
+    if not word:
+        return
+    correct = word["past"] if form == "v2" else word["participle"]
+    is_correct = chosen == correct
+
+    response = (
+        f"✅ Верно! {word['base']} → {correct}" if is_correct else f"❌ Неверно. {word['base']} → {correct}"
+    )
+    await query.edit_message_text(response)
+
+    info_key = f"irr_info_{query.message.chat.id}"
+    session = context.user_data.get(info_key)
+    if session:
+        session["answered"] += 1
+        if is_correct:
+            session["correct"] += 1
+        context.user_data[info_key] = session
+
+    await irregular_train(update, context, form)
 
 
 async def listening_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
