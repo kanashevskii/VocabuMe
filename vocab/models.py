@@ -31,6 +31,7 @@ class VocabularyItem(models.Model):
     translation = models.CharField(max_length=255)
     transcription = models.CharField(max_length=255)
     example = models.TextField()
+    example_translation = models.TextField(blank=True, default="")
     correct_count = models.IntegerField(default=0)
     is_learned = models.BooleanField(default=False)
     part_of_speech = models.CharField(max_length=50, default="unknown")
