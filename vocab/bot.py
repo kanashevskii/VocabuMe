@@ -153,7 +153,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚙️ Настройки", callback_data="start_settings")],
     ]
 
-    await update.message.reply_text(
+    await safe_reply(
+        update,
         "👋 Привет! Я помогу тебе выучить английские слова — просто и эффективно.\n\n"
         "Вот что я умею:\n"
         "➕ /add — добавить новые слова\n"
