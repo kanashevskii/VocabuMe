@@ -392,9 +392,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update_correct_count(item.id, correct=is_correct)
 
         response = (
-            f"✅ Верно! *{esc(item.translation)}* = {esc(item.word)}"
+            f"✅ Верно\\! *{esc(item.translation)}* = {esc(item.word)}"
             if is_correct else
-            f"❌ Неверно. *{esc(item.translation)}* = {esc(item.word)}"
+            f"❌ Неверно\\. *{esc(item.translation)}* = {esc(item.word)}"
         )
 
         await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
@@ -432,9 +432,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update_correct_count(item.id, correct=is_correct)
 
     if is_correct:
-        response = f"✅ Верно! *{esc(item.word)}* = {esc(item.translation)}"
+        response = f"✅ Верно\\! *{esc(item.word)}* = {esc(item.translation)}"
     else:
-        response = f"❌ Неверно. *{esc(item.word)}* = {esc(item.translation)}"
+        response = f"❌ Неверно\\. *{esc(item.word)}* = {esc(item.translation)}"
 
     await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
     session = context.user_data.get("session_info")
@@ -1354,18 +1354,18 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
         is_correct = user_answer == correct
         await update_correct_count(item.id, correct=is_correct)
         response = (
-            f"✅ Верно! *{esc(item.translation)}* — {esc(item.word)}"
+            f"✅ Верно\\! *{esc(item.translation)}* — {esc(item.word)}"
             if is_correct else
-            f"❌ Неверно. *{esc(item.translation)}* — {esc(item.word)}"
+            f"❌ Неверно\\. *{esc(item.translation)}* — {esc(item.word)}"
         )
     else:
         correct = item.word.lower()
         is_correct = user_answer == correct
         await update_correct_count(item.id, correct=is_correct)
         response = (
-            f"✅ Верно! *{esc(item.word)}* — {esc(item.translation)}"
+            f"✅ Верно\\! *{esc(item.word)}* — {esc(item.translation)}"
             if is_correct else
-            f"❌ Неверно. *{esc(item.word)}* — {esc(item.translation)}"
+            f"❌ Неверно\\. *{esc(item.word)}* — {esc(item.translation)}"
         )
 
     await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
