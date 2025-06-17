@@ -1,5 +1,11 @@
 from django.contrib import admin
-from .models import TelegramUser, VocabularyItem, Achievement, LearningSession
+from .models import (
+    TelegramUser,
+    VocabularyItem,
+    Achievement,
+    LearningSession,
+    IrregularVerbProgress,
+)
 
 @admin.register(TelegramUser)
 class TelegramUserAdmin(admin.ModelAdmin):
@@ -29,3 +35,8 @@ class AchievementAdmin(admin.ModelAdmin):
 @admin.register(LearningSession)
 class LearningSessionAdmin(admin.ModelAdmin):
     list_display = ("user_id", "current_index", "is_active")
+
+
+@admin.register(IrregularVerbProgress)
+class IrregularVerbProgressAdmin(admin.ModelAdmin):
+    list_display = ("user", "verb_base", "correct_count", "is_learned")
