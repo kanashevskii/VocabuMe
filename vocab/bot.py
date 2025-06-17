@@ -41,6 +41,7 @@ user_lessons = {}
 SET_REMINDER_TIME = 1
 
 MAX_IRREGULAR_PER_SESSION = 10
+IRREGULARS_PER_PAGE = 20
 
 
 def esc(text: str) -> str:
@@ -511,6 +512,9 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(listening_translate, pattern="^listening_translate$"))
     app.add_handler(CommandHandler("irregular", irregular_menu))
     app.add_handler(CallbackQueryHandler(irregular_menu, pattern="^start_irregular$"))
+    app.add_handler(CallbackQueryHandler(irregular_repeat, pattern="^irregular_repeat$"))
+    app.add_handler(CallbackQueryHandler(irregular_train, pattern="^irregular_train$"))
+    app.add_handler(CallbackQueryHandler(handle_irregular_list, pattern="^irrlist_"))
     app.add_handler(CommandHandler("stop", stop))
     # Support both new and legacy callback data formats
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^ans\|"))
@@ -520,7 +524,7 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
     app.add_handler(CallbackQueryHandler(handle_listening_skip, pattern="^audskip$"))
-    app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr"))
+    app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr(ans|skip)"))
     app.add_handler(CommandHandler("mywords", mywords))
     app.add_handler(CallbackQueryHandler(mywords, pattern="^start_mywords$"))
     app.add_handler(CallbackQueryHandler(handle_mywords_pagination, pattern="^mywords_"))
@@ -1140,8 +1144,64 @@ async def listening_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- IRREGULAR VERBS ---
 async def irregular_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start training irregular verbs without choosing the form."""
-    await irregular_train(update, context)
+    """Show menu for irregular verbs."""
+    keyboard = [
+        [InlineKeyboardButton("🔁 Повторять", callback_data="irregular_repeat")],
+        [InlineKeyboardButton("🔥 Тренироваться", callback_data="irregular_train")],
+    ]
+    await safe_reply(
+        update,
+        "Выбери режим:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def irregular_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show list of all irregular verbs with pagination."""
+    context.user_data["irrlist_page"] = 0
+    await _show_irregular_page(update, context)
+
+
+async def handle_irregular_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = context.user_data.get("irrlist_page", 0)
+    if query.data == "irrlist_prev":
+        page = max(0, page - 1)
+    elif query.data == "irrlist_next":
+        page += 1
+    context.user_data["irrlist_page"] = page
+    await _show_irregular_page(update, context)
+
+
+async def _show_irregular_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    page = context.user_data.get("irrlist_page", 0)
+    start = page * IRREGULARS_PER_PAGE
+    end = start + IRREGULARS_PER_PAGE
+    verbs = IRREGULAR_VERBS[start:end]
+
+    lines = [
+        f"🔹 *{v['base']}* — {v['past']} — {v['participle']} — {v['translation']}"
+        for v in verbs
+    ]
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Назад", callback_data="irrlist_prev"))
+    if end < len(IRREGULAR_VERBS):
+        nav.append(InlineKeyboardButton("Вперёд ▶️", callback_data="irrlist_next"))
+
+    keyboard = []
+    if nav:
+        keyboard.append(nav)
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="start_irregular")])
+
+    target = update.message or update.callback_query.message
+    await target.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 
 async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
