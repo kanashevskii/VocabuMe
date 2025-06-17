@@ -559,6 +559,23 @@ def get_user_word_list(user):
         .order_by("word")
     )
 
+@sync_to_async
+def update_irregular_progress(user, base: str, correct: bool):
+    from .models import IrregularVerbProgress  # avoid circular import
+
+    progress, _ = IrregularVerbProgress.objects.get_or_create(
+        user=user,
+        verb_base=base,
+    )
+
+    if correct:
+        progress.correct_count += 1
+        if not progress.is_learned and progress.correct_count >= 5:
+            progress.is_learned = True
+            user.irregular_correct += 1
+            user.save()
+    progress.save()
+
 async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     page = context.user_data.get("mywords_page", 0)
@@ -1242,11 +1259,10 @@ async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_
             session["correct"] += 1
         context.user_data[info_key] = session
 
-    # update user's irregular stats
+    # update user's irregular verb progress
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     if is_correct:
-        user.irregular_correct += 1
-        await save_user(user)
+        await update_irregular_progress(user, base, True)
 
     # check for achievements
     new_achievements = await get_new_achievements(user)

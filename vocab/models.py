@@ -66,3 +66,18 @@ class Achievement(models.Model):
 
     def __str__(self):
         return f"{self.code} for {self.user.username or self.user.chat_id}"
+
+
+class IrregularVerbProgress(models.Model):
+    """Track user's progress for each irregular verb."""
+
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    verb_base = models.CharField(max_length=50)
+    correct_count = models.PositiveIntegerField(default=0)
+    is_learned = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("user", "verb_base")
+
+    def __str__(self):
+        return f"{self.verb_base} ({self.user})"
