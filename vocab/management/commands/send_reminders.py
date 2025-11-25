@@ -1,3 +1,4 @@
+import asyncio
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 from vocab.models import TelegramUser
@@ -8,6 +9,9 @@ class Command(BaseCommand):
     help = "Send learning reminders to users"
 
     def handle(self, *args, **kwargs):
+        asyncio.run(self._async_handle())
+
+    async def _async_handle(self):
         bot = Bot(token=config("TELEGRAM_TOKEN"))
         today = now().date()
         current_time = now().time()
@@ -28,7 +32,7 @@ class Command(BaseCommand):
                     continue
 
             try:
-                bot.send_message(
+                await bot.send_message(
                     chat_id=user.chat_id,
                     text="🕒 Время для повторения слов! Напиши /learn, чтобы продолжить обучение."
                 )

@@ -66,3 +66,17 @@ class Achievement(models.Model):
 
     def __str__(self):
         return f"{self.code} for {self.user.username or self.user.chat_id}"
+
+
+class IrregularProgress(models.Model):
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    base_form = models.CharField(max_length=100)
+    correct_count = models.PositiveIntegerField(default=0)
+    is_mastered = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'base_form')
+
+    def __str__(self):
+        return f"{self.base_form} ({self.user})"

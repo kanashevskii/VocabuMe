@@ -1,6 +1,10 @@
 import os
 import random
+import re
+import html
+import asyncio
 import django
+from urllib.parse import quote_plus
 from decouple import config
 from .irregular_verbs import IRREGULAR_VERBS
 import logging
@@ -19,19 +23,19 @@ from telegram.ext import (
     filters,
 )
 from asgiref.sync import sync_to_async
-from .models import TelegramUser, VocabularyItem, Achievement
-from .openai_utils import generate_word_data
+from .models import TelegramUser, VocabularyItem, Achievement, IrregularProgress
+from .openai_utils import generate_word_data, detect_language
 from .utils import clean_word, translate_to_ru
-from .tts import generate_tts_audio
+from .tts import generate_tts_audio, get_audio_path
 from django.db import IntegrityError
 from django.db.models import Count, Q, Min
 from django.utils.timezone import now
 from datetime import timedelta, datetime
 
 TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
-ADD_WORDS, LEARNING = range(2)
+ADD_WORDS, WAIT_TRANSLATION = range(2)
 WORDS_PER_PAGE = 10
-MAX_WORDS_PER_SESSION = 20
+MAX_WORDS_PER_SESSION = 10
 
 # Память сессии (временно)
 user_lessons = {}
@@ -39,6 +43,176 @@ user_lessons = {}
 SET_REMINDER_TIME = 1
 
 MAX_IRREGULAR_PER_SESSION = 10
+
+def get_image_url(word: str, translation: str | None = None) -> str:
+    """
+    Возвращает URL на подходящее фото (без API-ключа) через source.unsplash.com.
+    Используем слово или перевод как поисковый запрос.
+    """
+    query = translation or word
+    query = query.strip() or word
+    return f"https://source.unsplash.com/800x600/?{quote_plus(query)}"
+
+async def finalize_add_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    replies = context.user_data.pop("add_replies", [])
+    context.user_data.pop("add_queue", None)
+    context.user_data.pop("pending_data", None)
+    context.user_data.pop("awaiting_manual_translation", None)
+    logging.info("Add flow finished chat_id=%s replies=%s", update.effective_chat.id if update.effective_chat else "unknown", len(replies))
+
+    if not replies:
+        await safe_reply(update, "❌ Нечего сохранять. Попробуй снова через /add.")
+        return ConversationHandler.END
+
+    final_message = "\n\n".join(replies) + "\n\n🧠 Все слова добавлены. Чтобы начать изучение — напиши /learn"
+    await safe_reply(update, final_message, parse_mode="Markdown")
+    return ConversationHandler.END
+
+async def save_and_store_reply(user, data: dict, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await save_word(user, data["word"], data)
+        append_reply(context, build_word_reply(data))
+    except IntegrityError:
+        norm = clean_word(data["word"])
+        append_reply(context, f"⛔ Ошибка сохранения для: *{norm}*")
+
+async def process_next_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    queue = context.user_data.get("add_queue", [])
+    if not queue:
+        return await finalize_add_flow(update, context)
+
+    entry = queue.pop(0)
+    context.user_data["add_queue"] = queue
+
+    user = context.user_data.get("current_user")
+    if not user:
+        user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+        context.user_data["current_user"] = user
+
+    cleaned_word = entry["cleaned_word"]
+    if not cleaned_word:
+        append_reply(context, f"⚠️ Не удалось обработать: *{entry['original']}*")
+        return await process_next_word(update, context)
+
+    if await word_already_exists(user, cleaned_word):
+        append_reply(context, f"⛔ Слово уже есть у тебя: *{cleaned_word}*")
+        return await process_next_word(update, context)
+
+    try:
+        data = await asyncio.wait_for(
+            asyncio.to_thread(
+                generate_word_data,
+                cleaned_word,
+                entry["part_of_speech_hint"],
+                entry.get("manual_translation"),
+            ),
+            timeout=25,
+        )
+    except asyncio.TimeoutError:
+        logging.warning("Add flow: generate_word_data timeout chat_id=%s word=%s", update.effective_chat.id, cleaned_word)
+        data = None
+    except Exception:
+        logging.exception("Add flow: generate_word_data crashed chat_id=%s word=%s", update.effective_chat.id, cleaned_word)
+        data = None
+    if not data:
+        append_reply(context, f"⚠️ Не удалось получить данные для: *{entry['original']}*")
+        return await process_next_word(update, context)
+
+    if entry.get("manual_translation"):
+        data["translation"] = entry["manual_translation"]
+        if entry.get("part_of_speech_hint"):
+            data["part_of_speech"] = entry["part_of_speech_hint"]
+    if not data:
+        append_reply(context, f"⚠️ Не удалось получить данные для: *{entry['original']}*")
+        return await process_next_word(update, context)
+
+    data["word"] = cleaned_word
+    if entry["part_of_speech_hint"]:
+        data["part_of_speech"] = entry["part_of_speech_hint"]
+
+    context.user_data["pending_data"] = data
+
+    if entry["manual_translation"]:
+        context.user_data.pop("pending_data", None)
+        await save_and_store_reply(user, data, context)
+        return await process_next_word(update, context)
+
+    if entry["language"] == "en":
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✍️ Ввести перевод", callback_data="translation_choice_manual"),
+                    InlineKeyboardButton("🤖 Авто-перевод", callback_data="translation_choice_auto"),
+                ]
+            ]
+        )
+        await safe_reply(
+            update,
+            f"Как перевести *{cleaned_word}*? Выбери вариант:",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+        return WAIT_TRANSLATION
+
+    await save_and_store_reply(user, data, context)
+    context.user_data.pop("pending_data", None)
+    return await process_next_word(update, context)
+
+def strip_article_or_infinitive(text: str):
+    """
+    Removes leading 'a', 'an', or 'to' and returns (cleaned_word, part_of_speech_hint).
+    """
+    cleaned = text.strip()
+    lower = cleaned.lower()
+    hint = None
+
+    if lower.startswith("to "):
+        cleaned = cleaned[3:].strip()
+        hint = "verb"
+    elif lower.startswith("a "):
+        cleaned = cleaned[2:].strip()
+        hint = "noun"
+    elif lower.startswith("an "):
+        cleaned = cleaned[3:].strip()
+        hint = "noun"
+
+    # Если после обрезки ничего не осталось — вернём исходное значение без подсказки
+    if not cleaned:
+        return text.strip(), None
+
+    return cleaned, hint
+
+def append_reply(context: ContextTypes.DEFAULT_TYPE, message: str):
+    replies = context.user_data.get("add_replies", [])
+    replies.append(message)
+    context.user_data["add_replies"] = replies
+
+def normalize_raw_word(text: str) -> str:
+    """
+    Trim, drop punctuation, collapse spaces, and limit length.
+    """
+    cleaned = re.sub(r"[^\w\s'-]", " ", text.strip())
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned[:255].strip()
+
+def guess_part_of_speech_ru(translation: str | None) -> str | None:
+    if not translation:
+        return None
+    t = translation.strip().lower()
+    if t.endswith(("ть", "ться")):
+        return "verb"
+    if t.endswith(("ый", "ий", "ая", "ое", "ее", "ие", "ые", "ой", "ей", "ых", "их")):
+        return "adjective"
+    return "noun"
+
+def build_word_reply(data: dict) -> str:
+    norm = clean_word(data["word"])
+    return (
+        f"✅ *{norm}*\n"
+        f"📖 {data['translation']}\n"
+        f"🗣️ /{data['transcription']}/\n"
+        f"✏️ _{data['example']}_"
+    )
 
 @sync_to_async
 def get_or_create_user(chat_id, username):
@@ -50,7 +224,7 @@ def word_already_exists(user, word):
     return VocabularyItem.objects.filter(user=user, normalized_word=norm).exists()
 
 @sync_to_async
-def save_word(user, original_input, data):
+def save_word(user, _original_input, data):
     word = clean_word(data["word"])  # sanitized
     normalized = word
     tr = data["transcription"]
@@ -136,13 +310,16 @@ def get_praise(correct: int, total: int) -> str:
 
 # --- START ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+
     keyboard = [
         [
             InlineKeyboardButton("➕ Добавить", callback_data="start_add"),
-            InlineKeyboardButton("🎯 Учить", callback_data="start_learn"),
+            InlineKeyboardButton("📚 Учить", callback_data="start_learn_cards"),
         ],
         [
-            InlineKeyboardButton("🔄 Обратный режим", callback_data="start_learnreverse"),
+            InlineKeyboardButton("🎯 Практиковать", callback_data="start_practice"),
             InlineKeyboardButton("🎧 Аудирование", callback_data="start_listening"),
         ],
         [InlineKeyboardButton("🔥 Неправильные глаголы", callback_data="start_irregular")],
@@ -153,28 +330,153 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚙️ Настройки", callback_data="start_settings")],
     ]
 
-    await update.message.reply_text(
+    await safe_reply(
+        update,
         "👋 Привет! Я помогу тебе выучить английские слова — просто и эффективно.\n\n"
         "Вот что я умею:\n"
         "➕ /add — добавить новые слова\n"
-        "🎯 /learn — начать тренировку (перевод с англ. на рус.)\n"
-        "🔄 /learnreverse — обратный режим (с рус. на англ.)\n"
+        "📚 /learn — карточки с твоими словами (листай по одному)\n"
+        "🎯 /practice — практиковать перевод (классический или обратный режим)\n"
         "🎧 /listening — аудирование по твоим словам\n"
         "📘 /mywords — список слов, которые ты учишь\n"
         "📊 /progress — посмотреть свою статистику и достижения\n"
         "⚙️ /settings — изменить настройки обучения и напоминаний\n\n"
         "🔥 /irregular — тренировать неправильные глаголы\n"
         "⏰ Я могу напоминать тебе о занятиях каждый день или через день — настрой это через /settings!\n\n"
-        "🚀 Готов начать? Жми /add или /learn!",
+        "🚀 Готов начать? Жми /add, /learn или /practice!",
         reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает карточки по одному слову без вариантов ответа."""
+    if update.callback_query:
+        await update.callback_query.answer()
+
+    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    session = context.user_data.get("cards_info")
+    lesson = context.user_data.get("cards_queue")
+    is_start = (
+        update.message
+        or (update.callback_query and update.callback_query.data == "start_learn_cards")
+    )
+
+    # Если нажали "Далее", но сессия потерялась — не перезапускаем автоматически
+    if not lesson and not is_start:
+        await safe_reply(
+            update,
+            "Нет активной сессии карточек. Нажми «Учить», чтобы начать заново.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("📚 Учить", callback_data="start_learn_cards")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+                ]
+            ),
+        )
+        context.user_data.pop("cards_info", None)
+        return
+
+    if not lesson:
+        word_list = await get_ordered_unlearned_words(user, count=MAX_WORDS_PER_SESSION)
+        if not word_list:
+            await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
+            return
+
+        lesson = list(word_list)
+        context.user_data["cards_queue"] = lesson
+        context.user_data["cards_info"] = {"total": len(word_list), "shown": 0}
+
+    word_obj = lesson.pop(0)
+    context.user_data["cards_queue"] = lesson
+
+    if not word_obj.example_translation:
+        word_obj.example_translation = translate_to_ru(word_obj.example)
+        await sync_to_async(word_obj.save)()
+
+    session = context.user_data.get("cards_info", {"total": 0, "shown": 0})
+    session["shown"] = session.get("shown", 0) + 1
+    context.user_data["cards_info"] = session
+
+    remaining = lesson and len(lesson) or 0
+    buttons = [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
+    if remaining:
+        buttons.insert(0, [InlineKeyboardButton("➡️ Далее", callback_data="cards_next")])
+    else:
+        context.user_data.pop("cards_info", None)
+        context.user_data.pop("cards_queue", None)
+        buttons.insert(0, [InlineKeyboardButton("🔁 Ещё карточки", callback_data="start_learn_cards")])
+
+    transcription = word_obj.transcription or ""
+    example_text = word_obj.example or ""
+    example_translation = word_obj.example_translation or ""
+    image_url = get_image_url(word_obj.word, word_obj.translation)
+
+    # отправляем картинку
+    try:
+        await update.effective_chat.send_photo(
+            photo=image_url,
+            caption=(
+                f"📚 Карточка {session['shown']}/{session['total']}\n"
+                f"<b>{html.escape(word_obj.word)}</b> — {html.escape(word_obj.translation)}"
+            ),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logging.exception("Failed to send image for %s", word_obj.word)
+
+    # отправляем аудио (не генерируем повторно, если уже есть)
+    try:
+        audio_path = get_audio_path(word_obj.word)
+        if not os.path.exists(audio_path):
+            audio_path = await generate_tts_audio(word_obj.word)
+        with open(audio_path, "rb") as audio:
+            if update.message:
+                await update.message.reply_audio(audio)
+            elif update.callback_query:
+                await update.callback_query.message.reply_audio(audio)
+    except Exception:
+        logging.exception("Failed to send TTS for %s", word_obj.word)
+
+    msg = (
+        f"📚 Карточка {session['shown']}/{session['total']}\n"
+        f"<b>{html.escape(word_obj.word)} — {html.escape(word_obj.translation)}</b>\n"
+        f"🗣️ /{html.escape(transcription)}/\n"
+        f"✏️ <i>{html.escape(example_text)}</i>\n"
+        f"<tg-spoiler>{html.escape(example_translation)}</tg-spoiler>"
+    )
+    await safe_reply(update, msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def practice_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🇬🇧 → 🇷🇺 Классический", callback_data="practice_classic")],
+            [InlineKeyboardButton("🇷🇺 → 🇬🇧 Обратный", callback_data="practice_reverse")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+        ]
+    )
+    await safe_reply(
+        update,
+        "Выбери режим практики:\n"
+        "• Классический — переводишь с английского на русский\n"
+        "• Обратный — переводишь с русского на английский",
+        reply_markup=keyboard,
     )
 
 
 # --- ADD ---
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info("Add flow started chat_id=%s", update.effective_chat.id if update.effective_chat else "unknown")
     await safe_reply(
         update,
-        "✍️ Введи слово или фразу. Можно несколько — каждое с новой строки.\n\nКогда закончишь — просто отправь сообщение.",
+        (
+            "✍️ Введи слово или фразу. Можно несколько — каждое с новой строки.\n"
+            "🔤 Можно указать артикль/частицу: `a`/`an` — существительное, `to` — глагол.\n"
+            "🪄 Можно сразу указать перевод: `word - перевод` или `word: перевод`.\n"
+            "✂️ Лишние знаки препинания уберём сами.\n\nКогда закончишь — просто отправь сообщение."
+        ),
     )
     return ADD_WORDS
 
@@ -183,39 +485,109 @@ async def process_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_chat.id,
         update.effective_chat.username
     )
+    logging.info("Add flow: processing raw input chat_id=%s", update.effective_chat.id)
+    context.user_data["current_user"] = user
 
     words = update.message.text.strip().split("\n")
     words = [w.strip() for w in words if w.strip()]
-    replies = []
+
+    entries = []
+    for original_input in words:
+        normalized_input = normalize_raw_word(original_input)
+        cleaned_word, part_hint = strip_article_or_infinitive(normalized_input)
+        if not cleaned_word:
+            continue
+        lang = detect_language(cleaned_word)
+
+        # Попытка распознать формат "word - translation" или "word: translation"
+        manual_translation = None
+        if "-" in original_input or ":" in original_input:
+            splitter = "-" if "-" in original_input else ":"
+            left, right = original_input.split(splitter, 1)
+            left = normalize_raw_word(left)
+            right = right.strip()
+            if left and right:
+                manual_translation = right
+                cleaned_word, part_hint = strip_article_or_infinitive(left)
+                lang = detect_language(cleaned_word)
+                if not part_hint:
+                    part_hint = guess_part_of_speech_ru(manual_translation)
+
+        entries.append(
+            {
+                "original": original_input,
+                "cleaned_word": cleaned_word,
+                "part_of_speech_hint": part_hint,
+                "language": lang,
+                "manual_translation": manual_translation,
+            }
+        )
+
+    if not entries:
+        await update.message.reply_text("❌ Не увидел слов. Отправь хотя бы одно слово или фразу.")
+        return ConversationHandler.END
+
+    context.user_data["add_queue"] = entries
+    context.user_data["add_replies"] = []
 
     await update.message.reply_text("⏳ Обрабатываем слова, это может занять несколько секунд...")
+    return await process_next_word(update, context)
 
-    for original_input in words:
-        # определим язык и получим все данные
-        data = generate_word_data(original_input)
-        if not data:
-            replies.append(f"⚠️ Не удалось получить данные для: *{original_input}*")
-            continue
+async def handle_translation_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-        norm = clean_word(data["word"])
-        if await word_already_exists(user, norm):
-            replies.append(f"⛔ Слово уже есть у тебя: *{norm}*")
-            continue
+    data = context.user_data.get("pending_data")
+    if not data:
+        await query.edit_message_text("⚠️ Нет слова для обработки. Попробуй снова через /add.")
+        return ConversationHandler.END
 
-        try:
-            await save_word(user, original_input, data)
-            reply = f"""✅ *{norm}*
-📖 {data['translation']}
-🗣️ /{data['transcription']}/
-✏️ _{data['example']}_"""
-        except IntegrityError:
-            reply = f"⛔ Ошибка сохранения для: *{norm}*"
+    choice = query.data.replace("translation_choice_", "")
+    if choice == "auto":
+        user = context.user_data.get("current_user")
+        if not user:
+            user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+            context.user_data["current_user"] = user
+        await query.edit_message_text(f"🤖 Использую авто-перевод для *{data['word']}*", parse_mode="Markdown")
+        await save_and_store_reply(user, data, context)
+        context.user_data.pop("pending_data", None)
+        return await process_next_word(update, context)
 
-        replies.append(reply)
+    if choice == "manual":
+        context.user_data["awaiting_manual_translation"] = True
+        await query.edit_message_text(f"✍️ Введи перевод для *{data['word']}*", parse_mode="Markdown")
+        return WAIT_TRANSLATION
 
-    final_message = "\n\n".join(replies) + "\n\n🧠 Все слова добавлены. Чтобы начать изучение — напиши /learn"
-    await update.message.reply_text(final_message, parse_mode="Markdown")
+    await query.edit_message_text("⚠️ Неизвестный выбор. Попробуй снова через /add.")
     return ConversationHandler.END
+
+async def handle_manual_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("awaiting_manual_translation"):
+        await update.message.reply_text("Сначала выбери, как переводить слово, используя кнопки выше.")
+        return WAIT_TRANSLATION
+
+    data = context.user_data.get("pending_data")
+    if not data:
+        await update.message.reply_text("⚠️ Нет слова для перевода. Запусти /add заново.")
+        return ConversationHandler.END
+
+    translation = update.message.text.strip()
+    if not translation:
+        await update.message.reply_text("Введите перевод текстом или выберите авто-перевод.")
+        return WAIT_TRANSLATION
+
+    data["translation"] = translation
+    context.user_data["pending_data"] = data
+    context.user_data["awaiting_manual_translation"] = False
+
+    user = context.user_data.get("current_user")
+    if not user:
+        user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+        context.user_data["current_user"] = user
+    await save_and_store_reply(user, data, context)
+    context.user_data.pop("pending_data", None)
+
+    return await process_next_word(update, context)
 
 # --- LEARN ---
 async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -247,10 +619,7 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("session_info", None)
             return
 
-        parts = await get_available_parts(user)
-        selected_part = random.choice(parts) if parts else None
-        context.user_data["session_part"] = selected_part
-        word_list = await get_unlearned_words(user, count=MAX_WORDS_PER_SESSION, part_of_speech=selected_part)
+        word_list = await get_unlearned_words(user, count=MAX_WORDS_PER_SESSION)
 
         if not word_list:
             await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
@@ -283,15 +652,18 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for opt in all_options
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
+    keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
+
+    transcription = word_obj.transcription or ""
+    example_text = word_obj.example or ""
 
     msg = (
-        f"💬 *{word_obj.word}*\n"
-        f"🗣️ /{word_obj.transcription}/\n"
-        f"✏️ _{word_obj.example}_\n"
-        f"||{word_obj.example_translation}||\n\n"
+        f"💬 <b>{html.escape(word_obj.word)}</b>\n"
+        f"🗣️ /{html.escape(transcription)}/\n"
+        f"✏️ <i>{html.escape(example_text)}</i>\n\n"
         "Выбери правильный перевод:"
     )
-    await safe_reply(update, msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    await safe_reply(update, msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # --- HANDLE ANSWER ---
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -394,10 +766,12 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_lessons.pop(update.effective_chat.id, None)
     user_lessons.pop(f"aud_{update.effective_chat.id}", None)
     user_lessons.pop(f"irr_{update.effective_chat.id}", None)
+    user_lessons.pop(f"cards_{update.effective_chat.id}", None)
     context.user_data.pop("session_info", None)
     context.user_data.pop("aud_session_info", None)
     context.user_data.pop("aud_current_word", None)
     context.user_data.pop(f"irr_info_{update.effective_chat.id}", None)
+    context.user_data.pop("cards_info", None)
     await update.message.reply_text("🛑 Обучение остановлено. Возвращайся, когда будешь готов 🙌")
 
 # --- CANCEL ---
@@ -423,6 +797,10 @@ def run_telegram_bot():
         ],
         states={
             ADD_WORDS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_words)],
+            WAIT_TRANSLATION: [
+                CallbackQueryHandler(handle_translation_choice, pattern="^translation_choice_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_manual_translation),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -431,17 +809,21 @@ def run_telegram_bot():
         states={
             SET_REMINDER_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_reminder_time)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)]
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(reminder_time_conv)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(start, pattern="^start$") )
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("learn", learn))
-    app.add_handler(CallbackQueryHandler(learn, pattern="^start_learn$"))
+    app.add_handler(CommandHandler("learn", learn_cards))
+    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^start_learn_cards$"))
+    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_next$"))
+    app.add_handler(CommandHandler("practice", practice_menu))
+    app.add_handler(CallbackQueryHandler(practice_menu, pattern="^start_practice$"))
     app.add_handler(CommandHandler("learnreverse", learn_reverse))
-    app.add_handler(CallbackQueryHandler(learn_reverse, pattern="^start_learnreverse$"))
+    app.add_handler(CallbackQueryHandler(learn, pattern="^practice_classic$"))
+    app.add_handler(CallbackQueryHandler(learn_reverse, pattern="^practice_reverse$"))
     app.add_handler(CommandHandler("listening", listening_menu))
     app.add_handler(CallbackQueryHandler(listening_menu, pattern="^start_listening$"))
     app.add_handler(CallbackQueryHandler(listening_word, pattern="^listening_word$"))
@@ -458,7 +840,8 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr"))
     app.add_handler(CommandHandler("mywords", mywords))
     app.add_handler(CallbackQueryHandler(mywords, pattern="^start_mywords$"))
-    app.add_handler(CallbackQueryHandler(handle_mywords_pagination, pattern="^mywords_"))
+    app.add_handler(CallbackQueryHandler(handle_mywords_pagination, pattern="^mywords_(prev|next)$"))
+    app.add_handler(CallbackQueryHandler(handle_mywords_delete, pattern="^mywords_delete"))
     app.add_handler(CommandHandler("settings", settings))
     app.add_handler(CallbackQueryHandler(settings, pattern="^start_settings$"))
     app.add_handler(CommandHandler("progress", progress))
@@ -504,7 +887,7 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     lines = []
-    for word, tr, trans in words:
+    for word_id, word, tr, trans in words:
         tr_part = f" /{tr}/" if tr else ""
         lines.append(f"📘 *{word}*{tr_part} — {trans}")
 
@@ -514,7 +897,17 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if (page + 1) * WORDS_PER_PAGE < total:
         keyboard.append(InlineKeyboardButton("Вперёд ▶️", callback_data="mywords_next"))
 
-    reply_markup = InlineKeyboardMarkup([keyboard]) if keyboard else None
+    delete_row = [
+        InlineKeyboardButton("🗑 Удалить все", callback_data="mywords_delete_all_confirm"),
+        InlineKeyboardButton("❌ Удалить одно", callback_data="mywords_delete_one"),
+    ]
+
+    reply_keyboard = []
+    if keyboard:
+        reply_keyboard.append(keyboard)
+    reply_keyboard.append(delete_row)
+
+    reply_markup = InlineKeyboardMarkup(reply_keyboard)
 
     target = update.message or update.callback_query.message
     await target.reply_text(
@@ -578,9 +971,10 @@ def _repeat_menu_text(user):
         "Выберите значение:"
     )
 
-def _review_settings_keyboard():
+def _review_settings_keyboard(user: TelegramUser):
+    toggle_label = "🔁 Выключить" if user.enable_review_old_words else "🔁 Включить"
     return [
-        [InlineKeyboardButton("🔁 Переключить", callback_data="toggle_review")],
+        [InlineKeyboardButton(toggle_label, callback_data="toggle_review")],
         [
             InlineKeyboardButton("⏱ Неделя", callback_data="set_review_days_7"),
             InlineKeyboardButton("📆 Месяц", callback_data="set_review_days_30"),
@@ -597,9 +991,10 @@ def _review_menu_text(user):
         f"Интервал: {user.days_before_review} дней"
     )
 
-def _reminder_settings_keyboard():
+def _reminder_settings_keyboard(user: TelegramUser):
+    toggle_label = "🔔 Выключить" if user.reminder_enabled else "🔔 Включить"
     return [
-        [InlineKeyboardButton("🔔 Переключить", callback_data="toggle_reminder")],
+        [InlineKeyboardButton(toggle_label, callback_data="toggle_reminder")],
         [
             InlineKeyboardButton("📅 Каждый день", callback_data="set_reminder_interval_1"),
             InlineKeyboardButton("📅 Через день", callback_data="set_reminder_interval_2"),
@@ -655,7 +1050,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(
             _review_menu_text(user),
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard()),
+            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard(user)),
         )
         return
 
@@ -663,7 +1058,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(
             _reminder_menu_text(user),
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard()),
+            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard(user)),
         )
         return
 
@@ -690,7 +1085,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(
             _review_menu_text(user),
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard()),
+            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard(user)),
         )
 
     elif data.startswith("set_review_days_"):
@@ -709,7 +1104,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(
             _reminder_menu_text(user),
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard()),
+            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard(user)),
         )
 
     elif data.startswith("set_reminder_interval_"):
@@ -719,7 +1114,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(
             _reminder_menu_text(user),
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard()),
+            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard(user)),
         )
 
     elif data == "set_reminder_time":
@@ -734,6 +1129,7 @@ def get_user_progress(user):
     total = VocabularyItem.objects.filter(user=user).count()
     learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     learning = total - learned
+    irregular_learned = IrregularProgress.objects.filter(user=user, is_mastered=True).count()
     start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))['created_at__min']
 
     user_stats = TelegramUser.objects.annotate(
@@ -750,7 +1146,7 @@ def get_user_progress(user):
         "learning": learning,
         "start_date": start_date,
         "rank_percent": rank_percent,
-        "irregular": user.irregular_correct,
+        "irregular": irregular_learned,
     }
 
 async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -815,22 +1211,41 @@ def update_user_reminder_time(user, time_obj):
     user.save()
 
 async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+    text = (update.message.text or "").strip()
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
 
+    def _parse_time(value: str):
+        clean = value.replace(" ", "")
+        clean = clean.replace(".", ":").replace("-", ":").replace("—", ":").replace("–", ":")
+        if ":" not in clean and len(clean) == 4 and clean.isdigit():
+            clean = f"{clean[:2]}:{clean[2:]}"
+        parts = clean.split(":")
+        if len(parts) != 2:
+            raise ValueError("Wrong format")
+        hours, minutes = parts
+        if not (hours.isdigit() and minutes.isdigit()):
+            raise ValueError("Not digits")
+        parsed = datetime.strptime(f"{int(hours):02d}:{int(minutes):02d}", "%H:%M").time()
+        return parsed
+
     try:
-        parsed_time = datetime.strptime(text, "%H:%M").time()
+        parsed_time = _parse_time(text)
         await update_user_reminder_time(user, parsed_time)
-        await update.message.reply_text(
+        await safe_reply(
+            update,
             f"✅ Напоминания будут приходить в *{parsed_time.strftime('%H:%M')}*.",
             parse_mode="Markdown",
         )
         await settings(update, context)
-    except ValueError:
-        await update.message.reply_text("⚠️ Неверный формат. Попробуй ещё раз в формате `HH:MM`, например `09:00`", parse_mode="Markdown")
+        return ConversationHandler.END
+    except Exception as exc:  # noqa: BLE001 broad to keep UX smooth
+        logging.exception("Failed to parse reminder time: %s", exc)
+        await safe_reply(
+            update,
+            "⚠️ Неверный формат. Попробуй ещё раз в формате `HH:MM`, например `09:00`",
+            parse_mode="Markdown",
+        )
         return SET_REMINDER_TIME
-
-    return ConversationHandler.END
 
 @sync_to_async
 def get_user_achievements(user):
@@ -874,7 +1289,7 @@ def get_user_achievements(user):
 def get_new_achievements(user):
     learned_words = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     days = user.consecutive_days or 0
-    irregular = user.irregular_correct or 0
+    irregular = IrregularProgress.objects.filter(user=user, is_mastered=True).count()
 
     word_achievements = [
         (10, "words_10", "🎉 Выучено 10 слов — Первый шаг!"),
@@ -930,8 +1345,40 @@ def get_user_word_page(user, page: int):
     total = qs.count()
     start = page * WORDS_PER_PAGE
     end = start + WORDS_PER_PAGE
-    words = list(qs[start:end].values_list("word", "transcription", "translation"))
+    words = list(qs[start:end].values_list("id", "word", "transcription", "translation"))
     return words, total
+
+
+async def _show_delete_one_menu(query, user, page: int):
+    items, total = await get_user_word_page(user, page)
+    if not items:
+        await query.edit_message_text("📭 Нет слов для удаления.")
+        return
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                f"❌ {w[1]}",
+                callback_data=f"mywords_delete_one_confirm|{w[0]}|{page}",
+            )
+        ]
+        for w in items
+    ]
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("◀️ Назад", callback_data=f"mywords_delete_one_page|{page-1}"))
+    if (page + 1) * WORDS_PER_PAGE < total:
+        nav_row.append(InlineKeyboardButton("Вперёд ▶️", callback_data=f"mywords_delete_one_page|{page+1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([InlineKeyboardButton("⬅️ Отмена", callback_data="start_mywords")])
+
+    await query.edit_message_text(
+        "Выбери слово для удаления:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 async def handle_mywords_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -947,6 +1394,76 @@ async def handle_mywords_pagination(update: Update, context: ContextTypes.DEFAUL
     user_data["mywords_page"] = page
     await mywords(update, context)
 
+async def handle_mywords_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    data = query.data
+
+    if data == "mywords_delete_all_confirm":
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ Да, удалить все", callback_data="mywords_delete_all"),
+                    InlineKeyboardButton("❌ Отмена", callback_data="start_mywords"),
+                ]
+            ]
+        )
+        await query.edit_message_text(
+            "Удалить ВСЕ твои слова? Это действие необратимо.",
+            reply_markup=keyboard,
+        )
+        return
+
+    if data == "mywords_delete_all":
+        await delete_all_words(user)
+        context.user_data["mywords_page"] = 0
+        await query.edit_message_text("🗑 Все слова удалены.")
+        return
+
+    if data == "mywords_delete_one":
+        await _show_delete_one_menu(query, user, 0)
+        return
+
+    if data.startswith("mywords_delete_one_page|"):
+        _, page = data.split("|", 1)
+        await _show_delete_one_menu(query, user, int(page))
+        return
+
+    if data.startswith("mywords_delete_one_confirm|"):
+        _, word_id, page = data.split("|", 2)
+        word_obj = await get_word_by_id(word_id)
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ Да, удалить", callback_data=f"mywords_delete_one_do|{word_id}|{page}"),
+                    InlineKeyboardButton("❌ Отмена", callback_data="start_mywords"),
+                ]
+            ]
+        )
+        await query.edit_message_text(
+            f"Удалить *{word_obj.word}*?",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+        return
+
+    if data.startswith("mywords_delete_one_do|"):
+        _, word_id, page = data.split("|", 2)
+        await delete_single_word(user, word_id)
+        await query.edit_message_text("🗑 Слово удалено.")
+        context.user_data["mywords_page"] = 0
+        await _show_delete_one_menu(query, user, int(page))
+        return
+
+@sync_to_async
+def delete_single_word(user, word_id):
+    VocabularyItem.objects.filter(user=user, id=word_id).delete()
+
+@sync_to_async
+def delete_all_words(user):
+    VocabularyItem.objects.filter(user=user).delete()
+
 @sync_to_async
 def get_available_parts(user):
     return list(
@@ -954,6 +1471,18 @@ def get_available_parts(user):
         .filter(user=user, is_learned=False)
         .values_list("part_of_speech", flat=True)
         .distinct()
+    )
+
+@sync_to_async
+def get_ordered_unlearned_words(user, count=10):
+    """
+    Возвращает первые N невыученных слов в порядке добавления,
+    чтобы последовательность карточек была стабильной.
+    """
+    return list(
+        VocabularyItem.objects
+        .filter(user=user, is_learned=False)
+        .order_by("created_at", "id")[:count]
     )
 
 async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1000,6 +1529,7 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for opt in all_options
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"revskip|{word_obj.id}")])
+    keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
 
     msg = f"""💬 *{word_obj.translation}*
 
@@ -1105,6 +1635,7 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⏭ Пропустить", callback_data=f"irrskip|{word['base']}"
         )
     ])
+    keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
 
     await safe_reply(
         update,
@@ -1220,7 +1751,10 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mode = context.user_data.get("aud_mode", "word")
     keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("⏭ Пропустить", callback_data="audskip")]]
+        [
+            [InlineKeyboardButton("⏭ Пропустить", callback_data="audskip")],
+            [InlineKeyboardButton("⏹ Завершить", callback_data="start")],
+        ]
     )
     if mode == "translate":
         await safe_reply(
