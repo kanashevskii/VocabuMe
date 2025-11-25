@@ -5,7 +5,7 @@ import html
 import asyncio
 from urllib.parse import quote_plus
 from decouple import config
-from .irregular_verbs import IRREGULAR_VERBS
+from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
 
 # Note: django.setup() is not called here because:
@@ -14,6 +14,8 @@ import logging
 # Calling django.setup() here would cause it to be called twice, which is not idempotent
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
+from telegram.helpers import escape_markdown
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -24,10 +26,10 @@ from telegram.ext import (
     filters,
 )
 from asgiref.sync import sync_to_async
-from .models import TelegramUser, VocabularyItem, Achievement, IrregularProgress
+from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
 from .openai_utils import generate_word_data, detect_language
 from .utils import clean_word, translate_to_ru
-from .tts import generate_tts_audio, get_audio_path
+from .tts import generate_tts_audio, generate_temp_audio, get_audio_path
 from django.db import IntegrityError
 from django.db.models import Count, Q, Min
 from django.utils.timezone import now
@@ -44,7 +46,8 @@ user_lessons = {}
 SET_REMINDER_TIME = 1
 
 MAX_IRREGULAR_PER_SESSION = 10
-IRREGULAR_MASTERY_THRESHOLD = 3
+IRREGULARS_PER_PAGE = 20
+IRREGULAR_MASTERY_THRESHOLD = 5
 
 def get_image_url(word: str, translation: str | None = None) -> str:
     """
@@ -215,6 +218,11 @@ def build_word_reply(data: dict) -> str:
         f"🗣️ /{data['transcription']}/\n"
         f"✏️ _{data['example']}_"
     )
+
+
+def esc(text: str) -> str:
+    """Escape text for safe use in MarkdownV2 messages."""
+    return escape_markdown(text, version=2) if text else ""
 
 @sync_to_async
 def get_or_create_user(chat_id, username):
@@ -602,6 +610,8 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_chat.username
     )
 
+    logging.info("/learn invoked by %s", update.effective_chat.id)
+
     lesson = user_lessons.get(update.effective_chat.id)
     session_info = context.user_data.get("session_info")
 
@@ -632,26 +642,40 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lesson = word_list
 
     word_obj = lesson.pop(0)
+    logging.info(
+        "Question for %s: %s (%s)",
+        update.effective_chat.id,
+        word_obj.word,
+        word_obj.id,
+    )
 
     if not word_obj.example_translation:
         word_obj.example_translation = translate_to_ru(word_obj.example)
         await sync_to_async(word_obj.save)()
 
-    # Озвучка перед вопросом
-    audio_path = await generate_tts_audio(word_obj.word)
-    with open(audio_path, "rb") as audio:
-        if update.message:
-            await update.message.reply_audio(audio)
-        elif update.callback_query:
-            await update.callback_query.message.reply_audio(audio)
+    try:
+        fakes = await get_fake_translations(
+            user,
+            exclude_word=word_obj.word,
+            part_of_speech=word_obj.part_of_speech,
+        )
+        all_options = list(set(fakes + [word_obj.translation]))
+        random.shuffle(all_options)
+        if len(all_options) < 2:
+            logging.error("Not enough options for word %s", word_obj.word)
+            await safe_reply(update, "⚠️ Не удалось подготовить варианты ответа. Попробуй позже.")
+            return
+    except Exception as e:
+        logging.exception("Failed to prepare options for %s: %s", word_obj.word, e)
+        await safe_reply(update, "⚠️ Ошибка подготовки вопроса. Попробуй позже.")
+        return
 
-    fakes = await get_fake_translations(user, exclude_word=word_obj.word, part_of_speech=word_obj.part_of_speech)
-    all_options = fakes + [word_obj.translation]
-    random.shuffle(all_options)
+    options_map = context.user_data.setdefault("options", {})
+    options_map[str(word_obj.id)] = all_options
 
     keyboard = [
-        [InlineKeyboardButton(text=opt, callback_data=f"{word_obj.id}|{opt}")]
-        for opt in all_options
+        [InlineKeyboardButton(text=opt, callback_data=f"ans|{word_obj.id}|{i}")]
+        for i, opt in enumerate(all_options)
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
     keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
@@ -659,25 +683,44 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     transcription = word_obj.transcription or ""
     example_text = word_obj.example or ""
 
+    try:
+        audio_path = await generate_tts_audio(word_obj.word)
+        with open(audio_path, "rb") as audio:
+            if update.message:
+                await update.message.reply_audio(audio)
+            elif update.callback_query:
+                await update.callback_query.message.reply_audio(audio)
+    except Exception as e:
+        logging.exception("Failed to send audio for %s: %s", word_obj.word, e)
+
     msg = (
-        f"💬 <b>{html.escape(word_obj.word)}</b>\n"
-        f"🗣️ /{html.escape(transcription)}/\n"
-        f"✏️ <i>{html.escape(example_text)}</i>\n\n"
+        f"💬 *{esc(word_obj.word)}*\n"
+        f"🗣️ /{esc(word_obj.transcription)}/\n"
+        f"✏️ _{esc(word_obj.example)}_\n"
+        f"||{esc(word_obj.example_translation)}||\n\n"
         "Выбери правильный перевод:"
     )
-    await safe_reply(update, msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    await safe_reply(
+        update,
+        msg,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 # --- HANDLE ANSWER ---
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    logging.info("handle_answer from %s: %s", query.from_user.id, query.data)
+
     if query.data.startswith("skip|"):
         _, item_id = query.data.split("|")
         item = await get_word_by_id(item_id)
+        logging.info("skip word %s for user %s", item.word, query.from_user.id)
         await query.edit_message_text(
-            f"⏭ Пропущено: *{item.word}* — {item.translation}",
-            parse_mode="Markdown"
+            f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
         session = context.user_data.get("session_info")
         if session:
@@ -689,9 +732,10 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("revskip|"):
         _, item_id = query.data.split("|")
         item = await get_word_by_id(item_id)
+        logging.info("reverse skip word %s for user %s", item.word, query.from_user.id)
         await query.edit_message_text(
-            f"⏭ Пропущено: *{item.translation}* — {item.word}",
-            parse_mode="Markdown"
+            f"⏭ Пропущено: *{esc(item.translation)}* — {esc(item.word)}",
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
 
         session = context.user_data.get("session_info")
@@ -707,20 +751,28 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await learn_reverse(update, context)
         return
 
-    if query.data.startswith("rev_"):
-        _, item_id_chosen = query.data.split("rev_", 1)
-        item_id, chosen = item_id_chosen.split("|")
+    if query.data.startswith("rev|"):
+        _, item_id, idx = query.data.split("|")
+        options = context.user_data.get("rev_options", {}).get(item_id, [])
+        chosen = options[int(idx)] if int(idx) < len(options) else ""
+        context.user_data.get("rev_options", {}).pop(item_id, None)
         item = await get_word_by_id(item_id)
+        logging.info(
+            "rev answer from %s: chosen=%s correct=%s",
+            query.from_user.id,
+            chosen,
+            item.word,
+        )
         is_correct = chosen == item.word
         await update_correct_count(item.id, correct=is_correct)
 
         response = (
-            f"✅ Верно! *{item.translation}* = {item.word}"
+            f"✅ Верно\\! *{esc(item.translation)}* = {esc(item.word)}"
             if is_correct else
-            f"❌ Неверно. *{item.translation}* = {item.word}"
+            f"❌ Неверно\\. *{esc(item.translation)}* = {esc(item.word)}"
         )
 
-        await query.edit_message_text(response, parse_mode="Markdown")
+        await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
         session = context.user_data.get("session_info")
         if session:
             session["answered"] += 1
@@ -736,18 +788,30 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await learn_reverse(update, context)
         return
 
-    item_id, chosen = query.data.split("|")
+    if query.data.startswith("ans|"):
+        _, item_id, idx = query.data.split("|")
+        options = context.user_data.get("options", {}).get(item_id, [])
+        chosen = options[int(idx)] if int(idx) < len(options) else ""
+        context.user_data.get("options", {}).pop(item_id, None)
+    else:
+        item_id, chosen = query.data.split("|")
     item = await get_word_by_id(item_id)
+    logging.info(
+        "answer from %s: chosen=%s correct=%s",
+        query.from_user.id,
+        chosen,
+        item.translation,
+    )
     is_correct = chosen == item.translation
 
     await update_correct_count(item.id, correct=is_correct)
 
     if is_correct:
-        response = f"✅ Верно! *{item.word}* = {item.translation}"
+        response = f"✅ Верно\\! *{esc(item.word)}* \\= {esc(item.translation)}"
     else:
-        response = f"❌ Неверно. *{item.word}* = {item.translation}"
+        response = f"❌ Неверно\\. *{esc(item.word)}* \\= {esc(item.translation)}"
 
-    await query.edit_message_text(response, parse_mode="Markdown")
+    await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
     session = context.user_data.get("session_info")
     if session:
         session["answered"] += 1
@@ -832,14 +896,19 @@ def run_telegram_bot():
     app.add_handler(CallbackQueryHandler(listening_translate, pattern="^listening_translate$"))
     app.add_handler(CommandHandler("irregular", irregular_menu))
     app.add_handler(CallbackQueryHandler(irregular_menu, pattern="^start_irregular$"))
+    app.add_handler(CallbackQueryHandler(irregular_repeat, pattern="^irregular_repeat$"))
+    app.add_handler(CallbackQueryHandler(irregular_train, pattern="^irregular_train$"))
+    app.add_handler(CallbackQueryHandler(handle_irregular_list, pattern="^irrlist_"))
     app.add_handler(CommandHandler("stop", stop))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
+    # Support both new and legacy callback data formats
+    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^ans\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^skip\|"))
+    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
     app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
     app.add_handler(CallbackQueryHandler(handle_listening_skip, pattern="^audskip$"))
-    app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr"))
+    app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr(ans|skip)"))
     app.add_handler(CommandHandler("mywords", mywords))
     app.add_handler(CallbackQueryHandler(mywords, pattern="^start_mywords$"))
     app.add_handler(CallbackQueryHandler(handle_mywords_pagination, pattern="^mywords_(prev|next)$"))
@@ -878,6 +947,23 @@ def get_user_word_list(user):
         .values_list("word", "transcription", "translation")
         .order_by("word")
     )
+
+@sync_to_async
+def update_irregular_progress(user, base: str, correct: bool):
+    from .models import IrregularVerbProgress  # avoid circular import
+
+    progress, _ = IrregularVerbProgress.objects.get_or_create(
+        user=user,
+        verb_base=base,
+    )
+
+    if correct:
+        progress.correct_count += 1
+        if not progress.is_learned and progress.correct_count >= IRREGULAR_MASTERY_THRESHOLD:
+            progress.is_learned = True
+            user.irregular_correct += 1
+            user.save()
+    progress.save()
 
 async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
@@ -1131,7 +1217,7 @@ def get_user_progress(user):
     total = VocabularyItem.objects.filter(user=user).count()
     learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     learning = total - learned
-    irregular_learned = IrregularProgress.objects.filter(user=user, is_mastered=True).count()
+    irregular_learned = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
     start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))['created_at__min']
 
     user_stats = TelegramUser.objects.annotate(
@@ -1255,7 +1341,7 @@ def get_user_achievements(user):
     today = now().date()
 
     days = user.consecutive_days or 0
-    irregular = IrregularProgress.objects.filter(user=user, is_mastered=True).count()
+    irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
 
     achievements = []
 
@@ -1291,7 +1377,7 @@ def get_user_achievements(user):
 def get_new_achievements(user):
     learned_words = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     days = user.consecutive_days or 0
-    irregular = IrregularProgress.objects.filter(user=user, is_mastered=True).count()
+    irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
 
     word_achievements = [
         (10, "words_10", "🎉 Выучено 10 слов — Первый шаг!"),
@@ -1487,28 +1573,6 @@ def get_ordered_unlearned_words(user, count=10):
         .order_by("created_at", "id")[:count]
     )
 
-@sync_to_async
-def increment_irregular_mastery(user, base_form: str) -> bool:
-    """
-    Увеличивает счётчик по неправильному глаголу. Возвращает True,
-    если глагол впервые достиг порога освоения.
-    """
-    prog, _ = IrregularProgress.objects.get_or_create(user=user, base_form=base_form)
-    if prog.is_mastered:
-        return False
-    prog.correct_count += 1
-    just_mastered = False
-    if prog.correct_count >= IRREGULAR_MASTERY_THRESHOLD:
-        prog.is_mastered = True
-        just_mastered = True
-    prog.save()
-    return just_mastered
-
-
-@sync_to_async
-def get_irregular_mastered_count(user) -> int:
-    return IrregularProgress.objects.filter(user=user, is_mastered=True).count()
-
 async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("learning_stopped"):
         context.user_data["learning_stopped"] = False
@@ -1548,17 +1612,25 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_options = fakes + [word_obj.word]
     random.shuffle(all_options)
 
+    options_map = context.user_data.setdefault("rev_options", {})
+    options_map[str(word_obj.id)] = all_options
+
     keyboard = [
-        [InlineKeyboardButton(text=opt, callback_data=f"rev_{word_obj.id}|{opt}")]
-        for opt in all_options
+        [InlineKeyboardButton(text=opt, callback_data=f"rev|{word_obj.id}|{i}")]
+        for i, opt in enumerate(all_options)
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"revskip|{word_obj.id}")])
     keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
 
-    msg = f"""💬 *{word_obj.translation}*
+    msg = f"""💬 *{esc(word_obj.translation)}*
 
 Выбери правильный английский эквивалент:"""
-    await safe_reply(update, msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    await safe_reply(
+        update,
+        msg,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 @sync_to_async
 def get_fake_words(user, exclude_word, part_of_speech=None, count=3):
@@ -1604,8 +1676,64 @@ async def listening_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- IRREGULAR VERBS ---
 async def irregular_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start training irregular verbs without choosing the form."""
-    await irregular_train(update, context)
+    """Show menu for irregular verbs."""
+    keyboard = [
+        [InlineKeyboardButton("🔁 Повторять", callback_data="irregular_repeat")],
+        [InlineKeyboardButton("🔥 Тренироваться", callback_data="irregular_train")],
+    ]
+    await safe_reply(
+        update,
+        "Выбери режим:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def irregular_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show list of all irregular verbs with pagination."""
+    context.user_data["irrlist_page"] = 0
+    await _show_irregular_page(update, context)
+
+
+async def handle_irregular_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = context.user_data.get("irrlist_page", 0)
+    if query.data == "irrlist_prev":
+        page = max(0, page - 1)
+    elif query.data == "irrlist_next":
+        page += 1
+    context.user_data["irrlist_page"] = page
+    await _show_irregular_page(update, context)
+
+
+async def _show_irregular_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    page = context.user_data.get("irrlist_page", 0)
+    start = page * IRREGULARS_PER_PAGE
+    end = start + IRREGULARS_PER_PAGE
+    verbs = IRREGULAR_VERBS[start:end]
+
+    lines = [
+        f"🔹 *{v['base']}* — {v['past']} — {v['participle']} — {v['translation']}"
+        for v in verbs
+    ]
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Назад", callback_data="irrlist_prev"))
+    if end < len(IRREGULAR_VERBS):
+        nav.append(InlineKeyboardButton("Вперёд ▶️", callback_data="irrlist_next"))
+
+    keyboard = []
+    if nav:
+        keyboard.append(nav)
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="start_irregular")])
+
+    target = update.message or update.callback_query.message
+    await target.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 
 async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1648,6 +1776,18 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
     word = lesson.pop(0)
     correct = f"{word['past']} {word['participle']}"
     options = [correct] + word["wrong_pairs"]
+    unique_options = []
+    for opt in options:
+        if opt not in unique_options:
+            unique_options.append(opt)
+
+    while len(unique_options) < 4:
+        extra = get_random_pairs(word, 1, unique_options)
+        if not extra:
+            break
+        unique_options.extend(extra)
+
+    options = unique_options[:4]
     random.shuffle(options)
 
     keyboard = [
@@ -1712,15 +1852,10 @@ async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_
             session["correct"] += 1
         context.user_data[info_key] = session
 
-    # update user's irregular stats
+    # update user's irregular verb progress
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     if is_correct:
-        just_mastered = await increment_irregular_mastery(user, base)
-        if just_mastered:
-            # sync legacy counter for stats display
-            mastered = await get_irregular_mastered_count(user)
-            user.irregular_correct = mastered
-            await save_user(user)
+        await update_irregular_progress(user, base, True)
 
     # check for achievements
     new_achievements = await get_new_achievements(user)
@@ -1741,6 +1876,7 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    logging.info("/listening invoked by %s", update.effective_chat.id)
     lesson = user_lessons.get(f"aud_{update.effective_chat.id}")
     session_info = context.user_data.get("aud_session_info")
 
@@ -1769,13 +1905,20 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lesson = word_list
 
     word_obj = lesson.pop(0)
-    audio_path = await generate_tts_audio(word_obj.word)
+    logging.info(
+        "Listening question for %s: %s (%s)",
+        update.effective_chat.id,
+        word_obj.word,
+        word_obj.id,
+    )
+    audio_path = await generate_temp_audio(word_obj.word)
     with open(audio_path, "rb") as audio:
         await safe_reply(update, "🔊 Слушай внимательно:")
         if update.message:
             await update.message.reply_audio(audio)
         elif update.callback_query:
             await update.callback_query.message.reply_audio(audio)
+    os.remove(audio_path)
 
     mode = context.user_data.get("aud_mode", "word")
     keyboard = InlineKeyboardMarkup(
@@ -1809,26 +1952,35 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
     item = await get_word_by_id(item_id)
     mode = context.user_data.get("aud_mode", "word")
 
+    logging.info(
+        "listening answer from %s: %s (mode=%s, correct=%s/%s)",
+        update.effective_chat.id,
+        user_answer,
+        mode,
+        item.word,
+        item.translation,
+    )
+
     if mode == "translate":
         correct = item.translation.lower()
         is_correct = user_answer == correct
         await update_correct_count(item.id, correct=is_correct)
         response = (
-            f"✅ Верно! *{item.translation}* — {item.word}"
+            f"✅ Верно\\! *{esc(item.translation)}* — {esc(item.word)}"
             if is_correct else
-            f"❌ Неверно. *{item.translation}* — {item.word}"
+            f"❌ Неверно\\. *{esc(item.translation)}* — {esc(item.word)}"
         )
     else:
         correct = item.word.lower()
         is_correct = user_answer == correct
         await update_correct_count(item.id, correct=is_correct)
         response = (
-            f"✅ Верно! *{item.word}* — {item.translation}"
+            f"✅ Верно\\! *{esc(item.word)}* — {esc(item.translation)}"
             if is_correct else
-            f"❌ Неверно. *{item.word}* — {item.translation}"
+            f"❌ Неверно\\. *{esc(item.word)}* — {esc(item.translation)}"
         )
 
-    await update.message.reply_text(response, parse_mode="Markdown")
+    await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
     session = context.user_data.get("aud_session_info")
     if session:
         session["answered"] += 1
@@ -1843,15 +1995,18 @@ async def handle_listening_skip(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
+    logging.info("listening skip from %s", query.from_user.id)
+
     if "aud_current_word" not in context.user_data:
         return
 
     item_id = context.user_data.pop("aud_current_word")
     item = await get_word_by_id(item_id)
+    logging.info("skipped in listening by %s: %s", query.from_user.id, item.word)
 
     await query.edit_message_text(
-        f"⏭ Пропущено: *{item.word}* — {item.translation}",
-        parse_mode="Markdown",
+        f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
 
     session = context.user_data.get("aud_session_info")

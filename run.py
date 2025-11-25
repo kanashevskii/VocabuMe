@@ -163,8 +163,13 @@ def reminder_loop():
 
 
 def run_server():
-    # --noreload to avoid the Django autoreloader spawning a second process
-    execute_from_command_line(['manage.py', 'runserver', '0.0.0.0:8000', '--noreload'])
+    # Disable Django's autoreloader to avoid starting duplicate bot instances
+    execute_from_command_line([
+        'manage.py',
+        'runserver',
+        '--noreload',
+        '0.0.0.0:8000',
+    ])
 
 
 def main():
