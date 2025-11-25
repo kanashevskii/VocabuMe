@@ -3,14 +3,15 @@ import random
 import re
 import html
 import asyncio
-import django
 from urllib.parse import quote_plus
 from decouple import config
 from .irregular_verbs import IRREGULAR_VERBS
 import logging
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
-django.setup()
+# Note: django.setup() is not called here because:
+# 1. When imported from run.py, Django is already set up before the import
+# 2. When used in Django management commands, Django is automatically set up
+# Calling django.setup() here would cause it to be called twice, which is not idempotent
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (

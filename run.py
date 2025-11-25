@@ -61,6 +61,7 @@ def ensure_single_instance():
             except Exception:
                 pass
 
+            process_stopped = False
             for _ in range(10):
                 time.sleep(0.5)
                 try:
@@ -71,27 +72,33 @@ def ensure_single_instance():
                         os.remove(LOCK_FILE)
                     except FileNotFoundError:
                         pass
+                    process_stopped = True
                     break
-            else:
-                print(f"Instance PID {other_pid} still running. Sending SIGKILL...")
+            
+            if process_stopped:
+                continue
+            
+            # Process didn't stop with SIGTERM, try SIGKILL
+            print(f"Instance PID {other_pid} still running. Sending SIGKILL...")
+            try:
+                os.kill(other_pid, signal.SIGKILL)
+                time.sleep(0.5)
+            except Exception:
+                pass
+
+            try:
+                os.kill(other_pid, 0)
+            except ProcessLookupError:
+                # Process stopped after SIGKILL, remove lock and retry
                 try:
-                    os.kill(other_pid, signal.SIGKILL)
-                    time.sleep(0.5)
-                except Exception:
+                    os.remove(LOCK_FILE)
+                except FileNotFoundError:
                     pass
+                continue
 
-                try:
-                    os.kill(other_pid, 0)
-                except ProcessLookupError:
-                    try:
-                        os.remove(LOCK_FILE)
-                    except FileNotFoundError:
-                        pass
-                    # loop will retry acquiring
-                    continue
-
-                print(f"Instance PID {other_pid} still running. Stop it manually: kill {other_pid}")
-                sys.exit(1)
+            # Process is still running after SIGKILL
+            print(f"Instance PID {other_pid} still running. Stop it manually: kill {other_pid}")
+            sys.exit(1)
 
     def _cleanup():
         """Remove lock file. Should only be called once."""
