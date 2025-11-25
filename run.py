@@ -13,6 +13,9 @@ from telegram import Bot
 from core.logging_config import setup_logging
 
 LOCK_FILE = "/tmp/englishbot.lock"
+_shutdown_event = threading.Event()
+_cleanup_done = threading.Lock()
+_cleanup_called = False
 
 
 def ensure_single_instance():
@@ -90,16 +93,31 @@ def ensure_single_instance():
                 print(f"Instance PID {other_pid} still running. Stop it manually: kill {other_pid}")
                 sys.exit(1)
 
-    def _cleanup(*_):
+    def _cleanup():
+        """Remove lock file. Should only be called once."""
+        global _cleanup_called
+        with _cleanup_done:
+            if _cleanup_called:
+                return
+            _cleanup_called = True
+        
         try:
             os.remove(LOCK_FILE)
         except FileNotFoundError:
             pass
+
+    def _signal_handler(signum, frame):
+        """Handle shutdown signals gracefully."""
+        logging.info(f"Received signal {signum}, initiating graceful shutdown...")
+        _shutdown_event.set()
+        # Call sys.exit() to terminate the process gracefully
+        # The atexit handler will call _cleanup() which is now idempotent
+        # This ensures cleanup happens even if the signal handler is called
         sys.exit(0)
 
     atexit.register(_cleanup)
     for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, lambda signum, frame: _cleanup())
+        signal.signal(sig, _signal_handler)
 
 
 ensure_single_instance()
@@ -126,13 +144,15 @@ def send_alert(message: str):
 
 
 def reminder_loop():
-    while True:
+    while not _shutdown_event.is_set():
         try:
             call_command("send_reminders")
         except Exception as e:
             logging.exception("send_reminders failed: %s", e)
             send_alert(f"send_reminders failed: {e}")
-        time.sleep(60)
+        # Check shutdown event with timeout instead of blocking sleep
+        if _shutdown_event.wait(timeout=60):
+            break
 
 
 def run_server():
@@ -141,13 +161,22 @@ def run_server():
 
 
 def main():
-    bot_thread = threading.Thread(target=run_telegram_bot)
+    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
     bot_thread.start()
 
     reminder_thread = threading.Thread(target=reminder_loop, daemon=True)
     reminder_thread.start()
 
-    run_server()
+    try:
+        run_server()
+    except KeyboardInterrupt:
+        logging.info("KeyboardInterrupt received, shutting down...")
+    finally:
+        # Wait a moment for threads to finish
+        logging.info("Waiting for threads to finish...")
+        _shutdown_event.set()
+        # Give threads a moment to clean up (they're daemon threads, so they'll be killed on exit)
+        time.sleep(0.5)
 
 
 if __name__ == '__main__':

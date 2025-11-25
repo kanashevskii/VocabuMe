@@ -43,6 +43,7 @@ user_lessons = {}
 SET_REMINDER_TIME = 1
 
 MAX_IRREGULAR_PER_SESSION = 10
+IRREGULAR_MASTERY_THRESHOLD = 3
 
 def get_image_url(word: str, translation: str | None = None) -> str:
     """
@@ -1253,7 +1254,7 @@ def get_user_achievements(user):
     today = now().date()
 
     days = user.consecutive_days or 0
-    irregular = user.irregular_correct or 0
+    irregular = IrregularProgress.objects.filter(user=user, is_mastered=True).count()
 
     achievements = []
 
@@ -1485,6 +1486,28 @@ def get_ordered_unlearned_words(user, count=10):
         .order_by("created_at", "id")[:count]
     )
 
+@sync_to_async
+def increment_irregular_mastery(user, base_form: str) -> bool:
+    """
+    Увеличивает счётчик по неправильному глаголу. Возвращает True,
+    если глагол впервые достиг порога освоения.
+    """
+    prog, _ = IrregularProgress.objects.get_or_create(user=user, base_form=base_form)
+    if prog.is_mastered:
+        return False
+    prog.correct_count += 1
+    just_mastered = False
+    if prog.correct_count >= IRREGULAR_MASTERY_THRESHOLD:
+        prog.is_mastered = True
+        just_mastered = True
+    prog.save()
+    return just_mastered
+
+
+@sync_to_async
+def get_irregular_mastered_count(user) -> int:
+    return IrregularProgress.objects.filter(user=user, is_mastered=True).count()
+
 async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("learning_stopped"):
         context.user_data["learning_stopped"] = False
@@ -1691,8 +1714,12 @@ async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_
     # update user's irregular stats
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     if is_correct:
-        user.irregular_correct += 1
-        await save_user(user)
+        just_mastered = await increment_irregular_mastery(user, base)
+        if just_mastered:
+            # sync legacy counter for stats display
+            mastered = await get_irregular_mastered_count(user)
+            user.irregular_correct = mastered
+            await save_user(user)
 
     # check for achievements
     new_achievements = await get_new_achievements(user)
