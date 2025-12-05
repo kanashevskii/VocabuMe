@@ -3,7 +3,10 @@ import random
 import re
 import html
 import asyncio
+import hashlib
+from pathlib import Path
 from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
 from decouple import config
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
@@ -13,7 +16,7 @@ import logging
 # 2. When used in Django management commands, Django is automatically set up
 # Calling django.setup() here would cause it to be called twice, which is not idempotent
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 from telegram.ext import (
@@ -39,6 +42,7 @@ TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
 ADD_WORDS, WAIT_TRANSLATION = range(2)
 WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
+IMAGE_CACHE_DIR = Path("media/card_images")
 
 # Память сессии (временно)
 user_lessons = {}
@@ -49,14 +53,109 @@ MAX_IRREGULAR_PER_SESSION = 10
 IRREGULARS_PER_PAGE = 20
 IRREGULAR_MASTERY_THRESHOLD = 5
 
-def get_image_url(word: str, translation: str | None = None) -> str:
+def _stable_seed(key: str) -> int:
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    return int(digest, 16) % 1_000_000
+
+
+def get_image_queries(word_obj) -> list[str]:
+    word = getattr(word_obj, "word", "") or ""
+    translation = getattr(word_obj, "translation", "") or ""
+    example = getattr(word_obj, "example", "") or ""
+    part = (getattr(word_obj, "part_of_speech", "") or "").lower()
+
+    queries: list[str] = []
+    seen = set()
+
+    def add(q: str):
+        q = q.strip()
+        if q and q not in seen:
+            seen.add(q)
+            queries.append(q)
+
+    add(word)
+    if translation and translation != word:
+        add(translation)
+    if word and translation:
+        add(f"{word} {translation}")
+
+    if part.startswith("verb"):
+        add(f"{word} verb action")
+        add(f"{translation} глагол действие")
+    elif part.startswith("adjective"):
+        add(f"{word} adjective")
+        add(f"{translation} прилагательное")
+
+    if example:
+        # берём первые несколько слов примера, чтобы уточнить контекст
+        truncated = " ".join(example.split()[:6])
+        add(truncated)
+
+    return queries
+
+
+def get_image_urls(word_obj, seed: int = 0) -> list[str]:
     """
-    Возвращает URL на подходящее фото (без API-ключа) через source.unsplash.com.
-    Используем слово или перевод как поисковый запрос.
+    Возвращает список URL для подходящих фото (без API-ключа).
+    Делаем несколько запросов (EN/ru/комбо) и разные провайдеры с детерминированным сидом, чтобы уменьшить одинаковые картинки.
     """
-    query = translation or word
-    query = query.strip() or word
-    return f"https://source.unsplash.com/800x600/?{quote_plus(query)}"
+    urls: list[str] = []
+    queries = get_image_queries(word_obj)
+    if not queries:
+        return urls
+
+    for idx, query in enumerate(queries):
+        sig = (seed + idx * 137) % 1_000_000
+        q = quote_plus(query)
+        urls.append(f"https://source.unsplash.com/600x600/?{q}&sig={sig}")
+        urls.append(f"https://loremflickr.com/600/600/{q}?lock={sig}")
+
+    # запасной генератор без текста — чтобы хоть что-то отдать
+    urls.append(f"https://picsum.photos/seed/{seed}/600/600")
+    return urls
+
+
+async def fetch_image_bytes(word_obj) -> bytes | None:
+    """
+    Скачивает картинку из списка провайдеров и кладёт в кэш на диск, чтобы карточки открывались быстрее.
+    """
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    cache_key = f"{getattr(word_obj, 'id', '')}_{getattr(word_obj, 'word', '')}"
+    seed = _stable_seed(cache_key or (word_obj.translation or ""))
+
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", cache_key) or "word"
+    cache_path = IMAGE_CACHE_DIR / f"{slug}.jpg"
+
+    if cache_path.exists():
+        try:
+            return cache_path.read_bytes()
+        except Exception:
+            logging.warning("Failed to read image cache %s, will refetch", cache_path)
+
+    urls = get_image_urls(word_obj, seed)
+
+    def download(url: str) -> bytes | None:
+        try:
+            req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=8) as resp:
+                ctype = resp.headers.get("Content-Type", "")
+                if "image" not in ctype:
+                    raise ValueError(f"Unexpected content-type: {ctype}")
+                return resp.read()
+        except Exception as e:  # noqa: BLE001 — логируем и идём к следующему урлу
+            logging.warning("Image fetch failed for %s: %s", url, e)
+            return None
+
+    for url in urls:
+        data = await asyncio.to_thread(download, url)
+        if data:
+            try:
+                cache_path.write_bytes(data)
+            except Exception:
+                logging.warning("Failed to write image cache %s", cache_path)
+            return data
+    return None
 
 async def finalize_add_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replies = context.user_data.pop("add_replies", [])
@@ -365,13 +464,15 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     session = context.user_data.get("cards_info")
     lesson = context.user_data.get("cards_queue")
+    callback_data = update.callback_query.data if update.callback_query else None
     is_start = (
         update.message
-        or (update.callback_query and update.callback_query.data == "start_learn_cards")
+        or callback_data == "start_learn_cards"
     )
+    is_repeat = callback_data == "cards_repeat"
 
     # Если нажали "Далее", но сессия потерялась — не перезапускаем автоматически
-    if not lesson and not is_start:
+    if not lesson and not (is_start or is_repeat):
         await safe_reply(
             update,
             "Нет активной сессии карточек. Нажми «Учить», чтобы начать заново.",
@@ -385,7 +486,37 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("cards_info", None)
         return
 
-    if not lesson:
+    if is_repeat:
+        last_ids = context.user_data.get("cards_last_batch_ids")
+        if not last_ids:
+            await safe_reply(
+                update,
+                "Нет предыдущей подборки, чтобы повторить. Нажми «Учить», чтобы начать заново.",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("📚 Учить", callback_data="start_learn_cards")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+                    ]
+                ),
+            )
+            return
+
+        word_list = []
+        for wid in last_ids:
+            word = await get_word_by_id(wid)
+            if word:
+                word_list.append(word)
+
+        if not word_list:
+            await safe_reply(update, "Не удалось загрузить прошлые карточки. Попробуй начать заново через «Учить».")
+            return
+
+        lesson = list(word_list)
+        context.user_data["cards_queue"] = lesson
+        context.user_data["cards_info"] = {"total": len(word_list), "shown": 0}
+        context.user_data["cards_last_batch_ids"] = list(last_ids)
+
+    if not lesson and not is_repeat:
         word_list = await get_ordered_unlearned_words(user, count=MAX_WORDS_PER_SESSION)
         if not word_list:
             await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
@@ -394,6 +525,7 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lesson = list(word_list)
         context.user_data["cards_queue"] = lesson
         context.user_data["cards_info"] = {"total": len(word_list), "shown": 0}
+        context.user_data["cards_last_batch_ids"] = [w.id for w in word_list]
 
     word_obj = lesson.pop(0)
     context.user_data["cards_queue"] = lesson
@@ -413,25 +545,35 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         context.user_data.pop("cards_info", None)
         context.user_data.pop("cards_queue", None)
-        buttons.insert(0, [InlineKeyboardButton("🔁 Ещё карточки", callback_data="start_learn_cards")])
+        buttons.insert(
+            0,
+            [
+                InlineKeyboardButton("🔁 Повторить эти 10", callback_data="cards_repeat"),
+            ],
+        )
+        buttons.insert(1, [InlineKeyboardButton("➡️ Следующие 10", callback_data="start_learn_cards")])
 
     transcription = word_obj.transcription or ""
     example_text = word_obj.example or ""
     example_translation = word_obj.example_translation or ""
-    image_url = get_image_url(word_obj.word, word_obj.translation)
+    photo_sent = False
+    image_bytes = await fetch_image_bytes(word_obj)
+    if image_bytes:
+        try:
+            await update.effective_chat.send_photo(
+                photo=InputFile(image_bytes, filename="card.jpg"),
+                caption=(
+                    f"📚 Карточка {session['shown']}/{session['total']}\n"
+                    f"<b>{html.escape(word_obj.word)}</b> — {html.escape(word_obj.translation)}"
+                ),
+                parse_mode="HTML",
+            )
+            photo_sent = True
+        except Exception:
+            logging.exception("Failed to send downloaded image for %s", word_obj.word)
 
-    # отправляем картинку
-    try:
-        await update.effective_chat.send_photo(
-            photo=image_url,
-            caption=(
-                f"📚 Карточка {session['shown']}/{session['total']}\n"
-                f"<b>{html.escape(word_obj.word)}</b> — {html.escape(word_obj.translation)}"
-            ),
-            parse_mode="HTML",
-        )
-    except Exception:
-        logging.exception("Failed to send image for %s", word_obj.word)
+    if not photo_sent:
+        logging.warning("No image providers worked for %s", word_obj.word)
 
     # отправляем аудио (не генерируем повторно, если уже есть)
     try:
@@ -744,9 +886,17 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["session_info"] = session
 
         # 🗣️ Озвучка пропущенного
-        audio_path = await generate_tts_audio(item.word)
-        with open(audio_path, "rb") as audio:
-            await query.message.reply_audio(audio)
+        try:
+            audio_path = await generate_tts_audio(item.word)
+            with open(audio_path, "rb") as audio:
+                await query.message.reply_audio(audio)
+        except Exception as e:
+            logging.exception(
+                "Failed to send reverse skip audio for %s (user %s): %s",
+                item.word,
+                query.from_user.id,
+                e,
+            )
 
         await learn_reverse(update, context)
         return
@@ -767,9 +917,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update_correct_count(item.id, correct=is_correct)
 
         response = (
-            f"✅ Верно\\! *{esc(item.translation)}* = {esc(item.word)}"
+            f"✅ Верно\\! *{esc(item.translation)}* \\= {esc(item.word)}"
             if is_correct else
-            f"❌ Неверно\\. *{esc(item.translation)}* = {esc(item.word)}"
+            f"❌ Неверно\\. *{esc(item.translation)}* \\= {esc(item.word)}"
         )
 
         await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
@@ -781,9 +931,17 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["session_info"] = session
 
         # 🗣️ Озвучка после ответа
-        audio_path = await generate_tts_audio(item.word)
-        with open(audio_path, "rb") as audio:
-            await query.message.reply_audio(audio)
+        try:
+            audio_path = await generate_tts_audio(item.word)
+            with open(audio_path, "rb") as audio:
+                await query.message.reply_audio(audio)
+        except Exception as e:
+            logging.exception(
+                "Failed to send reverse answer audio for %s (user %s): %s",
+                item.word,
+                query.from_user.id,
+                e,
+            )
 
         await learn_reverse(update, context)
         return
@@ -885,6 +1043,7 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("learn", learn_cards))
     app.add_handler(CallbackQueryHandler(learn_cards, pattern="^start_learn_cards$"))
     app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_next$"))
+    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_repeat$"))
     app.add_handler(CommandHandler("practice", practice_menu))
     app.add_handler(CallbackQueryHandler(practice_menu, pattern="^start_practice$"))
     app.add_handler(CommandHandler("learnreverse", learn_reverse))

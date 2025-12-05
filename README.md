@@ -1,66 +1,66 @@
 # VocabuMe
 
-VocabuMe is a Telegram bot built with Django that helps users learn English vocabulary. It provides commands to add words, start training sessions and receive learning reminders.
+Телеграм‑бот на Django для изучения английских слов. Помогает добавлять лексику, тренироваться в карточках и проверять прогресс.
 
-## Features
-- **/add** – add new words or phrases
-- **/learn** – start training (EN→RU)
-  - includes Russian translation of examples hidden with Telegram spoiler markup
-- **/learnreverse** – reverse training (RU→EN)
-- **/listening** – listening practice
-- **/irregular** – practice irregular verbs (each verb is learned after 5 correct answers)
-- **/mywords** – view your vocabulary list
-- **/progress** – show statistics and achievements
-- Daily reminders run automatically without cron
+## Что умеет бот
+- `/add` — добавить слова или фразы (можно пачкой, поддерживается формат `word - перевод`)
+- `/learn` — режим карточек EN→RU (10 штук за сессию, в конце можно повторить те же или взять следующие 10)
+- `/practice` — практика перевода с вариантами ответа  
+  - «Классический» EN→RU  
+  - «Обратный» RU→EN
+- `/listening` — аудирование по добавленным словам
+- `/irregular` — тренировки неправильных глаголов (глагол засчитывается после 5 верных)
+- `/mywords` — список своих слов
+- `/progress` — статистика и достижения
+- `/settings` — напоминания и параметры тренировок
+- Напоминания рассылаются автоматически, без cron
 
-## Requirements
+## Требования
 - Python 3.10+
-- PostgreSQL database
-- Telegram bot token
-- OpenAI API key
+- PostgreSQL
+- Токен Telegram‑бота
+- Ключ OpenAI API
 
-## Installation
-1. Clone the repository and install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Create a `.env` file with the following variables:
-   ```env
-   SECRET_KEY=your-secret-key
-   DEBUG=False
-   DB_NAME=dbname
-   DB_USER=dbuser
-   DB_PASSWORD=dbpass
-   DB_HOST=localhost
-   DB_PORT=5432
-   TELEGRAM_TOKEN=your-telegram-token
-   OPENAI_API_KEY=your-openai-key
-   ALERT_CHAT_ID=your-telegram-id
-   ```
-3. Apply database migrations:
-   ```bash
-   python manage.py migrate --noinput
-   ```
-4. Start the bot and web server:
-   ```bash
-   python run.py
-   ```
+## Установка и запуск
+1) Установите зависимости:
+```bash
+pip install -r requirements.txt
+```
+2) Создайте `.env`:
+```env
+SECRET_KEY=your-secret-key
+DEBUG=False
+DB_NAME=dbname
+DB_USER=dbuser
+DB_PASSWORD=dbpass
+DB_HOST=localhost
+DB_PORT=5432
+TELEGRAM_TOKEN=your-telegram-token
+OPENAI_API_KEY=your-openai-key
+ALERT_CHAT_ID=your-telegram-id
+```
+3) Примените миграции:
+```bash
+python manage.py migrate --noinput
+```
+4) Запустите бота и веб‑сервер:
+```bash
+python run.py
+```
 
-## Maintenance
-If you updated the bot to sanitize words, run the following script once to clean
-existing entries:
-
+## Обслуживание
+После обновления логики очистки слов один раз выполните:
 ```bash
 python scripts/clean_existing_words.py
 ```
 
-## Deployment
-A sample GitHub Actions workflow is provided in `.github/workflows/deploy.yml`. It pulls the latest code on the server, installs dependencies, runs migrations and restarts the `englishbot.service` systemd unit. Configure SSH credentials and the deployment path via repository secrets:
+## Деплой
+В `.github/workflows/deploy.yml` есть пример GitHub Actions: он подтягивает код на сервер, ставит зависимости, накатывает миграции и рестартует `englishbot.service`. Настройте секреты репозитория:
 - `SSH_HOST`
 - `SSH_USER`
 - `SSH_KEY`
 - `SSH_PORT`
 - `REMOTE_PATH`
 
-## License
-This project is released under the MIT License.
+## Лицензия
+MIT License.
