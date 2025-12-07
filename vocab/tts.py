@@ -50,7 +50,7 @@ def _is_valid_audio(path: str) -> bool:
 async def generate_tts_audio(text: str) -> str:
     """
     Generate or return the path of a TTS file named after the text.
-    Ensures non-empty audio; retries once if generation produced a zero-byte file.
+    gTTS — основной, edge-tts — резерв.
     """
     if not text or not text.strip():
         raise ValueError("Empty text for TTS")
@@ -64,8 +64,20 @@ async def generate_tts_audio(text: str) -> str:
     if _is_valid_audio(plain_path):
         return plain_path
 
-    attempts = 2
+    # Primary: gTTS (быстрее/стабильнее в нашей среде)
     last_err = None
+    try:
+        tts = gTTS(text)
+        tts.save(plain_path)
+        if _is_valid_audio(plain_path):
+            logging.info("gTTS generated audio for %s", text)
+            return plain_path
+    except Exception as exc:  # noqa: BLE001
+        last_err = exc
+        logging.exception("gTTS failed for %s: %s", text, exc)
+
+    # Fallback: edge-tts с несколькими голосами
+    attempts = 2
     voices = ["en-US-AriaNeural", "en-US-JennyNeural", "en-GB-RyanNeural"]
     for voice in voices:
         for _ in range(attempts):
@@ -73,6 +85,7 @@ async def generate_tts_audio(text: str) -> str:
                 communicate = edge_tts.Communicate(text, voice=voice)
                 await communicate.save(plain_path)
                 if _is_valid_audio(plain_path):
+                    logging.info("edge-tts generated audio for %s with %s", text, voice)
                     return plain_path
                 logging.warning("Generated empty TTS for %s with %s, retrying", text, voice)
             except NoAudioReceived as exc:
@@ -88,17 +101,6 @@ async def generate_tts_audio(text: str) -> str:
             os.remove(plain_path)
         except Exception:
             logging.warning("Failed to remove empty TTS file %s", plain_path)
-
-    # Fallback: Google TTS (requires network, but бесплатный)
-    try:
-        tts = gTTS(text)
-        tts.save(plain_path)
-        if _is_valid_audio(plain_path):
-            logging.info("Used gTTS fallback for %s", text)
-            return plain_path
-    except Exception as exc:  # noqa: BLE001
-        last_err = last_err or exc
-        logging.exception("gTTS fallback failed for %s: %s", text, exc)
 
     if last_err:
         raise last_err

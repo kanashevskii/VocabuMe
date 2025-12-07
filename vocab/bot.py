@@ -19,6 +19,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
+from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -410,6 +411,13 @@ async def safe_reply(update: Update, text: str, **kwargs):
     elif update.callback_query:
         await update.callback_query.message.reply_text(text, **kwargs)
 
+
+async def safe_answer(query):
+    try:
+        await query.answer()
+    except BadRequest as exc:
+        logging.warning("Callback answer failed (possibly stale): %s", exc)
+
 def get_praise(correct: int, total: int) -> str:
     if total == 0:
         return ""
@@ -427,7 +435,10 @@ def get_praise(correct: int, total: int) -> str:
 # --- START ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
-        await update.callback_query.answer()
+        try:
+            await update.callback_query.answer()
+        except BadRequest as exc:
+            logging.warning("Callback answer failed (possibly stale): %s", exc)
 
     keyboard = [
         [
@@ -466,7 +477,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает карточки по одному слову без вариантов ответа."""
     if update.callback_query:
-        await update.callback_query.answer()
+        await safe_answer(update.callback_query)
 
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     session = context.user_data.get("cards_info")
@@ -624,7 +635,7 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def practice_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
-        await update.callback_query.answer()
+        await safe_answer(update.callback_query)
 
     keyboard = InlineKeyboardMarkup(
         [
@@ -876,7 +887,7 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- HANDLE ANSWER ---
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
 
     logging.info("handle_answer from %s: %s", query.from_user.id, query.data)
 
