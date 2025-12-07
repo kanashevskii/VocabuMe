@@ -3,6 +3,9 @@ import hashlib
 import re
 import shutil
 import edge_tts
+import logging
+from gtts import gTTS
+from edge_tts.exceptions import NoAudioReceived
 
 AUDIO_DIR = "media/audio"
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -37,16 +40,69 @@ def get_audio_path(text: str) -> str:
         return hashed_path
     return plain_path
 
+def _is_valid_audio(path: str) -> bool:
+    try:
+        return os.path.exists(path) and os.path.getsize(path) > 0
+    except Exception:
+        return False
+
+
 async def generate_tts_audio(text: str) -> str:
-    """Generate or return the path of a TTS file named after the text."""
+    """
+    Generate or return the path of a TTS file named after the text.
+    Ensures non-empty audio; retries once if generation produced a zero-byte file.
+    """
+    if not text or not text.strip():
+        raise ValueError("Empty text for TTS")
+
     plain_path = get_plain_path(text)
     hashed_path = get_hashed_path(text)
     if not os.path.exists(plain_path) and os.path.exists(hashed_path):
         os.rename(hashed_path, plain_path)
-    if not os.path.exists(plain_path):
-        communicate = edge_tts.Communicate(text, voice="en-US-AriaNeural")
-        await communicate.save(plain_path)
-    return plain_path
+
+    # if we already have a valid file — reuse
+    if _is_valid_audio(plain_path):
+        return plain_path
+
+    attempts = 2
+    last_err = None
+    voices = ["en-US-AriaNeural", "en-US-JennyNeural", "en-GB-RyanNeural"]
+    for voice in voices:
+        for _ in range(attempts):
+            try:
+                communicate = edge_tts.Communicate(text, voice=voice)
+                await communicate.save(plain_path)
+                if _is_valid_audio(plain_path):
+                    return plain_path
+                logging.warning("Generated empty TTS for %s with %s, retrying", text, voice)
+            except NoAudioReceived as exc:
+                last_err = exc
+                logging.warning("No audio received for %s with %s", text, voice)
+            except Exception as exc:  # noqa: BLE001 logging to avoid silent failures
+                last_err = exc
+                logging.exception("TTS generation failed for %s with %s: %s", text, voice, exc)
+
+    # cleanup empty file so we don't keep sending empty mp3
+    if os.path.exists(plain_path) and os.path.getsize(plain_path) == 0:
+        try:
+            os.remove(plain_path)
+        except Exception:
+            logging.warning("Failed to remove empty TTS file %s", plain_path)
+
+    # Fallback: Google TTS (requires network, but бесплатный)
+    try:
+        tts = gTTS(text)
+        tts.save(plain_path)
+        if _is_valid_audio(plain_path):
+            logging.info("Used gTTS fallback for %s", text)
+            return plain_path
+    except Exception as exc:  # noqa: BLE001
+        last_err = last_err or exc
+        logging.exception("gTTS fallback failed for %s: %s", text, exc)
+
+    if last_err:
+        raise last_err
+    raise ValueError(f"Failed to generate audio for {text}")
 
 
 async def generate_temp_audio(text: str) -> str:

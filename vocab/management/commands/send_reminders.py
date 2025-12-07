@@ -5,6 +5,7 @@ from django.utils.timezone import now
 from vocab.models import TelegramUser
 from telegram import Bot
 from decouple import config
+from vocab.utils import timezone_from_name
 
 class Command(BaseCommand):
     help = "Send learning reminders to users"
@@ -24,20 +25,21 @@ class Command(BaseCommand):
 
     async def _async_handle(self):
         bot = Bot(token=config("TELEGRAM_TOKEN"))
-        today = now().date()
-        current_time = now().time()
-
         self.stdout.write(f"⏰ Запуск напоминаний: {now().strftime('%Y-%m-%d %H:%M')}")
 
         users = await self._get_users()
 
         for user in users:
-            if user.reminder_time and current_time < user.reminder_time:
-                self.stdout.write(f"⏳ Ещё не время для {user.chat_id}")
+            user_tz = timezone_from_name(getattr(user, "reminder_timezone", "UTC"))
+            current_local = now().astimezone(user_tz)
+            today_local = current_local.date()
+
+            if user.reminder_time and current_local.time() < user.reminder_time:
+                self.stdout.write(f"⏳ Ещё не время для {user.chat_id} ({user.reminder_time} {user.reminder_timezone})")
                 continue
 
             if user.last_reminder_sent_at:
-                days_since_last = (today - user.last_reminder_sent_at).days
+                days_since_last = (today_local - user.last_reminder_sent_at).days
                 if days_since_last < user.reminder_interval_days:
                     self.stdout.write(f"⏭ Пропущен {user.chat_id} — уже было {user.last_reminder_sent_at}")
                     continue
@@ -47,7 +49,7 @@ class Command(BaseCommand):
                     chat_id=user.chat_id,
                     text="🕒 Время для повторения слов! Напиши /learn, чтобы продолжить обучение."
                 )
-                await self._mark_sent(user, today)
+                await self._mark_sent(user, today_local)
                 self.stdout.write(self.style.SUCCESS(f"✅ Напоминание отправлено {user.chat_id}"))
             except Exception as e:
                 self.stderr.write(f"❌ Ошибка отправки {user.chat_id}: {e}")

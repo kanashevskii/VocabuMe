@@ -13,6 +13,7 @@ class TelegramUser(models.Model):
     reminder_time = models.TimeField(default=time(8, 0))
     reminder_interval_days = models.PositiveIntegerField(default=1)
     last_reminder_sent_at = models.DateField(null=True, blank=True)
+    reminder_timezone = models.CharField(max_length=50, default="UTC")
 
     joined_at = models.DateField(auto_now_add=True)
     total_study_days = models.PositiveIntegerField(default=0)

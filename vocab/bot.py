@@ -31,8 +31,14 @@ from telegram.ext import (
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
 from .openai_utils import generate_word_data, detect_language
-from .utils import clean_word, translate_to_ru
-from .tts import generate_tts_audio, generate_temp_audio, get_audio_path
+from .utils import (
+    clean_word,
+    translate_to_ru,
+    normalize_timezone_value,
+    timezone_from_name,
+    format_timezone_short,
+)
+from .tts import generate_tts_audio, generate_temp_audio
 from django.db import IntegrityError
 from django.db.models import Count, Q, Min
 from django.utils.timezone import now
@@ -48,6 +54,7 @@ IMAGE_CACHE_DIR = Path("media/card_images")
 user_lessons = {}
 
 SET_REMINDER_TIME = 1
+SET_REMINDER_TZ = 2
 
 MAX_IRREGULAR_PER_SESSION = 10
 IRREGULARS_PER_PAGE = 20
@@ -107,11 +114,11 @@ def get_image_urls(word_obj, seed: int = 0) -> list[str]:
     for idx, query in enumerate(queries):
         sig = (seed + idx * 137) % 1_000_000
         q = quote_plus(query)
-        urls.append(f"https://source.unsplash.com/600x600/?{q}&sig={sig}")
-        urls.append(f"https://loremflickr.com/600/600/{q}?lock={sig}")
+        urls.append(f"https://source.unsplash.com/random/?{q}&sig={sig}")
+        urls.append(f"https://loremflickr.com/1280/720/{q}?lock={sig}")
 
     # запасной генератор без текста — чтобы хоть что-то отдать
-    urls.append(f"https://picsum.photos/seed/{seed}/600/600")
+    urls.append(f"https://picsum.photos/seed/{seed}/1280/720")
     return urls
 
 
@@ -465,11 +472,13 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = context.user_data.get("cards_info")
     lesson = context.user_data.get("cards_queue")
     callback_data = update.callback_query.data if update.callback_query else None
+    is_next_batch = callback_data == "cards_next_batch"
     is_start = (
         update.message
-        or callback_data == "start_learn_cards"
+        or callback_data in ("start_learn_cards", "cards_next_batch")
     )
     is_repeat = callback_data == "cards_repeat"
+    previous_batch_ids = context.user_data.get("cards_last_batch_ids") if is_next_batch else None
 
     # Если нажали "Далее", но сессия потерялась — не перезапускаем автоматически
     if not lesson and not (is_start or is_repeat):
@@ -517,9 +526,25 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["cards_last_batch_ids"] = list(last_ids)
 
     if not lesson and not is_repeat:
-        word_list = await get_ordered_unlearned_words(user, count=MAX_WORDS_PER_SESSION)
+        word_list = await get_ordered_unlearned_words(
+            user,
+            count=MAX_WORDS_PER_SESSION,
+            exclude_ids=previous_batch_ids or None,
+        )
         if not word_list:
-            await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
+            if previous_batch_ids:
+                await safe_reply(
+                    update,
+                    "Новых карточек пока нет — можно добавить слова через /add или повторить предыдущие.",
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [InlineKeyboardButton("🔁 Повторить эти 10", callback_data="cards_repeat")],
+                            [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+                        ]
+                    ),
+                )
+            else:
+                await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
             return
 
         lesson = list(word_list)
@@ -551,7 +576,7 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("🔁 Повторить эти 10", callback_data="cards_repeat"),
             ],
         )
-        buttons.insert(1, [InlineKeyboardButton("➡️ Следующие 10", callback_data="start_learn_cards")])
+        buttons.insert(1, [InlineKeyboardButton("➡️ Следующие 10", callback_data="cards_next_batch")])
 
     transcription = word_obj.transcription or ""
     example_text = word_obj.example or ""
@@ -577,9 +602,7 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # отправляем аудио (не генерируем повторно, если уже есть)
     try:
-        audio_path = get_audio_path(word_obj.word)
-        if not os.path.exists(audio_path):
-            audio_path = await generate_tts_audio(word_obj.word)
+        audio_path = await generate_tts_audio(word_obj.word)
         with open(audio_path, "rb") as audio:
             if update.message:
                 await update.message.reply_audio(audio)
@@ -587,6 +610,7 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.callback_query.message.reply_audio(audio)
     except Exception:
         logging.exception("Failed to send TTS for %s", word_obj.word)
+        await safe_reply(update, "⚠️ Не удалось озвучить слово, попробуй позже.")
 
     msg = (
         f"📚 Карточка {session['shown']}/{session['total']}\n"
@@ -1029,9 +1053,13 @@ def run_telegram_bot():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     reminder_time_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handle_settings_callback, pattern="^set_reminder_time$")],
+        entry_points=[
+            CallbackQueryHandler(handle_settings_callback, pattern="^set_reminder_time$"),
+            CallbackQueryHandler(handle_settings_callback, pattern="^set_reminder_tz$"),
+        ],
         states={
             SET_REMINDER_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_reminder_time)],
+            SET_REMINDER_TZ: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_reminder_timezone)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -1042,6 +1070,7 @@ def run_telegram_bot():
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("learn", learn_cards))
     app.add_handler(CallbackQueryHandler(learn_cards, pattern="^start_learn_cards$"))
+    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_next_batch$"))
     app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_next$"))
     app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_repeat$"))
     app.add_handler(CommandHandler("practice", practice_menu))
@@ -1083,7 +1112,7 @@ def run_telegram_bot():
             pattern=(
                 "^(settings_repeat|settings_review|settings_reminders|back_to_settings|"
                 "set_repeat_|toggle_review|toggle_reminder|set_review_days_|"
-                "set_reminder_interval_|set_reminder_time$)"
+                "set_reminder_interval_|set_reminder_time|set_reminder_tz)$"
             ),
         )
     )
@@ -1130,7 +1159,7 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     words, total = await get_user_word_page(user, page)
     if not words:
-        await update.message.reply_text("📭 У тебя пока нет слов для изучения. Добавь их через /add")
+        await safe_reply(update, "📭 У тебя пока нет слов для изучения. Добавь их через /add")
         return
 
     lines = []
@@ -1177,6 +1206,7 @@ def _main_settings_text(user):
     repeat_text = f"Слово изучается после *{user.repeat_threshold}* правильных ответов"
     review_text = "включено" if user.enable_review_old_words else "выключено"
     reminder_text = "включены" if user.reminder_enabled else "отключены"
+    tz_text = format_timezone_short(user.reminder_timezone or "UTC")
 
     interval_map = {1: "каждый день", 2: "через день"}
     interval_text = interval_map.get(user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней")
@@ -1187,6 +1217,7 @@ def _main_settings_text(user):
         f"🔁 {repeat_text}\n"
         f"📅 Повтор старых слов: *{review_text}*\n"
         f"⏰ Напоминания: *{reminder_text}*\n"
+        f"🌍 Часовой пояс: *{tz_text}*\n"
         f"📅 Интервал: *{interval_text}*\n"
         f"🕒 Время: *{time_text}*"
     )
@@ -1246,6 +1277,7 @@ def _reminder_settings_keyboard(user: TelegramUser):
             InlineKeyboardButton("📅 Каждый день", callback_data="set_reminder_interval_1"),
             InlineKeyboardButton("📅 Через день", callback_data="set_reminder_interval_2"),
         ],
+        [InlineKeyboardButton("🌍 Часовой пояс", callback_data="set_reminder_tz")],
         [InlineKeyboardButton("🕒 Установить время", callback_data="set_reminder_time")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
     ]
@@ -1255,11 +1287,13 @@ def _reminder_menu_text(user):
     interval_map = {1: "каждый день", 2: "через день"}
     interval_text = interval_map.get(user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней")
     time_text = user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
+    tz_text = format_timezone_short(user.reminder_timezone or "UTC")
     return (
         "⏰ *Напоминания*\n\n"
         f"Сейчас: *{reminder_text}*\n"
         f"Интервал: *{interval_text}*\n"
-        f"Время: *{time_text}*"
+        f"Время: *{time_text}*\n"
+        f"Часовой пояс: *{tz_text}*"
     )
 
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1371,6 +1405,13 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         )
         return SET_REMINDER_TIME
 
+    elif data == "set_reminder_tz":
+        await query.edit_message_text(
+            "🌍 Введите часовой пояс. Примеры: `Europe/Moscow`, `UTC+03`, `-5`",
+            parse_mode="Markdown",
+        )
+        return SET_REMINDER_TZ
+
 @sync_to_async
 def get_user_progress(user):
     total = VocabularyItem.objects.filter(user=user).count()
@@ -1457,6 +1498,11 @@ def update_user_reminder_time(user, time_obj):
     user.reminder_time = time_obj
     user.save()
 
+@sync_to_async
+def update_user_timezone(user, tz_value: str):
+    user.reminder_timezone = tz_value
+    user.save(update_fields=["reminder_timezone"])
+
 async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
@@ -1493,6 +1539,39 @@ async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
         return SET_REMINDER_TIME
+
+
+async def set_reminder_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+
+    try:
+        normalized = normalize_timezone_value(text)
+        await update_user_timezone(user, normalized)
+
+        tzinfo = timezone_from_name(normalized)
+        offset = (datetime.now(tzinfo).utcoffset() or timedelta(0)) if tzinfo else timedelta(0)
+        total_minutes = int(offset.total_seconds() // 60)
+        sign = "+" if total_minutes >= 0 else "-"
+        total_minutes = abs(total_minutes)
+        hours, minutes = divmod(total_minutes, 60)
+        offset_text = f"UTC{sign}{hours:02d}:{minutes:02d}"
+
+        await safe_reply(
+            update,
+            f"✅ Часовой пояс сохранён: *{normalized}* ({offset_text}).",
+            parse_mode="Markdown",
+        )
+        await settings(update, context)
+        return ConversationHandler.END
+    except Exception as exc:  # noqa: BLE001 broad catch to prompt retry
+        logging.exception("Failed to parse timezone: %s", exc)
+        await safe_reply(
+            update,
+            "⚠️ Не удалось распознать часовой пояс. Примеры: `Europe/Moscow`, `UTC+03`, `-5`",
+            parse_mode="Markdown",
+        )
+        return SET_REMINDER_TZ
 
 @sync_to_async
 def get_user_achievements(user):
@@ -1721,14 +1800,16 @@ def get_available_parts(user):
     )
 
 @sync_to_async
-def get_ordered_unlearned_words(user, count=10):
+def get_ordered_unlearned_words(user, count=10, exclude_ids=None):
     """
     Возвращает первые N невыученных слов в порядке добавления,
     чтобы последовательность карточек была стабильной.
     """
+    exclude_ids = exclude_ids or []
     return list(
         VocabularyItem.objects
         .filter(user=user, is_learned=False)
+        .exclude(id__in=exclude_ids)
         .order_by("created_at", "id")[:count]
     )
 
