@@ -36,6 +36,7 @@ class VocabularyItem(models.Model):
     correct_count = models.IntegerField(default=0)
     is_learned = models.BooleanField(default=False)
     part_of_speech = models.CharField(max_length=50, default="unknown")
+    image_path = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

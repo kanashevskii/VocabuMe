@@ -28,7 +28,12 @@ SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', cast=bool)
 
 
-ALLOWED_HOSTS = ['185.250.37.204', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = [
+    '185.250.37.204',
+    'localhost',
+    '127.0.0.1',
+    'vmi2583759.contaboserver.net',
+]
 
 
 # Application definition
