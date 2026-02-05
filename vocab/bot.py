@@ -50,8 +50,18 @@ TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
 ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
 WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
-IMAGE_CACHE_DIR = Path("media/card_images")
-USER_IMAGE_DIR = Path("media/user_images")
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MEDIA_ROOT = PROJECT_ROOT / "media"
+IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
+USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
+
+
+def _to_project_relative(path: Path) -> str:
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except Exception:
+        return str(path)
 
 # Память сессии (временно)
 user_lessons = {}
@@ -141,12 +151,23 @@ async def fetch_image_bytes(word_obj) -> bytes | None:
     if manual_path:
         manual_file = Path(manual_path)
         if not manual_file.is_absolute():
-            manual_file = Path() / manual_file
-        if manual_file.exists():
-            try:
-                return manual_file.read_bytes()
-            except Exception:
-                logging.warning("Failed to read manual image %s", manual_file)
+            manual_file = PROJECT_ROOT / manual_file
+        try:
+            resolved = manual_file.resolve(strict=True)
+        except FileNotFoundError:
+            resolved = None
+        except Exception:
+            resolved = None
+
+        if resolved is not None:
+            allowed_roots = (IMAGE_CACHE_DIR.resolve(), USER_IMAGE_DIR.resolve())
+            if any(resolved.is_relative_to(root) for root in allowed_roots):
+                try:
+                    return resolved.read_bytes()
+                except Exception:
+                    logging.warning("Failed to read manual image %s", resolved)
+            else:
+                logging.warning("Rejected unsafe image_path outside media dirs: %s", resolved)
 
     cache_key = f"{getattr(word_obj, 'id', '')}_{getattr(word_obj, 'word', '')}"
     seed = _stable_seed(cache_key or (word_obj.translation or ""))
@@ -990,7 +1011,7 @@ async def prompt_photo_selection(update: Update, context: ContextTypes.DEFAULT_T
         auto_path = compute_image_cache_path(word_obj)
         auto_bytes = await fetch_image_bytes(word_obj)
         if auto_bytes:
-            context.user_data["auto_image_path"] = str(auto_path)
+            context.user_data["auto_image_path"] = _to_project_relative(auto_path)
             keyboard_rows.insert(0, [InlineKeyboardButton("✅ Оставить это фото", callback_data="photo_accept")])
             await safe_reply(
                 update,
@@ -1082,7 +1103,7 @@ async def handle_photo_upload(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await file.download_to_drive(custom_path=str(dest))
 
-    data["image_path"] = str(dest)
+    data["image_path"] = _to_project_relative(dest)
     context.user_data["pending_data"] = data
     context.user_data.pop("auto_image_path", None)
 

@@ -29,6 +29,7 @@ share/python-wheels/
 MANIFEST
 
 # Virtual environments
+.venv/
 venv/
 env/
 ENV/
@@ -48,6 +49,9 @@ venv.bak/
 logs/
 *.log
 *.log.*
+
+# Backups (may contain sensitive data)
+backups/
 
 # Database
 *.db
@@ -84,4 +88,3 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
-

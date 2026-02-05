@@ -5,6 +5,7 @@ import time
 import logging
 import atexit
 import signal
+from pathlib import Path
 
 from decouple import config
 from django.core.management import call_command, execute_from_command_line
@@ -14,104 +15,56 @@ from core.logging_config import setup_logging
 
 LOCK_FILE = "/tmp/englishbot.lock"
 _shutdown_event = threading.Event()
-_cleanup_done = threading.Lock()
-_cleanup_called = False
+_lock_handle = None
 
 
 def ensure_single_instance():
     """
     Prevent running multiple local instances that conflict on Telegram getUpdates.
-    Creates a pidfile and exits if another live process holds it.
+    Uses an OS-level lock on a lock file and exits if another instance holds it.
     """
     # Django autoreload spawns a child with RUN_MAIN=true; skip lock there.
     if os.environ.get("RUN_MAIN") == "true":
         return
 
-    pid = os.getpid()
-    # Try to acquire, stopping another local instance if needed
-    while True:
+    lock_path = Path(LOCK_FILE)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    global _lock_handle
+    _lock_handle = open(lock_path, "a+", encoding="utf-8")
+
+    try:
+        import fcntl  # Unix
+    except ImportError:
+        fcntl = None
+
+    if fcntl is not None:
         try:
-            fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, str(pid).encode())
-            os.close(fd)
-            break
-        except FileExistsError:
-            other_pid = None
-            try:
-                with open(LOCK_FILE) as f:
-                    other_pid = int(f.read().strip() or 0)
-            except Exception:
-                pass
-
-            if not other_pid:
-                os.remove(LOCK_FILE)
-                continue
-
-            try:
-                os.kill(other_pid, 0)
-            except ProcessLookupError:
-                # stale lock, remove and retry
-                os.remove(LOCK_FILE)
-                continue
-
-            # Another live process found: try to stop it gracefully
-            print(f"Another englishbot instance is running (PID {other_pid}). Sending SIGTERM...")
-            try:
-                os.kill(other_pid, signal.SIGTERM)
-            except Exception:
-                pass
-
-            process_stopped = False
-            for _ in range(10):
-                time.sleep(0.5)
-                try:
-                    os.kill(other_pid, 0)
-                except ProcessLookupError:
-                    # stopped, remove old lock and retry acquiring
-                    try:
-                        os.remove(LOCK_FILE)
-                    except FileNotFoundError:
-                        pass
-                    process_stopped = True
-                    break
-            
-            if process_stopped:
-                continue
-            
-            # Process didn't stop with SIGTERM, try SIGKILL
-            print(f"Instance PID {other_pid} still running. Sending SIGKILL...")
-            try:
-                os.kill(other_pid, signal.SIGKILL)
-                time.sleep(0.5)
-            except Exception:
-                pass
-
-            try:
-                os.kill(other_pid, 0)
-            except ProcessLookupError:
-                # Process stopped after SIGKILL, remove lock and retry
-                try:
-                    os.remove(LOCK_FILE)
-                except FileNotFoundError:
-                    pass
-                continue
-
-            # Process is still running after SIGKILL
-            print(f"Instance PID {other_pid} still running. Stop it manually: kill {other_pid}")
+            fcntl.flock(_lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            _lock_handle.seek(0)
+            other_pid = (_lock_handle.read() or "").strip()
+            msg = f"Another englishbot instance is already running (lock: {lock_path})."
+            if other_pid:
+                msg += f" PID in lock file: {other_pid}."
+            print(msg)
             sys.exit(1)
 
+    _lock_handle.seek(0)
+    _lock_handle.truncate()
+    _lock_handle.write(str(os.getpid()))
+    _lock_handle.flush()
+
     def _cleanup():
-        """Remove lock file. Should only be called once."""
-        global _cleanup_called
-        with _cleanup_done:
-            if _cleanup_called:
-                return
-            _cleanup_called = True
-        
+        """Release the lock handle (idempotent)."""
+        global _lock_handle
+        if _lock_handle is None:
+            return
         try:
-            os.remove(LOCK_FILE)
-        except FileNotFoundError:
+            _lock_handle.close()
+        except Exception:
             pass
+        _lock_handle = None
 
     def _signal_handler(signum, frame):
         """Handle shutdown signals gracefully."""

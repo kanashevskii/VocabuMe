@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from decouple import config
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,8 +26,13 @@ SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-DEBUG = config('DEBUG', cast=bool)
+DEBUG = config('DEBUG', cast=bool, default=False)
 
+if not DEBUG:
+    if SECRET_KEY.startswith("django-insecure-") or len(SECRET_KEY) < 50:
+        raise ImproperlyConfigured(
+            "Insecure SECRET_KEY detected. Generate a long random key and set it via environment variables."
+        )
 
 ALLOWED_HOSTS = [
     '185.250.37.204',
@@ -34,6 +40,19 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     'vmi2583759.contaboserver.net',
 ]
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", cast=bool, default=True)
+    SESSION_COOKIE_SECURE = config("SESSION_COOKIE_SECURE", cast=bool, default=True)
+    CSRF_COOKIE_SECURE = config("CSRF_COOKIE_SECURE", cast=bool, default=True)
+
+    SECURE_HSTS_SECONDS = config("SECURE_HSTS_SECONDS", cast=int, default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = config("SECURE_HSTS_INCLUDE_SUBDOMAINS", cast=bool, default=True)
+    SECURE_HSTS_PRELOAD = config("SECURE_HSTS_PRELOAD", cast=bool, default=True)
+
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
 
 
 # Application definition

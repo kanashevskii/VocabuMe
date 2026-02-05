@@ -27,18 +27,7 @@
 pip install -r requirements.txt
 ```
 2) Создайте `.env`:
-```env
-SECRET_KEY=your-secret-key
-DEBUG=False
-DB_NAME=dbname
-DB_USER=dbuser
-DB_PASSWORD=dbpass
-DB_HOST=localhost
-DB_PORT=5432
-TELEGRAM_TOKEN=your-telegram-token
-OPENAI_API_KEY=your-openai-key
-ALERT_CHAT_ID=your-telegram-id
-```
+Скопируйте `.env.example` → `.env` и заполните значения.
 3) Примените миграции:
 ```bash
 python manage.py migrate --noinput
