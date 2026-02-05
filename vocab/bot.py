@@ -19,7 +19,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut, TelegramError, Forbidden
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -422,10 +422,42 @@ def get_word_by_id(item_id):
     return VocabularyItem.objects.get(id=item_id)
 
 async def safe_reply(update: Update, text: str, **kwargs):
+    target = None
     if update.message:
-        await update.message.reply_text(text, **kwargs)
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(text, **kwargs)
+        target = update.message
+    elif update.callback_query and update.callback_query.message:
+        target = update.callback_query.message
+
+    if not target:
+        logging.warning("safe_reply: no message target (update=%s)", update)
+        return None
+
+    chat_id = update.effective_chat.id if update.effective_chat else None
+
+    async def _send(send_kwargs: dict):
+        return await target.reply_text(text, **send_kwargs)
+
+    try:
+        return await _safe_telegram_request(
+            "reply_text",
+            lambda: _send(kwargs),
+            chat_id=chat_id,
+            swallow_bad_request=False,
+        )
+    except BadRequest as exc:
+        message = str(exc).lower()
+        if "parse" in message and "parse_mode" in kwargs:
+            logging.warning("safe_reply: parse error, retrying without parse_mode chat_id=%s err=%s", chat_id, exc)
+            fallback_kwargs = dict(kwargs)
+            fallback_kwargs.pop("parse_mode", None)
+            return await _safe_telegram_request(
+                "reply_text(no-parse)",
+                lambda: _send(fallback_kwargs),
+                chat_id=chat_id,
+                attempts=2,
+            )
+        logging.warning("safe_reply: BadRequest chat_id=%s err=%s", chat_id, exc)
+        return None
 
 
 async def safe_answer(query):
@@ -433,13 +465,128 @@ async def safe_answer(query):
         await query.answer()
     except BadRequest as exc:
         logging.warning("Callback answer failed (possibly stale): %s", exc)
+    except (TimedOut, NetworkError, RetryAfter, Forbidden, TelegramError) as exc:
+        logging.warning("Callback answer failed: %s", exc)
+    except Exception:
+        logging.exception("Callback answer crashed")
 
 
 async def safe_photo_reply(update: Update, photo: bytes, **kwargs):
+    target = None
     if update.message:
-        await update.message.reply_photo(photo=photo, **kwargs)
-    elif update.callback_query:
-        await update.callback_query.message.reply_photo(photo=photo, **kwargs)
+        target = update.message
+    elif update.callback_query and update.callback_query.message:
+        target = update.callback_query.message
+
+    if not target:
+        logging.warning("safe_photo_reply: no message target (update=%s)", update)
+        return None
+
+    chat_id = update.effective_chat.id if update.effective_chat else None
+
+    async def _send(send_kwargs: dict):
+        return await target.reply_photo(photo=photo, **send_kwargs)
+
+    try:
+        return await _safe_telegram_request(
+            "reply_photo",
+            lambda: _send(kwargs),
+            chat_id=chat_id,
+            swallow_bad_request=False,
+        )
+    except BadRequest as exc:
+        logging.warning("safe_photo_reply: BadRequest chat_id=%s err=%s", chat_id, exc)
+        return None
+
+
+async def safe_edit_message_text(query, text: str, **kwargs):
+    chat_id = query.message.chat_id if getattr(query, "message", None) else None
+    try:
+        return await _safe_telegram_request(
+            "edit_message_text",
+            lambda: query.edit_message_text(text, **kwargs),
+            chat_id=chat_id,
+            swallow_bad_request=False,
+        )
+    except BadRequest as exc:
+        message = str(exc).lower()
+        if "parse" in message and "parse_mode" in kwargs:
+            logging.warning(
+                "safe_edit_message_text: parse error, retrying without parse_mode chat_id=%s err=%s",
+                chat_id,
+                exc,
+            )
+            fallback_kwargs = dict(kwargs)
+            fallback_kwargs.pop("parse_mode", None)
+            return await _safe_telegram_request(
+                "edit_message_text(no-parse)",
+                lambda: query.edit_message_text(text, **fallback_kwargs),
+                chat_id=chat_id,
+                attempts=2,
+            )
+        logging.warning("safe_edit_message_text: BadRequest chat_id=%s err=%s", chat_id, exc)
+        return None
+
+
+async def _safe_telegram_request(
+    action: str,
+    coro_factory,
+    *,
+    chat_id: int | None = None,
+    attempts: int = 3,
+    swallow_bad_request: bool = True,
+):
+    for attempt in range(attempts):
+        try:
+            return await coro_factory()
+        except RetryAfter as exc:
+            delay = float(getattr(exc, "retry_after", 1.0)) + 0.2
+            logging.warning("%s: RetryAfter %.2fs chat_id=%s", action, delay, chat_id)
+            await asyncio.sleep(delay)
+        except (TimedOut, NetworkError) as exc:
+            if attempt >= attempts - 1:
+                logging.exception("%s: network timeout exhausted chat_id=%s err=%s", action, chat_id, exc)
+                return None
+            delay = min(2 ** attempt, 8) + random.random() * 0.25
+            logging.warning("%s: network error, retry in %.2fs chat_id=%s err=%s", action, delay, chat_id, exc)
+            await asyncio.sleep(delay)
+        except Forbidden as exc:
+            logging.warning("%s: forbidden chat_id=%s err=%s", action, chat_id, exc)
+            return None
+        except BadRequest as exc:
+            if swallow_bad_request:
+                logging.warning("%s: bad request chat_id=%s err=%s", action, chat_id, exc)
+                return None
+            raise
+        except TelegramError as exc:
+            logging.exception("%s: TelegramError chat_id=%s err=%s", action, chat_id, exc)
+            return None
+        except Exception:
+            logging.exception("%s: unexpected error chat_id=%s", action, chat_id)
+            return None
+
+
+async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    err = getattr(context, "error", None)
+    if isinstance(err, BaseException):
+        logging.error(
+            "Unhandled telegram error (update=%s)",
+            update,
+            exc_info=(type(err), err, err.__traceback__),
+        )
+    else:
+        logging.error("Unhandled telegram error (update=%s)", update)
+
+    if isinstance(update, Update) and update.effective_chat:
+        await _safe_telegram_request(
+            "error_notify",
+            lambda: context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="⚠️ Что-то пошло не так. Попробуй ещё раз или начни заново через /start.",
+            ),
+            chat_id=update.effective_chat.id,
+            attempts=1,
+        )
 
 def get_praise(correct: int, total: int) -> str:
     if total == 0:
@@ -744,22 +891,22 @@ async def process_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     if not entries:
-        await update.message.reply_text("❌ Не увидел слов. Отправь хотя бы одно слово или фразу.")
+        await safe_reply(update, "❌ Не увидел слов. Отправь хотя бы одно слово или фразу.")
         return ConversationHandler.END
 
     context.user_data["add_queue"] = entries
     context.user_data["add_replies"] = []
 
-    await update.message.reply_text("⏳ Обрабатываем слова, это может занять несколько секунд...")
+    await safe_reply(update, "⏳ Обрабатываем слова, это может занять несколько секунд...")
     return await process_next_word(update, context)
 
 async def handle_translation_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
 
     data = context.user_data.get("pending_data")
     if not data:
-        await query.edit_message_text("⚠️ Нет слова для обработки. Попробуй снова через /add.")
+        await safe_edit_message_text(query, "⚠️ Нет слова для обработки. Попробуй снова через /add.")
         return ConversationHandler.END
 
     choice = query.data.replace("translation_choice_", "")
@@ -767,7 +914,7 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
         translation = data.get("translation", "")
         if not translation:
             context.user_data["awaiting_manual_translation"] = True
-            await query.edit_message_text(
+            await safe_edit_message_text(
                 f"✍️ Не удалось получить перевод автоматически. Введи перевод для *{data['word']}*",
                 parse_mode="Markdown",
             )
@@ -779,7 +926,7 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
                 [InlineKeyboardButton("✍️ Ввести свой перевод", callback_data="translation_choice_manual")],
             ]
         )
-        await query.edit_message_text(
+        await safe_edit_message_text(
             f"🤖 Нашёл перевод для *{data['word']}*:\n*{translation}*\n\nОставить этот вариант?",
             parse_mode="Markdown",
             reply_markup=keyboard,
@@ -791,25 +938,25 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
 
     if choice == "manual":
         context.user_data["awaiting_manual_translation"] = True
-        await query.edit_message_text(f"✍️ Введи перевод для *{data['word']}*", parse_mode="Markdown")
+        await safe_edit_message_text(query, f"✍️ Введи перевод для *{data['word']}*", parse_mode="Markdown")
         return WAIT_TRANSLATION
 
-    await query.edit_message_text("⚠️ Неизвестный выбор. Попробуй снова через /add.")
+    await safe_edit_message_text(query, "⚠️ Неизвестный выбор. Попробуй снова через /add.")
     return ConversationHandler.END
 
 async def handle_manual_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_manual_translation"):
-        await update.message.reply_text("Сначала выбери, как переводить слово, используя кнопки выше.")
+        await safe_reply(update, "Сначала выбери, как переводить слово, используя кнопки выше.")
         return WAIT_TRANSLATION
 
     data = context.user_data.get("pending_data")
     if not data:
-        await update.message.reply_text("⚠️ Нет слова для перевода. Запусти /add заново.")
+        await safe_reply(update, "⚠️ Нет слова для перевода. Запусти /add заново.")
         return ConversationHandler.END
 
     translation = update.message.text.strip()
     if not translation:
-        await update.message.reply_text("Введите перевод текстом или выберите авто-перевод.")
+        await safe_reply(update, "Введите перевод текстом или выберите авто-перевод.")
         return WAIT_TRANSLATION
 
     data["translation"] = translation
@@ -887,15 +1034,15 @@ async def finalize_pending_word(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def handle_photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
 
     if not context.user_data.get("pending_data"):
-        await query.edit_message_text("⚠️ Нет слова для сохранения. Запусти /add заново.")
+        await safe_edit_message_text(query, "⚠️ Нет слова для сохранения. Запусти /add заново.")
         return ConversationHandler.END
 
     action = query.data
     if action == "photo_manual":
-        await query.message.reply_text("Пришли свою картинку одним сообщением.")
+        await safe_reply(update, "Пришли свою картинку одним сообщением.")
         return WAIT_PHOTO
 
     if action == "photo_accept":
@@ -904,10 +1051,10 @@ async def handle_photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
             data = context.user_data.get("pending_data", {})
             data["image_path"] = auto_path
             context.user_data["pending_data"] = data
-        await query.message.reply_text("✅ Сохраняю с этим фото.")
+        await safe_reply(update, "✅ Сохраняю с этим фото.")
         return await finalize_pending_word(update, context)
 
-    await query.message.reply_text("✅ Продолжаем без картинки.")
+    await safe_reply(update, "✅ Продолжаем без картинки.")
     context.user_data.pop("auto_image_path", None)
     return await finalize_pending_word(update, context)
 
@@ -915,12 +1062,12 @@ async def handle_photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_photo_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = context.user_data.get("pending_data")
     if not data:
-        await update.message.reply_text("⚠️ Нет слова для сохранения. Запусти /add заново.")
+        await safe_reply(update, "⚠️ Нет слова для сохранения. Запусти /add заново.")
         return ConversationHandler.END
 
     photos = update.message.photo
     if not photos:
-        await update.message.reply_text("Пришли картинку файлом или фото.")
+        await safe_reply(update, "Пришли картинку файлом или фото.")
         return WAIT_PHOTO
 
     largest = photos[-1]
@@ -937,12 +1084,12 @@ async def handle_photo_upload(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["pending_data"] = data
     context.user_data.pop("auto_image_path", None)
 
-    await update.message.reply_text("✅ Картинка сохранена. Продолжаем.")
+    await safe_reply(update, "✅ Картинка сохранена. Продолжаем.")
     return await finalize_pending_word(update, context)
 
 
 async def handle_photo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Пришли фото или нажми «Без картинки».")
+    await safe_reply(update, "Пришли фото или нажми «Без картинки».")
     return WAIT_PHOTO
 
 # --- LEARN ---
@@ -1355,6 +1502,7 @@ def run_telegram_bot():
     asyncio.set_event_loop(asyncio.new_event_loop())
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_error_handler(on_telegram_error)
 
     conv_handler = ConversationHandler(
         entry_points=[
@@ -1642,7 +1790,7 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
     data = query.data
 
     chat_id = update.effective_chat.id
@@ -2084,7 +2232,7 @@ async def _show_edit_translation_menu(query, user, page: int):
 
 async def handle_mywords_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
     user_data = context.user_data
 
     page = user_data.get("mywords_page", 0)
@@ -2098,7 +2246,7 @@ async def handle_mywords_pagination(update: Update, context: ContextTypes.DEFAUL
 
 async def handle_mywords_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     data = query.data
 
@@ -2160,7 +2308,7 @@ async def handle_mywords_delete(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def handle_mywords_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
     data = query.data
 
@@ -2356,7 +2504,7 @@ async def irregular_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_irregular_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
     page = context.user_data.get("irrlist_page", 0)
     if query.data == "irrlist_prev":
         page = max(0, page - 1)
@@ -2471,7 +2619,7 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
 
     data = query.data
     if data.startswith("irrskip"):
@@ -2670,7 +2818,7 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
 
 async def handle_listening_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await safe_answer(query)
 
     logging.info("listening skip from %s", query.from_user.id)
 
