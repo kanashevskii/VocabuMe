@@ -915,6 +915,7 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
         if not translation:
             context.user_data["awaiting_manual_translation"] = True
             await safe_edit_message_text(
+                query,
                 f"✍️ Не удалось получить перевод автоматически. Введи перевод для *{data['word']}*",
                 parse_mode="Markdown",
             )
@@ -927,6 +928,7 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
             ]
         )
         await safe_edit_message_text(
+            query,
             f"🤖 Нашёл перевод для *{data['word']}*:\n*{translation}*\n\nОставить этот вариант?",
             parse_mode="Markdown",
             reply_markup=keyboard,
