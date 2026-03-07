@@ -1,6 +1,6 @@
 # VocabuMe
 
-Телеграм‑бот на Django для изучения английских слов. Помогает добавлять лексику, тренироваться в карточках и проверять прогресс.
+Телеграм‑бот на Django для изучения английских слов. Теперь включает React-интерфейс, который можно открыть как Telegram Mini App и как обычный сайт с входом через Telegram.
 
 ## Что умеет бот
 - `/add` — добавить слова или фразы (можно пачкой, поддерживается формат `word - перевод`)
@@ -13,11 +13,13 @@
 - `/mywords` — список своих слов
 - `/progress` — статистика и достижения
 - `/settings` — напоминания и параметры тренировок
+- React SPA для Mini App и сайта с общим прогрессом
 - Напоминания рассылаются автоматически, без cron
 
 ## Требования
 - Python 3.10+
 - PostgreSQL
+- Node.js 20+
 - Токен Telegram‑бота
 - Ключ OpenAI API
 
@@ -26,13 +28,20 @@
 ```bash
 pip install -r requirements.txt
 ```
+```bash
+cd frontend && npm install
+```
 2) Создайте `.env`:
 Скопируйте `.env.example` → `.env` и заполните значения.
 3) Примените миграции:
 ```bash
 python manage.py migrate --noinput
 ```
-4) Запустите бота и веб‑сервер:
+4) Соберите фронтенд:
+```bash
+cd frontend && npm run build
+```
+5) Запустите бота и веб‑сервер:
 ```bash
 python run.py
 ```
@@ -44,12 +53,15 @@ python scripts/clean_existing_words.py
 ```
 
 ## Деплой
-В `.github/workflows/deploy.yml` есть пример GitHub Actions: он подтягивает код на сервер, ставит зависимости, накатывает миграции и рестартует `englishbot.service`. Настройте секреты репозитория:
-- `SSH_HOST`
-- `SSH_USER`
-- `SSH_KEY`
-- `SSH_PORT`
-- `REMOTE_PATH`
+В production нужно:
+- собрать React: `cd frontend && npm ci && npm run build`
+- выставить `DEBUG=False`
+- задать `WEBAPP_URL`, `TELEGRAM_BOT_USERNAME`, `CSRF_TRUSTED_ORIGINS`
+- проксировать `vocabume.k1prod.com` на `127.0.0.1:8000`
+- раздавать `/static/` из `frontend/dist/`
+- выпустить SSL для `vocabume.k1prod.com`
+
+Для обычного веб-входа через Telegram Login Widget нужно дополнительно указать домен бота через BotFather: `/setdomain` → `vocabume.k1prod.com`.
 
 ## Лицензия
 MIT License.

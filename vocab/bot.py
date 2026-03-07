@@ -16,7 +16,7 @@ import logging
 # 2. When used in Django management commands, Django is automatically set up
 # Calling django.setup() here would cause it to be called twice, which is not idempotent
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut, TelegramError, Forbidden
@@ -31,6 +31,7 @@ from telegram.ext import (
 )
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
+from .services import bind_web_login_token
 from .openai_utils import generate_word_data, detect_language
 from .utils import (
     clean_word,
@@ -47,6 +48,7 @@ from datetime import timedelta, datetime
 from types import SimpleNamespace
 
 TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
+WEBAPP_URL = config("WEBAPP_URL", default="")
 ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
 WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
@@ -631,6 +633,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except BadRequest as exc:
             logging.warning("Callback answer failed (possibly stale): %s", exc)
 
+    if context.args:
+        start_arg = context.args[0]
+        if start_arg.startswith("login_"):
+            token = start_arg.removeprefix("login_")
+            user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+            login_token = await sync_to_async(bind_web_login_token)(token, user)
+            if login_token:
+                await safe_reply(
+                    update,
+                    "Вход для сайта подтверждён. Возвращайся в браузер, страница авторизуется автоматически.",
+                )
+            else:
+                await safe_reply(
+                    update,
+                    "Ссылка для входа недействительна или уже использована. Запроси новую на сайте.",
+                )
+            return
+
+    webapp_note = ""
+    if WEBAPP_URL:
+        webapp_note = "🌐 Открывай веб-приложение прямо в Telegram для быстрого доступа.\n"
+
     keyboard = [
         [
             InlineKeyboardButton("➕ Добавить", callback_data="start_add"),
@@ -649,6 +673,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚙️ Настройки", callback_data="start_settings")],
     ]
 
+    if WEBAPP_URL:
+        keyboard.insert(0, [InlineKeyboardButton("Открыть приложение", web_app=WebAppInfo(url=WEBAPP_URL))])
+
     await safe_reply(
         update,
         "👋 Привет! Я помогу тебе выучить английские слова — просто и эффективно.\n\n"
@@ -662,6 +689,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 /progress — посмотреть свою статистику и достижения\n"
         "⚙️ /settings — изменить настройки обучения и напоминаний\n\n"
         "🔥 /irregular — тренировать неправильные глаголы\n"
+        f"{webapp_note}"
         "⏰ Я могу напоминать тебе о занятиях каждый день или через день — настрой это через /settings!\n\n"
         "🚀 Готов начать? Жми /add, /learn или /practice!",
         reply_markup=InlineKeyboardMarkup(keyboard),

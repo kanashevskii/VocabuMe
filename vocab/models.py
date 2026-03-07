@@ -1,5 +1,10 @@
 from django.db import models
 from datetime import time
+import secrets
+
+
+def generate_web_login_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
 class TelegramUser(models.Model):
@@ -82,3 +87,14 @@ class IrregularVerbProgress(models.Model):
 
     def __str__(self):
         return f"{self.verb_base} ({self.user})"
+
+
+class WebLoginToken(models.Model):
+    token = models.CharField(max_length=64, unique=True, default=generate_web_login_token)
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"WebLoginToken({self.token[:8]})"

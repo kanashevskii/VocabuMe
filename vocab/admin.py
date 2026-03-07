@@ -5,6 +5,7 @@ from .models import (
     Achievement,
     LearningSession,
     IrregularVerbProgress,
+    WebLoginToken,
 )
 
 @admin.register(TelegramUser)
@@ -40,3 +41,9 @@ class LearningSessionAdmin(admin.ModelAdmin):
 @admin.register(IrregularVerbProgress)
 class IrregularVerbProgressAdmin(admin.ModelAdmin):
     list_display = ("user", "verb_base", "correct_count", "is_learned")
+
+
+@admin.register(WebLoginToken)
+class WebLoginTokenAdmin(admin.ModelAdmin):
+    list_display = ("token", "user", "created_at", "expires_at", "consumed_at")
+    search_fields = ("token", "user__username", "user__chat_id")
