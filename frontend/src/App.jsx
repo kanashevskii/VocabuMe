@@ -2,16 +2,20 @@ import { startTransition, useDeferredValue, useEffect, useLayoutEffect, useMemo,
 
 const PRIMARY_TABS = [
   { id: "today", label: "Сегодня" },
-  { id: "learn", label: "Учить" },
+  { id: "learn", label: "Практика" },
   { id: "words", label: "Слова" },
   { id: "progress", label: "Прогресс" },
   { id: "more", label: "Ещё" }
 ];
 
 const LEARN_MODES = [
-  { id: "cards", label: "Карточки" },
   { id: "practice", label: "Практика" },
   { id: "listening", label: "Аудирование" }
+];
+
+const LIBRARY_MODES = [
+  { id: "cards", label: "Карточки" },
+  { id: "words", label: "Все слова" }
 ];
 
 const PRACTICE_MODES = [
@@ -25,10 +29,14 @@ const LISTENING_MODES = [
 ];
 
 const MORE_PANELS = [
-  { id: "add", label: "Добавить" },
   { id: "review", label: "Повтор" },
   { id: "irregular", label: "Глаголы" },
   { id: "settings", label: "Настройки" }
+];
+
+const IRREGULAR_MODES = [
+  { id: "review", label: "Повторять" },
+  { id: "test", label: "Тест" }
 ];
 
 function getCookie(name) {
@@ -123,8 +131,10 @@ function App() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [primaryTab, setPrimaryTab] = useState("today");
-  const [learnMode, setLearnMode] = useState("cards");
-  const [morePanel, setMorePanel] = useState("add");
+  const [learnMode, setLearnMode] = useState("practice");
+  const [libraryMode, setLibraryMode] = useState("cards");
+  const [morePanel, setMorePanel] = useState("review");
+  const [showLibraryAdd, setShowLibraryAdd] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [settings, setSettings] = useState(null);
   const [words, setWords] = useState([]);
@@ -138,16 +148,19 @@ function App() {
   const [practiceMode, setPracticeMode] = useState("classic");
   const [practiceQuestion, setPracticeQuestion] = useState(null);
   const [practiceResult, setPracticeResult] = useState(null);
+  const [practiceSelection, setPracticeSelection] = useState("");
   const [listeningMode, setListeningMode] = useState("word");
   const [listeningQuestion, setListeningQuestion] = useState(null);
   const [listeningAnswer, setListeningAnswer] = useState("");
   const [listeningResult, setListeningResult] = useState(null);
   const [reviewQuestion, setReviewQuestion] = useState(null);
   const [reviewResult, setReviewResult] = useState(null);
+  const [reviewSelection, setReviewSelection] = useState("");
   const [irregularPage, setIrregularPage] = useState(0);
   const [irregularList, setIrregularList] = useState(null);
   const [irregularQuestion, setIrregularQuestion] = useState(null);
   const [irregularResult, setIrregularResult] = useState(null);
+  const [irregularMode, setIrregularMode] = useState("review");
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const pollRef = useRef(null);
@@ -167,13 +180,20 @@ function App() {
     ];
   }, [auth.progress, dashboard]);
 
+  const todayStats = useMemo(() => stats.slice(0, 3), [stats]);
+  const todayAchievements = useMemo(() => {
+    const list = auth.progress?.achievements || [];
+    return list.slice(-3);
+  }, [auth.progress]);
+  const hasMoreAchievements = (auth.progress?.achievements?.length || 0) > todayAchievements.length;
+
   const currentTitle = useMemo(() => {
     if (primaryTab === "today") return "Сегодня";
-    if (primaryTab === "learn") return "Учить";
-    if (primaryTab === "words") return "Слова";
+    if (primaryTab === "learn") return "Практика";
+    if (primaryTab === "words") return libraryMode === "cards" ? "Карточки" : "Все слова";
     if (primaryTab === "progress") return "Прогресс";
     return MORE_PANELS.find((item) => item.id === morePanel)?.label || "Ещё";
-  }, [morePanel, primaryTab]);
+  }, [libraryMode, learnMode, morePanel, primaryTab]);
 
   const filteredRecentWords = dashboard?.recent_words || [];
   const nextCards = dashboard?.next_cards || [];
@@ -204,9 +224,19 @@ function App() {
   }
 
   async function loadCards() {
-    const data = await api("/api/study/cards?count=10");
+    const data = await api("/api/study/cards?scope=all");
     setCardQueue(data.items);
     setCardIndex(0);
+    setCardReveal(false);
+  }
+
+  function showPreviousCard() {
+    setCardIndex((value) => Math.max(0, value - 1));
+    setCardReveal(false);
+  }
+
+  function showNextCard() {
+    setCardIndex((value) => Math.min(cardQueue.length - 1, value + 1));
     setCardReveal(false);
   }
 
@@ -214,6 +244,7 @@ function App() {
     const data = await api(`/api/practice/question?mode=${mode}`);
     setPracticeQuestion(data.empty ? null : data.question);
     setPracticeResult(null);
+    setPracticeSelection("");
   }
 
   async function loadListening(mode = listeningMode) {
@@ -227,6 +258,7 @@ function App() {
     const data = await api("/api/practice/question?mode=review");
     setReviewQuestion(data.empty ? null : data.question);
     setReviewResult(null);
+    setReviewSelection("");
   }
 
   async function loadIrregularQuestion() {
@@ -313,7 +345,7 @@ function App() {
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [primaryTab, learnMode, morePanel]);
+  }, [primaryTab, learnMode, libraryMode, morePanel]);
 
   async function requestLoginLink() {
     setBusy(true);
@@ -363,12 +395,11 @@ function App() {
       });
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       setDashboard((previous) => (previous ? { ...previous, progress: data.progress } : previous));
+      setCardQueue((previous) => previous.map((item) => (item.id === current.id ? { ...item, ...data.item } : item)));
       if (cardIndex + 1 < cardQueue.length) {
         setCardIndex((value) => value + 1);
-        setCardReveal(false);
-      } else {
-        await loadCards();
       }
+      setCardReveal(false);
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -382,6 +413,11 @@ function App() {
     }
     setBusy(true);
     try {
+      if (mode === "review") {
+        setReviewSelection(answer);
+      } else {
+        setPracticeSelection(answer);
+      }
       const data = await api("/api/practice/answer", {
         method: "POST",
         body: JSON.stringify({
@@ -398,6 +434,42 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function getPracticeExpectedAnswer(question) {
+    if (!question) {
+      return "";
+    }
+    if (question.mode === "reverse") {
+      return question.item.word;
+    }
+    return question.item.translation;
+  }
+
+  function revealPracticeAnswer(question, mode, resultSetter) {
+    const correctAnswer = getPracticeExpectedAnswer(question);
+    if (!correctAnswer) {
+      return;
+    }
+    if (mode === "review") {
+      setReviewSelection("");
+    } else {
+      setPracticeSelection("");
+    }
+    resultSetter({ correct: false, correct_answer: correctAnswer, skipped: true });
+  }
+
+  function getOptionState(option, result, selectedAnswer) {
+    if (!result) {
+      return "";
+    }
+    if (option === result.correct_answer) {
+      return "is-correct";
+    }
+    if (selectedAnswer && option === selectedAnswer && !result.correct) {
+      return "is-wrong";
+    }
+    return "";
   }
 
   async function handleListeningSubmit(event) {
@@ -502,6 +574,7 @@ function App() {
     startTransition(() => {
       setPrimaryTab("learn");
       setLearnMode(mode);
+      setShowLibraryAdd(false);
     });
   }
 
@@ -509,25 +582,32 @@ function App() {
     startTransition(() => {
       setPrimaryTab("more");
       setMorePanel(panel);
+      setShowLibraryAdd(false);
     });
   }
 
   function renderToday() {
+    const studiedToday = Boolean(auth.progress?.studied_today);
+
     return (
       <div className="screen-stack">
         <section className="glass-card today-hero">
           <div>
             <p className="overline">Today</p>
             <h2>Продолжай учить слова ✨</h2>
-            <p className="lead compact">Все режимы бота собраны в одном приложении с общим прогрессом.</p>
+            <p className="lead compact">
+              {studiedToday
+                ? "🔥 Ты уже занимался сегодня. Продолжай в том же духе."
+                : "🌱 Сегодня ты ещё не занимался. Давай начнём."}
+            </p>
           </div>
-          <button className="primary-button hero-button" type="button" onClick={() => openLearn("cards")}>
+          <button className="primary-button hero-button" type="button" onClick={() => openLearn("practice")}>
             ▶️ Продолжить
           </button>
         </section>
 
-        <section className="stats-grid">
-          {stats.map((item) => (
+        <section className="today-stats-row">
+          {todayStats.map((item) => (
             <article key={item.label} className="glass-card stat-card">
               <span>{item.label}</span>
               <strong>{item.value}</strong>
@@ -535,62 +615,24 @@ function App() {
           ))}
         </section>
 
-        <section className="action-grid">
-          <button className="glass-card action-card" type="button" onClick={() => openLearn("cards")}>
-            <span>Учить</span>
-            <strong>🧠 Карточки</strong>
-          </button>
-          <button className="glass-card action-card" type="button" onClick={() => openLearn("practice")}>
-            <span>Учить</span>
-            <strong>🎯 Практика</strong>
-          </button>
-          <button className="glass-card action-card" type="button" onClick={() => openLearn("listening")}>
-            <span>Учить</span>
-            <strong>🎧 Аудирование</strong>
-          </button>
-          <button className="glass-card action-card" type="button" onClick={() => openMore("add")}>
-            <span>Ещё</span>
-            <strong>➕ Добавить</strong>
-          </button>
-        </section>
-
         <section className="glass-card compact-section">
           <div className="section-head">
             <div>
-              <p className="overline">Queue</p>
-              <h3>Следующие карточки 🗂️</h3>
+              <p className="overline">Achievements</p>
+              <h3>Последние награды 🏆</h3>
             </div>
-            <button className="secondary-button" type="button" onClick={() => openLearn("cards")}>
-              Открыть
-            </button>
+            {hasMoreAchievements ? (
+              <button className="secondary-button" type="button" onClick={() => setPrimaryTab("progress")}>
+                В прогресс →
+              </button>
+            ) : null}
           </div>
-          <div className="simple-list">
-            {nextCards.length ? nextCards.map((item) => (
-              <div key={item.id} className="simple-row">
-                <strong>{item.word}</strong>
-                <span>{item.translation}</span>
-              </div>
-            )) : <div className="empty-state">No cards right now.</div>}
-          </div>
-        </section>
-
-        <section className="glass-card compact-section">
-          <div className="section-head">
-            <div>
-              <p className="overline">Recent</p>
-              <h3>Последние слова ✍️</h3>
-            </div>
-            <button className="secondary-button" type="button" onClick={() => setPrimaryTab("words")}>
-              Словарь
-            </button>
-          </div>
-          <div className="simple-list">
-            {filteredRecentWords.length ? filteredRecentWords.map((item) => (
-              <div key={item.id} className="simple-row">
-                <strong>{item.word}</strong>
-                <span>{item.translation}</span>
-              </div>
-            )) : <div className="empty-state">No words yet.</div>}
+          <div className="achievement-grid">
+            {todayAchievements.length ? (
+              todayAchievements.map((item) => <span key={item} className="achievement-pill">{item}</span>)
+            ) : (
+              <div className="empty-state">Пока без наград.</div>
+            )}
           </div>
         </section>
       </div>
@@ -605,13 +647,29 @@ function App() {
             <p className="overline">Cards</p>
             <h3>Карточки 🧠</h3>
           </div>
-          <button className="secondary-button" type="button" onClick={loadCards}>
-            Обновить
-          </button>
+          <div className="button-row card-nav-row">
+            <button className="secondary-button nav-arrow" type="button" onClick={showPreviousCard} disabled={cardIndex === 0} aria-label="Предыдущая карточка">
+              ←
+            </button>
+            <button
+              className="secondary-button nav-arrow"
+              type="button"
+              onClick={showNextCard}
+              disabled={!cardQueue.length || cardIndex >= cardQueue.length - 1}
+              aria-label="Следующая карточка"
+            >
+              →
+            </button>
+          </div>
         </div>
         {currentCard ? (
           <div className="study-layout">
             <div className="study-main">
+              {currentCard.has_image ? (
+                <div className="card-visual">
+                  <img src={`/api/image/${currentCard.id}`} alt={currentCard.word} loading="eager" />
+                </div>
+              ) : null}
               <div className="study-meta">
                 <span>{cardIndex + 1} / {cardQueue.length}</span>
                 <span>{currentCard.part_of_speech || "word"}</span>
@@ -626,15 +684,10 @@ function App() {
                 <>
                   <strong>{currentCard.translation}</strong>
                   <span>{currentCard.example_translation}</span>
-                  <span className="study-hint">Ответь и сразу перейдешь к следующей карточке.</span>
-                  <div className="button-row">
-                    <button className="secondary-button" type="button" onClick={() => handleCardAnswer(false)}>
-                      Повторить
-                    </button>
-                    <button className="primary-button" type="button" onClick={() => handleCardAnswer(true)}>
-                      Знаю, дальше
-                    </button>
-                  </div>
+                  <span className="study-hint">Посмотри перевод и переходи к следующей карточке.</span>
+                  <button className="primary-button" type="button" onClick={() => showNextCard()}>
+                    Дальше
+                  </button>
                 </>
               ) : (
                 <button className="primary-button" type="button" onClick={() => setCardReveal(true)}>
@@ -648,13 +701,13 @@ function App() {
     );
   }
 
-  function renderPractice(question, result, mode, resultSetter, reload) {
+  function renderPractice(question, result, mode, resultSetter, reload, selectedAnswer) {
     return (
       <section className="glass-card learn-card">
         <div className="section-head section-head-wrap">
           <div>
             <p className="overline">{mode === "review" ? "Review" : "Practice"}</p>
-            <h3>{mode === "review" ? "Повтор старых слов 🔁" : "Выбери правильный ответ 🎯"}</h3>
+            <h3>{mode === "review" ? "Повтор старых слов 🔁" : "Тест 🎯"}</h3>
           </div>
           {mode !== "review" ? (
             <div className="segment-wrap">
@@ -688,17 +741,29 @@ function App() {
               {question.options.map((option) => (
                 <button
                   key={option}
-                  className="option-button"
+                  className={`option-button ${getOptionState(option, result, selectedAnswer)}`.trim()}
                   type="button"
+                  disabled={Boolean(result)}
                   onClick={() => handlePracticeAnswer(option, mode, question, resultSetter)}
                 >
                   {option}
                 </button>
               ))}
             </div>
+            {mode !== "review" ? (
+              <button className="secondary-button" type="button" onClick={() => revealPracticeAnswer(question, mode, resultSetter)} disabled={Boolean(result)}>
+                Пропустить
+              </button>
+            ) : null}
             {result ? (
               <div className={result.correct ? "result-box good" : "result-box bad"}>
-                  <span>{result.correct ? "Верно" : `Правильный ответ: ${result.correct_answer}`}</span>
+                  <span>
+                    {result.skipped
+                      ? `Правильный ответ: ${result.correct_answer}`
+                      : result.correct
+                        ? "Верно"
+                        : `Правильный ответ: ${result.correct_answer}`}
+                  </span>
                 <button className="secondary-button" type="button" onClick={reload}>
                   Дальше
                 </button>
@@ -768,16 +833,42 @@ function App() {
             </button>
           ))}
         </div>
-        {learnMode === "cards" ? renderCards() : null}
-        {learnMode === "practice" ? renderPractice(practiceQuestion, practiceResult, practiceMode, setPracticeResult, () => loadPractice(practiceMode)) : null}
+        {learnMode === "practice" ? renderPractice(practiceQuestion, practiceResult, practiceMode, setPracticeResult, () => loadPractice(practiceMode), practiceSelection) : null}
         {learnMode === "listening" ? renderListening() : null}
       </div>
     );
   }
 
-  function renderWords() {
+  function renderLibrary() {
     return (
       <section className="screen-stack">
+        {showLibraryAdd ? (
+          renderAddWords()
+        ) : (
+          <>
+            <div className="segment-wrap main-segment">
+              {LIBRARY_MODES.map((item) => (
+                <button
+                  key={item.id}
+                  className={libraryMode === item.id ? "segment-button active" : "segment-button"}
+                  type="button"
+                  onClick={() => setLibraryMode(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            {libraryMode === "cards" ? renderCards() : null}
+            {libraryMode === "words" ? renderWordsList() : null}
+          </>
+        )}
+      </section>
+    );
+  }
+
+  function renderWordsList() {
+    return (
+      <>
         <div className="glass-card compact-section">
           <div className="filters">
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" />
@@ -816,7 +907,7 @@ function App() {
           ))}
           {!words.length ? <div className="glass-card empty-card">No words found.</div> : null}
         </div>
-      </section>
+      </>
     );
   }
 
@@ -842,9 +933,27 @@ function App() {
           <p className="overline">Achievements</p>
           <div className="achievement-grid">
             {(auth.progress?.achievements || []).length ? (
-              auth.progress.achievements.map((item) => <span key={item} className="achievement-pill">🏆 {item}</span>)
+              auth.progress.achievements.map((item) => <span key={item} className="achievement-pill">{item}</span>)
             ) : (
               <div className="empty-state">No achievements yet.</div>
+            )}
+          </div>
+        </section>
+        <section className="glass-card compact-section">
+          <p className="overline">Next</p>
+          <div className="section-head">
+            <h3>К чему стремиться ✨</h3>
+          </div>
+          <div className="simple-list">
+            {(auth.progress?.pending_achievements || []).length ? (
+              auth.progress.pending_achievements.map((item) => (
+                <div key={item.text} className="simple-row">
+                  <strong>{item.text}</strong>
+                  <span>{item.current} / {item.target}</span>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state">Все текущие ачивки уже получены.</div>
             )}
           </div>
         </section>
@@ -877,66 +986,82 @@ function App() {
   function renderIrregular() {
     return (
       <div className="screen-stack">
-        <section className="glass-card compact-section">
-          <div className="section-head">
-            <div>
-              <p className="overline">Irregular</p>
-              <h3>Неправильные глаголы 📘</h3>
-            </div>
-            <div className="button-row">
-              <button className="secondary-button" type="button" onClick={() => setIrregularPage((value) => Math.max(0, value - 1))} disabled={!irregularList?.has_prev}>
-                Prev
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setIrregularPage((value) => value + 1)} disabled={!irregularList?.has_next}>
-                Next
-              </button>
-            </div>
-          </div>
-          <div className="simple-list">
-            {(irregularList?.items || []).map((item) => (
-              <div key={item.base} className="simple-row four-cols">
-                <strong>{item.base}</strong>
-                <span>{item.past}</span>
-                <span>{item.participle}</span>
-                <span>{item.translation}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="glass-card compact-section">
-          <div className="section-head">
-            <div>
-              <p className="overline">Train</p>
-              <h3>Выбери V2/V3 🧩</h3>
-            </div>
-            <button className="secondary-button" type="button" onClick={loadIrregularQuestion}>
-              Refresh
+        <div className="segment-wrap main-segment">
+          {IRREGULAR_MODES.map((item) => (
+            <button
+              key={item.id}
+              className={irregularMode === item.id ? "segment-button active" : "segment-button"}
+              type="button"
+              onClick={() => setIrregularMode(item.id)}
+            >
+              {item.label}
             </button>
-          </div>
-          {irregularQuestion ? (
-            <div className="quiz-panel">
-              <div className="prompt-card">
-                <strong>{irregularQuestion.verb.base}</strong>
-                <span>Pick the correct pair</span>
+          ))}
+        </div>
+        {irregularMode === "review" ? (
+          <section className="glass-card compact-section">
+            <div className="section-head">
+              <div>
+                <p className="overline">Irregular</p>
+                <h3>Повторять глаголы 📘</h3>
               </div>
-              <div className="option-grid">
-                {irregularQuestion.options.map((option) => (
-                  <button key={option} className="option-button" type="button" onClick={() => handleIrregularAnswer(option)}>
-                    {option}
-                  </button>
-                ))}
+              <div className="button-row">
+                <button className="secondary-button" type="button" onClick={() => setIrregularPage((value) => Math.max(0, value - 1))} disabled={!irregularList?.has_prev}>
+                  Prev
+                </button>
+                <button className="secondary-button" type="button" onClick={() => setIrregularPage((value) => value + 1)} disabled={!irregularList?.has_next}>
+                  Next
+                </button>
               </div>
-              {irregularResult ? (
-                <div className={irregularResult.correct ? "result-box good" : "result-box bad"}>
-                  <span>{irregularResult.correct ? "Correct" : `Correct answer: ${irregularResult.correct_answer}`}</span>
-                  <button className="secondary-button" type="button" onClick={loadIrregularQuestion}>
-                    Next
-                  </button>
-                </div>
-              ) : null}
             </div>
-          ) : <div className="empty-state">No verb question right now.</div>}
-        </section>
+            <div className="simple-list">
+              {(irregularList?.items || []).map((item) => (
+                <div key={item.base} className="simple-row four-cols">
+                  <strong>{item.base}</strong>
+                  <span>{item.past}</span>
+                  <span>{item.participle}</span>
+                  <span>{item.translation}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {irregularMode === "test" ? (
+          <section className="glass-card compact-section">
+            <div className="section-head">
+              <div>
+                <p className="overline">Train</p>
+                <h3>Тест по глаголам 🧩</h3>
+              </div>
+              <button className="secondary-button" type="button" onClick={loadIrregularQuestion}>
+                Refresh
+              </button>
+            </div>
+            {irregularQuestion ? (
+              <div className="quiz-panel">
+                <div className="prompt-card">
+                  <strong>{irregularQuestion.verb.base}</strong>
+                  <span>Pick the correct pair</span>
+                </div>
+                <div className="option-grid">
+                  {irregularQuestion.options.map((option) => (
+                    <button key={option} className="option-button" type="button" onClick={() => handleIrregularAnswer(option)}>
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                {irregularResult ? (
+                  <div className={irregularResult.correct ? "result-box good" : "result-box bad"}>
+                    <span>{irregularResult.correct ? "Correct" : `Correct answer: ${irregularResult.correct_answer}`}</span>
+                    <button className="secondary-button" type="button" onClick={loadIrregularQuestion}>
+                      Next
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : <div className="empty-state">No verb question right now.</div>}
+          </section>
+        ) : null}
       </div>
     );
   }
@@ -999,8 +1124,7 @@ function App() {
             </button>
           ))}
         </div>
-        {morePanel === "add" ? renderAddWords() : null}
-        {morePanel === "review" ? renderPractice(reviewQuestion, reviewResult, "review", setReviewResult, loadReview) : null}
+        {morePanel === "review" ? renderPractice(reviewQuestion, reviewResult, "review", setReviewResult, loadReview, reviewSelection) : null}
         {morePanel === "irregular" ? renderIrregular() : null}
         {morePanel === "settings" ? renderSettings() : null}
       </div>
@@ -1010,7 +1134,7 @@ function App() {
   function renderScreen() {
     if (primaryTab === "today") return renderToday();
     if (primaryTab === "learn") return renderLearn();
-    if (primaryTab === "words") return renderWords();
+    if (primaryTab === "words") return renderLibrary();
     if (primaryTab === "progress") return renderProgress();
     return renderMore();
   }
@@ -1043,7 +1167,19 @@ function App() {
             <strong className="app-title">{currentTitle}</strong>
           </div>
         </div>
-        <span className="mode-pill">{isMiniApp ? "Telegram" : "Web"}</span>
+        {primaryTab === "words" ? (
+          <button
+            className={showLibraryAdd ? "secondary-button header-action active" : "secondary-button header-action"}
+            type="button"
+            onClick={() => setShowLibraryAdd((value) => !value)}
+            aria-label="Добавить слова"
+          >
+            <span className="header-action-mark">＋</span>
+            <span>Добавить</span>
+          </button>
+        ) : (
+          <span className="mode-pill">{isMiniApp ? "Telegram" : "Web"}</span>
+        )}
       </header>
 
       {notice ? <div className="notice">{notice}</div> : null}
@@ -1058,7 +1194,12 @@ function App() {
             key={item.id}
             className={item.id === primaryTab ? "nav-pill active" : "nav-pill"}
             type="button"
-            onClick={() => startTransition(() => setPrimaryTab(item.id))}
+            onClick={() => startTransition(() => {
+              setPrimaryTab(item.id);
+              if (item.id !== "words") {
+                setShowLibraryAdd(false);
+              }
+            })}
           >
             <span className="nav-label">{item.label}</span>
           </button>

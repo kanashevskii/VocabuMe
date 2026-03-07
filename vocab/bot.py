@@ -31,7 +31,7 @@ from telegram.ext import (
 )
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
-from .services import bind_web_login_token
+from .services import bind_web_login_token, resolve_shared_image_path
 from .openai_utils import generate_word_data, detect_language
 from .utils import (
     clean_word,
@@ -390,6 +390,8 @@ def save_word(user, _original_input, data):
     if not example_trans:
         example_trans = translate_to_ru(data["example"])
 
+    image_path = resolve_shared_image_path(word, data["translation"], data.get("image_path", ""))
+
     return VocabularyItem.objects.create(
         user=user,
         word=word,
@@ -399,7 +401,7 @@ def save_word(user, _original_input, data):
         example=data["example"],
         example_translation=example_trans,
         part_of_speech=data.get("part_of_speech", "unknown"),
-        image_path=data.get("image_path", ""),
+        image_path=image_path,
     )
 
 @sync_to_async
@@ -2131,7 +2133,7 @@ def get_user_achievements(user):
     if learned >= 10:
         achievements.append("🎉 Выучено 10 слов — Первый шаг!")
     if learned >= 50:
-        achievements.append("🏅 Выучено 50 слов — Начинающий!")
+        achievements.append("🌿 Выучено 50 слов — Хороший темп!")
     if learned >= 100:
         achievements.append("🎯 Выучено 100 слов — Опытный!")
     if learned >= 200:
@@ -2139,19 +2141,29 @@ def get_user_achievements(user):
 
     # Неправильные глаголы
     if irregular >= 10:
-        achievements.append("🔤 10 неправильных глаголов освоено!")
+        achievements.append("🔤 10 неправильных глаголов — База собрана!")
     if irregular >= 30:
-        achievements.append("🚀 30 неправильных глаголов — Продвинутый!")
+        achievements.append("🧩 30 неправильных глаголов — Уже уверенно!")
     if irregular >= 60:
-        achievements.append("🏆 60 неправильных глаголов — Мастер!")
+        achievements.append("🏆 60 неправильных глаголов — Мастер форм!")
 
     # По дням подряд
     if days >= 3:
         achievements.append("📆 3 дня подряд — Ты в ритме!")
     if days >= 7:
         achievements.append("📅 7 дней подряд — Неделя прогресса!")
+    if days >= 14:
+        achievements.append("🧭 14 дней подряд — Курс на успех!")
     if days >= 30:
         achievements.append("🔥 30 дней подряд — Мастер привычки!")
+    if days >= 60:
+        achievements.append("🕯️ 60 дней подряд — Упорство без пауз!")
+    if days >= 100:
+        achievements.append("⚔️ 100 дней подряд — Воин знаний!")
+    if days >= 200:
+        achievements.append("🛡️ 200 дней подряд — Гуру дисциплины!")
+    if days >= 365:
+        achievements.append("🌈 365 дней подряд — Год знаний!")
 
     return achievements
 
@@ -2163,13 +2175,13 @@ def get_new_achievements(user):
 
     word_achievements = [
         (10, "words_10", "🎉 Выучено 10 слов — Первый шаг!"),
-        (50, "words_50", "🏅 Выучено 50 слов — Начинающий!"),
+        (50, "words_50", "🌿 Выучено 50 слов — Хороший темп!"),
         (100, "words_100", "🎯 Выучено 100 слов — Опытный!"),
         (200, "words_200", "🚀 Выучено 200 слов — Гуру слов!"),
         (500, "words_500", "👑 500 слов — Мастер словарного запаса!"),
         (1000, "words_1000", "🧠 1000 слов — Легенда!"),
         (2000, "words_2000", "🌟 2000 слов — Полиглот уровня бог!"),
-        (5000, "words_5000", "🏆 5000 слов — Энциклопедия на ногах!"),
+        (5000, "words_5000", "💎 5000 слов — Энциклопедия на ногах!"),
     ]
 
     day_achievements = [
@@ -2177,16 +2189,16 @@ def get_new_achievements(user):
         (7, "days_7", "📅 7 дней подряд — Неделя прогресса!"),
         (14, "days_14", "🧭 14 дней подряд — Курс на успех!"),
         (30, "days_30", "🔥 30 дней подряд — Мастер привычки!"),
-        (60, "days_60", "🕯️ 60 дней подряд — Упорство!"),
+        (60, "days_60", "🕯️ 60 дней подряд — Упорство без пауз!"),
         (100, "days_100", "⚔️ 100 дней подряд — Воин знаний!"),
         (200, "days_200", "🛡️ 200 дней подряд — Гуру дисциплины!"),
         (365, "days_365", "🌈 365 дней подряд — Год знаний!"),
     ]
 
     irregular_achievements = [
-        (10, "irr_10", "🔤 10 неправильных глаголов освоено!"),
-        (30, "irr_30", "🚀 30 неправильных глаголов — Продвинутый!"),
-        (60, "irr_60", "🏆 60 неправильных глаголов — Мастер!"),
+        (10, "irr_10", "🔤 10 неправильных глаголов — База собрана!"),
+        (30, "irr_30", "🧩 30 неправильных глаголов — Уже уверенно!"),
+        (60, "irr_60", "🏆 60 неправильных глаголов — Мастер форм!"),
     ]
 
     earned = Achievement.objects.filter(user=user).values_list("code", flat=True)

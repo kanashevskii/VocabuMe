@@ -327,6 +327,35 @@ h3 {
   transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
+.nav-arrow {
+  min-width: 48px;
+  padding: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.header-action {
+  min-width: 124px;
+  padding: 0 14px;
+  gap: 8px;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.header-action.active {
+  color: white;
+  background: linear-gradient(180deg, #1490ef, #0867c0);
+}
+
+.header-action-mark {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.card-nav-row {
+  flex-wrap: nowrap;
+}
+
 .primary-button,
 .primary-link,
 .nav-pill.active,
@@ -342,6 +371,18 @@ h3 {
   color: var(--ink);
   background: rgba(255, 255, 255, 0.86);
   border: 1px solid var(--line);
+}
+
+.option-button.is-correct {
+  color: #0a6f46;
+  border-color: rgba(15, 138, 87, 0.3);
+  background: rgba(15, 138, 87, 0.16);
+}
+
+.option-button.is-wrong {
+  color: #9b2340;
+  border-color: rgba(191, 52, 86, 0.34);
+  background: rgba(191, 52, 86, 0.16);
 }
 
 .danger-button {
@@ -369,6 +410,12 @@ h3 {
 
 .stats-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.today-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .stat-card {
@@ -442,6 +489,21 @@ h3 {
 .quiz-panel {
   display: grid;
   gap: 14px;
+}
+
+.card-visual {
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(11, 115, 200, 0.16);
+  background: rgba(255, 255, 255, 0.76);
+  aspect-ratio: 16 / 9;
+}
+
+.card-visual img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .study-side {
@@ -662,10 +724,27 @@ textarea {
     align-items: stretch;
   }
 
+  .card-nav-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .header-action {
+    min-width: 108px;
+    padding: 0 12px;
+    font-size: 0.84rem;
+  }
+
   .action-grid,
   .stats-grid,
   .option-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .today-stats-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .main-segment {
@@ -723,6 +802,23 @@ textarea {
 
   .segment-wrap {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .today-stats-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .today-stats-row .stat-card {
+    padding: 12px 10px;
+  }
+
+  .today-stats-row .stat-card strong {
+    font-size: 1.18rem;
+  }
+
+  .today-stats-row .stat-card span {
+    font-size: 0.68rem;
   }
 
   .nav-label {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from datetime import time as dt_time
 
 from decouple import config
@@ -19,6 +20,7 @@ from .services import (
     consume_web_login_token,
     create_web_login_token,
     create_word,
+    get_word_image_file,
     get_ordered_unlearned_words,
     list_words,
     list_irregular_page,
@@ -417,6 +419,25 @@ def word_audio(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
 
 
 @require_GET
+def word_image(request: HttpRequest, word_id: int) -> JsonResponse | FileResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    try:
+        item = VocabularyItem.objects.get(id=word_id, user=user)
+    except VocabularyItem.DoesNotExist:
+        return _json_error("Word not found.", status=404)
+
+    image_path = get_word_image_file(item)
+    if image_path is None:
+        return _json_error("Image not found.", status=404)
+
+    content_type, _ = mimetypes.guess_type(image_path.name)
+    return FileResponse(open(image_path, "rb"), content_type=content_type or "image/jpeg")
+
+
+@require_GET
 def irregular_list(request: HttpRequest) -> JsonResponse:
     page = max(0, int(request.GET.get("page", 0)))
     return JsonResponse({"ok": True, **list_irregular_page(page)})
@@ -457,8 +478,15 @@ def study_cards(request: HttpRequest) -> JsonResponse:
     if isinstance(user, JsonResponse):
         return user
 
-    count = max(1, min(int(request.GET.get("count", 10)), 20))
-    cards = [serialize_word(item) for item in get_ordered_unlearned_words(user, count=count)]
+    scope = request.GET.get("scope", "").strip().lower()
+    if scope == "all":
+        items = list_words(user, status="learning", limit=500)
+        with_images = [item for item in items if get_word_image_file(item) is not None]
+        without_images = [item for item in items if get_word_image_file(item) is None]
+        cards = [serialize_word(item) for item in with_images + without_images]
+    else:
+        count = max(1, min(int(request.GET.get("count", 10)), 20))
+        cards = [serialize_word(item) for item in get_ordered_unlearned_words(user, count=count)]
     return JsonResponse({"ok": True, "items": cards})
 
 

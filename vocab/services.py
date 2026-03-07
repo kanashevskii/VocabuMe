@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from typing import Iterable
 import random
+import re
 
 from django.db.models import Count, Min, Q
 from django.utils import timezone
@@ -12,6 +14,28 @@ from django.utils.timezone import now
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 from .models import IrregularVerbProgress, TelegramUser, VocabularyItem, WebLoginToken
 from .utils import clean_word, translate_to_ru
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MEDIA_ROOT = PROJECT_ROOT / "media"
+IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
+USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
+ACHIEVEMENT_DEFINITIONS = [
+    {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
+    {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
+    {"kind": "words", "threshold": 100, "text": "🎯 Выучено 100 слов — Опытный!"},
+    {"kind": "words", "threshold": 200, "text": "🚀 Выучено 200+ слов — Гуру слов!"},
+    {"kind": "irregular", "threshold": 10, "text": "🔤 10 неправильных глаголов — База собрана!"},
+    {"kind": "irregular", "threshold": 30, "text": "🧩 30 неправильных глаголов — Уже уверенно!"},
+    {"kind": "irregular", "threshold": 60, "text": "🏆 60 неправильных глаголов — Мастер форм!"},
+    {"kind": "days", "threshold": 3, "text": "📆 3 дня подряд — Ты в ритме!"},
+    {"kind": "days", "threshold": 7, "text": "📅 7 дней подряд — Неделя прогресса!"},
+    {"kind": "days", "threshold": 14, "text": "🧭 14 дней подряд — Курс на успех!"},
+    {"kind": "days", "threshold": 30, "text": "🔥 30 дней подряд — Мастер привычки!"},
+    {"kind": "days", "threshold": 60, "text": "🕯️ 60 дней подряд — Упорство без пауз!"},
+    {"kind": "days", "threshold": 100, "text": "⚔️ 100 дней подряд — Воин знаний!"},
+    {"kind": "days", "threshold": 200, "text": "🛡️ 200 дней подряд — Гуру дисциплины!"},
+    {"kind": "days", "threshold": 365, "text": "🌈 365 дней подряд — Год знаний!"},
+]
 
 
 @dataclass
@@ -35,32 +59,30 @@ def get_user_achievements(user: TelegramUser) -> list[str]:
     learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     days = user.consecutive_days or 0
     irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
+    stats = {"words": learned, "days": days, "irregular": irregular}
+    return [item["text"] for item in ACHIEVEMENT_DEFINITIONS if stats[item["kind"]] >= item["threshold"]]
 
-    achievements: list[str] = []
-    if learned >= 10:
-        achievements.append("Выучено 10 слов")
-    if learned >= 50:
-        achievements.append("Выучено 50 слов")
-    if learned >= 100:
-        achievements.append("Выучено 100 слов")
-    if learned >= 200:
-        achievements.append("Выучено 200+ слов")
 
-    if irregular >= 10:
-        achievements.append("10 неправильных глаголов")
-    if irregular >= 30:
-        achievements.append("30 неправильных глаголов")
-    if irregular >= 60:
-        achievements.append("60 неправильных глаголов")
+def get_pending_achievements(user: TelegramUser) -> list[dict]:
+    learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
+    days = user.consecutive_days or 0
+    irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
+    stats = {"words": learned, "days": days, "irregular": irregular}
 
-    if days >= 3:
-        achievements.append("Серия 3 дня")
-    if days >= 7:
-        achievements.append("Серия 7 дней")
-    if days >= 30:
-        achievements.append("Серия 30 дней")
-
-    return achievements
+    pending: list[dict] = []
+    for item in ACHIEVEMENT_DEFINITIONS:
+        current = stats[item["kind"]]
+        if current >= item["threshold"]:
+            continue
+        pending.append(
+            {
+                "kind": item["kind"],
+                "text": item["text"],
+                "current": current,
+                "target": item["threshold"],
+            }
+        )
+    return pending[:8]
 
 
 def build_user_progress(user: TelegramUser) -> dict:
@@ -69,6 +91,7 @@ def build_user_progress(user: TelegramUser) -> dict:
     learning = total - learned
     irregular_learned = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
     start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))["created_at__min"]
+    today = now().date()
 
     user_stats = TelegramUser.objects.annotate(
         learned_count=Count("vocabularyitem", filter=Q(vocabularyitem__is_learned=True))
@@ -86,9 +109,37 @@ def build_user_progress(user: TelegramUser) -> dict:
         "start_date": start_date.isoformat() if start_date else None,
         "rank_percent": rank_percent,
         "achievements": get_user_achievements(user),
+        "pending_achievements": get_pending_achievements(user),
         "streak_days": user.consecutive_days,
         "study_days": user.total_study_days,
+        "studied_today": user.last_study_date == today,
     }
+
+
+def get_word_image_file(item: VocabularyItem) -> Path | None:
+    candidates: list[Path] = []
+
+    if item.image_path:
+        raw_path = Path(item.image_path)
+        candidates.append(raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path)
+
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", item.word or "").strip("_") or "word"
+    candidates.extend(
+        [
+            IMAGE_CACHE_DIR / f"{item.id}_{slug}.jpg",
+            IMAGE_CACHE_DIR / f"_{slug}.jpg",
+        ]
+    )
+
+    allowed_roots = (IMAGE_CACHE_DIR.resolve(), USER_IMAGE_DIR.resolve())
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (FileNotFoundError, OSError):
+            continue
+        if any(resolved.is_relative_to(root) for root in allowed_roots):
+            return resolved
+    return None
 
 
 def serialize_user(user: TelegramUser) -> dict:
@@ -102,6 +153,7 @@ def serialize_user(user: TelegramUser) -> dict:
 
 
 def serialize_word(item: VocabularyItem) -> dict:
+    image_file = get_word_image_file(item)
     return {
         "id": item.id,
         "word": item.word,
@@ -113,6 +165,7 @@ def serialize_word(item: VocabularyItem) -> dict:
         "correct_count": item.correct_count,
         "is_learned": item.is_learned,
         "image_path": item.image_path,
+        "has_image": image_file is not None,
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
     }
@@ -140,6 +193,27 @@ def word_already_exists(user: TelegramUser, word: str) -> bool:
     return VocabularyItem.objects.filter(user=user, normalized_word=clean_word(word)).exists()
 
 
+def resolve_shared_image_path(word: str, translation: str, preferred_path: str = "") -> str:
+    if preferred_path:
+        return preferred_path
+
+    normalized_word = clean_word(word)
+    normalized_translation = (translation or "").strip()
+    if not normalized_word or not normalized_translation:
+        return ""
+
+    existing = (
+        VocabularyItem.objects.filter(
+            normalized_word=normalized_word,
+            translation__iexact=normalized_translation,
+        )
+        .exclude(image_path="")
+        .order_by("-updated_at", "-id")
+        .first()
+    )
+    return existing.image_path if existing else ""
+
+
 def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
     word = clean_word(data["word"])
     transcription = data.get("transcription", "") or ""
@@ -147,6 +221,7 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
         transcription = ""
 
     example_translation = data.get("example_translation") or translate_to_ru(data.get("example", ""))
+    image_path = resolve_shared_image_path(word, data["translation"], data.get("image_path", ""))
     return VocabularyItem.objects.create(
         user=user,
         word=word,
@@ -156,7 +231,7 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
         example=data["example"],
         example_translation=example_translation,
         part_of_speech=data.get("part_of_speech", "unknown"),
-        image_path=data.get("image_path", ""),
+        image_path=image_path,
     )
 
 

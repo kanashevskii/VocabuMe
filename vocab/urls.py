@@ -23,6 +23,7 @@ urlpatterns = [
     path("api/listening/question", views.listening_question, name="listening-question"),
     path("api/listening/answer", views.listening_answer, name="listening-answer"),
     path("api/audio/<int:word_id>", views.word_audio, name="word-audio"),
+    path("api/image/<int:word_id>", views.word_image, name="word-image"),
     path("api/irregular/list", views.irregular_list, name="irregular-list"),
     path("api/irregular/question", views.irregular_question, name="irregular-question"),
     path("api/irregular/answer", views.irregular_answer, name="irregular-answer"),
