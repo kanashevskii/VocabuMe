@@ -408,17 +408,42 @@ function App() {
     setIrregularList(irregularData);
   }
 
-  async function loadCards() {
+  async function loadCards(options = {}) {
+    const { reset = true } = options;
     const data = await api("/api/study/cards?scope=all");
-    setCardQueue(data.items);
-    setCardIndex(0);
-    setCardReveal(false);
+    setCardQueue((current) => {
+      if (reset) {
+        return data.items;
+      }
+      return data.items;
+    });
+    if (reset) {
+      setCardIndex(0);
+      setCardReveal(false);
+      return;
+    }
+    setCardIndex((currentIndex) => {
+      const currentItemId = cardQueue[currentIndex]?.id;
+      if (!currentItemId) {
+        return 0;
+      }
+      const nextIndex = data.items.findIndex((item) => item.id === currentItemId);
+      return nextIndex >= 0 ? nextIndex : 0;
+    });
   }
 
-  async function loadLearningData() {
-    setLearnUsedWordIds([]);
-    setLearnQuestionCount(0);
-    await Promise.all([loadCards(), loadLearnQuestion([], 0), loadReview()]);
+  async function loadLearningData(options = {}) {
+    const { resetCards = true, resetLearn = true } = options;
+    if (resetLearn) {
+      setLearnUsedWordIds([]);
+      setLearnQuestionCount(0);
+      setLearnSessionDone(false);
+    }
+    await Promise.all([
+      loadCards({ reset: resetCards }),
+      resetLearn ? loadLearnQuestion([], 0) : Promise.resolve(),
+      loadReview(),
+    ]);
   }
 
   function showPreviousCard() {
@@ -522,7 +547,7 @@ function App() {
       return;
     }
     const intervalId = window.setInterval(() => {
-      void loadLearningData();
+      void loadLearningData({ resetCards: false, resetLearn: false });
     }, 4000);
     return () => window.clearInterval(intervalId);
   }, [auth.authenticated, words, cardQueue]);
