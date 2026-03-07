@@ -8,25 +8,9 @@ const PRIMARY_TABS = [
   { id: "more", label: "Ещё" }
 ];
 
-const LEARN_MODES = [
-  { id: "practice", label: "Тест" },
-  { id: "listening", label: "Аудирование" },
-  { id: "speaking", label: "Говорение" }
-];
-
 const LIBRARY_MODES = [
   { id: "cards", label: "Карточки" },
   { id: "words", label: "Все слова" }
-];
-
-const PRACTICE_MODES = [
-  { id: "classic", label: "EN -> RU" },
-  { id: "reverse", label: "RU -> EN" }
-];
-
-const LISTENING_MODES = [
-  { id: "word", label: "Слово" },
-  { id: "translate", label: "Перевод" }
 ];
 
 const MORE_PANELS = [
@@ -189,7 +173,6 @@ function App() {
   const [notice, setNoticeState] = useState(null);
   const [busy, setBusy] = useState(false);
   const [primaryTab, setPrimaryTab] = useState("today");
-  const [learnMode, setLearnMode] = useState("practice");
   const [libraryMode, setLibraryMode] = useState("cards");
   const [morePanel, setMorePanel] = useState("review");
   const [showLibraryAdd, setShowLibraryAdd] = useState(false);
@@ -215,16 +198,14 @@ function App() {
   const [cardQueue, setCardQueue] = useState([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [cardReveal, setCardReveal] = useState(false);
-  const [practiceMode, setPracticeMode] = useState("classic");
-  const [practiceQuestion, setPracticeQuestion] = useState(null);
-  const [practiceResult, setPracticeResult] = useState(null);
-  const [practiceSelection, setPracticeSelection] = useState("");
-  const [listeningMode, setListeningMode] = useState("word");
-  const [listeningQuestion, setListeningQuestion] = useState(null);
-  const [listeningAnswer, setListeningAnswer] = useState("");
-  const [listeningResult, setListeningResult] = useState(null);
-  const [speakingQuestion, setSpeakingQuestion] = useState(null);
-  const [speakingResult, setSpeakingResult] = useState(null);
+  const [learnQuestion, setLearnQuestion] = useState(null);
+  const [learnResult, setLearnResult] = useState(null);
+  const [learnSelection, setLearnSelection] = useState("");
+  const [learnTextAnswer, setLearnTextAnswer] = useState("");
+  const [learnUsedWordIds, setLearnUsedWordIds] = useState([]);
+  const [learnQuestionCount, setLearnQuestionCount] = useState(0);
+  const [learnSessionLimit, setLearnSessionLimit] = useState(12);
+  const [learnSessionDone, setLearnSessionDone] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [reviewQuestion, setReviewQuestion] = useState(null);
   const [reviewResult, setReviewResult] = useState(null);
@@ -321,7 +302,7 @@ function App() {
     if (primaryTab === "words") return showLibraryAdd ? "Добавить" : libraryMode === "cards" ? "Карточки" : "Все слова";
     if (primaryTab === "progress") return "Прогресс";
     return MORE_PANELS.find((item) => item.id === morePanel)?.label || "Ещё";
-  }, [libraryMode, learnMode, morePanel, primaryTab, showLibraryAdd]);
+  }, [libraryMode, morePanel, primaryTab, showLibraryAdd]);
 
   const filteredRecentWords = dashboard?.recent_words || [];
   const nextCards = dashboard?.next_cards || [];
@@ -332,13 +313,12 @@ function App() {
     }
     return [
       primaryTab,
-      learnMode,
       libraryMode,
       morePanel,
       showLibraryAdd ? "add" : "main",
       addDraftStep,
     ].join(":");
-  }, [auth.authenticated, primaryTab, learnMode, libraryMode, morePanel, showLibraryAdd, addDraftStep]);
+  }, [auth.authenticated, primaryTab, libraryMode, morePanel, showLibraryAdd, addDraftStep]);
 
   function clearNotice() {
     if (noticeTimerRef.current) {
@@ -436,7 +416,9 @@ function App() {
   }
 
   async function loadLearningData() {
-    await Promise.all([loadCards(), loadPractice(practiceMode), loadListening(listeningMode), loadSpeaking(), loadReview()]);
+    setLearnUsedWordIds([]);
+    setLearnQuestionCount(0);
+    await Promise.all([loadCards(), loadLearnQuestion([], 0), loadReview()]);
   }
 
   function showPreviousCard() {
@@ -449,20 +431,6 @@ function App() {
     setCardReveal(false);
   }
 
-  async function loadPractice(mode = practiceMode) {
-    const data = await api(`/api/practice/question?mode=${mode}`);
-    setPracticeQuestion(data.empty ? null : data.question);
-    setPracticeResult(null);
-    setPracticeSelection("");
-  }
-
-  async function loadListening(mode = listeningMode) {
-    const data = await api(`/api/listening/question?mode=${mode}`);
-    setListeningQuestion(data.empty ? null : data.question);
-    setListeningAnswer("");
-    setListeningResult(null);
-  }
-
   async function loadReview() {
     const data = await api("/api/practice/question?mode=review");
     setReviewQuestion(data.empty ? null : data.question);
@@ -470,11 +438,21 @@ function App() {
     setReviewSelection("");
   }
 
-  async function loadSpeaking() {
-    const data = await api("/api/speaking/question");
-    setSpeakingQuestion(data.empty ? null : data.question);
-    setSpeakingResult(null);
+  async function loadLearnQuestion(excludeIds = [], questionCount = 0) {
+    const ids = excludeIds.filter(Boolean);
+    const data = await api(`/api/learn/question?exclude_ids=${encodeURIComponent(ids.join(","))}`);
+    setLearnSessionLimit(data.session_limit || 12);
+    setLearnSelection("");
+    setLearnTextAnswer("");
+    setLearnResult(null);
     setIsRecording(false);
+    if (questionCount >= (data.session_limit || 12) || data.empty) {
+      setLearnQuestion(null);
+      setLearnSessionDone(true);
+      return;
+    }
+    setLearnQuestion(data.question);
+    setLearnSessionDone(false);
   }
 
   async function loadIrregularQuestion() {
@@ -584,7 +562,7 @@ function App() {
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [primaryTab, learnMode, libraryMode, morePanel]);
+  }, [primaryTab, libraryMode, morePanel]);
 
   async function requestLoginLink() {
     setBusy(true);
@@ -833,7 +811,7 @@ function App() {
     }
   }
 
-  async function handlePracticeAnswer(answer, mode = practiceMode, question = practiceQuestion, setter = setPracticeResult) {
+  async function handlePracticeAnswer(answer, mode, question, setter) {
     if (!question) {
       return;
     }
@@ -898,22 +876,77 @@ function App() {
     return "";
   }
 
-  async function handleListeningSubmit(event) {
-    event.preventDefault();
-    if (!listeningQuestion) {
+  function getLearnExpectedAnswer(question = learnQuestion) {
+    if (!question) {
+      return "";
+    }
+    if (question.exercise_type === "practice_en_ru" || question.exercise_type === "listening_translate") {
+      return question.item.translation;
+    }
+    return question.item.word;
+  }
+
+  function revealLearnAnswer() {
+    const correctAnswer = getLearnExpectedAnswer();
+    if (!correctAnswer || !learnQuestion) {
+      return;
+    }
+    setLearnSelection("");
+    setLearnResult({ correct: false, correct_answer: correctAnswer, skipped: true, exercise_type: learnQuestion.exercise_type });
+  }
+
+  async function advanceLearnSession() {
+    if (!learnQuestion) {
+      return;
+    }
+    const nextUsedIds = [...learnUsedWordIds, learnQuestion.item.id];
+    const nextCount = learnQuestionCount + 1;
+    setLearnUsedWordIds(nextUsedIds);
+    setLearnQuestionCount(nextCount);
+    await loadLearnQuestion(nextUsedIds, nextCount);
+  }
+
+  async function handleLearnChoiceAnswer(answer) {
+    if (!learnQuestion) {
       return;
     }
     setBusy(true);
     try {
-      const data = await api("/api/listening/answer", {
+      setLearnSelection(answer);
+      const data = await api("/api/learn/answer", {
         method: "POST",
         body: JSON.stringify({
-          word_id: listeningQuestion.item.id,
-          answer: listeningAnswer,
-          mode: listeningQuestion.mode
+          word_id: learnQuestion.item.id,
+          answer,
+          exercise_type: learnQuestion.exercise_type
         })
       });
-      setListeningResult(data);
+      setLearnResult(data);
+      setAuth((previous) => ({ ...previous, progress: data.progress }));
+      await loadDashboard();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLearnListeningSubmit(event) {
+    event.preventDefault();
+    if (!learnQuestion) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const data = await api("/api/learn/answer", {
+        method: "POST",
+        body: JSON.stringify({
+          word_id: learnQuestion.item.id,
+          answer: learnTextAnswer,
+          exercise_type: learnQuestion.exercise_type
+        })
+      });
+      setLearnResult(data);
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       await loadDashboard();
     } catch (error) {
@@ -924,20 +957,20 @@ function App() {
   }
 
   async function uploadSpeakingAttempt(blob) {
-    if (!speakingQuestion) {
+    if (!learnQuestion) {
       return;
     }
     setBusy(true);
     try {
       const extension = blob.type.includes("mp4") ? "mp4" : "webm";
       const formData = new FormData();
-      formData.append("word_id", String(speakingQuestion.item.id));
+      formData.append("word_id", String(learnQuestion.item.id));
       formData.append("audio", new File([blob], `speech.${extension}`, { type: blob.type || "audio/webm" }));
       const data = await api("/api/speaking/answer", {
         method: "POST",
         body: formData
       });
-      setSpeakingResult(data);
+      setLearnResult(data);
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       await loadDashboard();
     } catch (error) {
@@ -948,7 +981,7 @@ function App() {
   }
 
   async function startSpeakingRecording() {
-    if (!speakingQuestion || isRecording) {
+    if (!learnQuestion || isRecording) {
       return;
     }
     try {
@@ -971,7 +1004,7 @@ function App() {
       };
       mediaRecorderRef.current = recorder;
       recorder.start();
-      setSpeakingResult(null);
+      setLearnResult(null);
       setIsRecording(true);
     } catch (error) {
       setNotice(error.message || "Не удалось включить микрофон.");
@@ -1106,7 +1139,7 @@ function App() {
         body: JSON.stringify(settings)
       });
       setNotice("Настройки сохранены.");
-      await loadDashboard();
+      await Promise.all([loadDashboard(), loadLearningData()]);
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -1120,9 +1153,11 @@ function App() {
     }
     startTransition(() => {
       setPrimaryTab("learn");
-      setLearnMode(mode);
       setShowLibraryAdd(false);
     });
+    if (learnSessionDone || !learnQuestion) {
+      void loadLearningData();
+    }
   }
 
   function openMore(panel) {
@@ -1266,27 +1301,11 @@ function App() {
             <p className="overline">{mode === "review" ? "Review" : "Practice"}</p>
             <h3>{mode === "review" ? "Повтор старых слов 🔁" : "Тест 🎯"}</h3>
           </div>
-          {mode !== "review" ? (
-            <div className="segment-wrap">
-              {PRACTICE_MODES.map((item) => (
-                <button
-                  key={item.id}
-                  className={practiceMode === item.id ? "segment-button active" : "segment-button"}
-                  type="button"
-                  onClick={() => {
-                    setPracticeMode(item.id);
-                    loadPractice(item.id);
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          ) : (
+          {mode === "review" ? (
             <button className="secondary-button" type="button" onClick={reload}>
               Обновить
             </button>
-          )}
+          ) : null}
         </div>
         {question ? (
           <div className="quiz-panel">
@@ -1332,123 +1351,129 @@ function App() {
     );
   }
 
-  function renderListening() {
-    return (
-      <section className="glass-card learn-card">
-        <div className="section-head section-head-wrap">
-          <div>
-            <p className="overline">Listening</p>
-            <h3>Аудирование 🎧</h3>
-          </div>
-          <div className="segment-wrap">
-            {LISTENING_MODES.map((item) => (
-              <button
-                key={item.id}
-                className={listeningMode === item.id ? "segment-button active" : "segment-button"}
-                type="button"
-                onClick={() => {
-                  setListeningMode(item.id);
-                  loadListening(item.id);
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {listeningQuestion ? (
-          <form className="stack-form" onSubmit={handleListeningSubmit}>
-            <audio controls src={`/api/audio/${listeningQuestion.item.id}`} className="audio-player" />
-            <input value={listeningAnswer} onChange={(event) => setListeningAnswer(event.target.value)} placeholder="Твой ответ" />
-            <button className="primary-button" type="submit">Проверить</button>
-            {listeningResult ? (
-              <div className={listeningResult.correct ? "result-box good" : "result-box bad"}>
-                <span>{listeningResult.correct ? "Верно" : `Правильный ответ: ${listeningResult.correct_answer}`}</span>
-                <button className="secondary-button" type="button" onClick={() => loadListening(listeningMode)}>
-                  Дальше
-                </button>
-              </div>
-            ) : null}
-          </form>
-        ) : <div className="empty-state">No listening items.</div>}
-      </section>
-    );
-  }
-
-  function renderSpeaking() {
-    const statusClass = speakingResult?.status === "correct"
+  function renderLearn() {
+    const statusClass = learnResult?.status === "correct"
       ? "result-box good"
-      : speakingResult?.status === "close"
+      : learnResult?.status === "close"
         ? "result-box"
         : "result-box bad";
 
-    return (
-      <section className="glass-card learn-card">
-        <div className="section-head section-head-wrap">
-          <div>
-            <p className="overline">Speaking</p>
-            <h3>Говорение 🎙️</h3>
-          </div>
-        </div>
-        {speakingQuestion ? (
-          <div className="quiz-panel">
-            <div className="prompt-card">
-              <strong>{speakingQuestion.item.word}</strong>
-              <span>Прослушай пример и произнеси слово своим голосом.</span>
+    if (!learnQuestion) {
+      return (
+        <section className="glass-card learn-card">
+          <div className="section-head section-head-wrap">
+            <div>
+              <p className="overline">Practice</p>
+              <h3>Смешанная практика 🎯</h3>
             </div>
-            <audio controls src={`/api/audio/${speakingQuestion.item.id}`} className="audio-player" />
-            <div className="button-row">
-              <button
-                className={isRecording ? "secondary-button" : "primary-button"}
-                type="button"
-                onClick={isRecording ? stopSpeakingRecording : startSpeakingRecording}
-                disabled={busy || !canRecordSpeech}
-              >
-                {isRecording ? "⏹️ Остановить запись" : "🎙️ Начать запись"}
-              </button>
-            </div>
-            {speakingResult ? (
-              <div className={statusClass}>
-                <span>
-                  {speakingResult.message} Транскрибация: {speakingResult.transcript || "—"}.
-                </span>
-                <button className="secondary-button" type="button" onClick={loadSpeaking}>
-                  Дальше
-                </button>
-              </div>
-            ) : (
-              <div className="empty-state">
-                {!canRecordSpeech
-                  ? "В этом браузере запись голоса недоступна."
-                  : isRecording
-                    ? "Идёт запись. Нажми «Остановить запись» после произношения."
-                    : "Нажми на запись и произнеси слово."}
-              </div>
-            )}
           </div>
-        ) : <div className="empty-state">No speaking items.</div>}
-      </section>
-    );
-  }
+          <div className="empty-state">
+            {learnSessionDone
+              ? `Прогон завершён. Выполнено ${learnQuestionCount} из ${learnSessionLimit} заданий.`
+              : "Сейчас нет подходящих заданий."}
+          </div>
+          <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
+            Начать новый прогон
+          </button>
+        </section>
+      );
+    }
 
-  function renderLearn() {
+    const isChoice = learnQuestion.kind === "choice";
+    const isListening = learnQuestion.kind === "listening";
+    const isSpeaking = learnQuestion.kind === "speaking";
+    const promptTitle = isChoice
+      ? (learnQuestion.exercise_type === "practice_ru_en" ? learnQuestion.item.translation : learnQuestion.item.word)
+      : learnQuestion.item.word;
+
     return (
       <div className="screen-stack">
-        <div className="segment-wrap main-segment">
-          {LEARN_MODES.map((item) => (
-            <button
-              key={item.id}
-              className={learnMode === item.id ? "segment-button active" : "segment-button"}
-              type="button"
-              onClick={() => setLearnMode(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        {learnMode === "practice" ? renderPractice(practiceQuestion, practiceResult, practiceMode, setPracticeResult, () => loadPractice(practiceMode), practiceSelection) : null}
-        {learnMode === "listening" ? renderListening() : null}
-        {learnMode === "speaking" ? renderSpeaking() : null}
+        <section className="glass-card learn-card">
+          <div className="section-head section-head-wrap">
+            <div>
+              <p className="overline">Practice</p>
+              <h3>Смешанная практика 🎯</h3>
+            </div>
+            <span className="status-tag">{learnQuestionCount + 1} / {learnSessionLimit}</span>
+          </div>
+          <div className="prompt-card">
+            <strong>{promptTitle}</strong>
+            <span>{learnQuestion.prompt}</span>
+            <span className="study-hint">{learnQuestion.exercise_label}</span>
+          </div>
+          {isChoice ? (
+            <div className="quiz-panel">
+              <div className="option-grid">
+                {learnQuestion.options.map((option) => (
+                  <button
+                    key={option}
+                    className={`option-button ${getOptionState(option, learnResult, learnSelection)}`.trim()}
+                    type="button"
+                    disabled={Boolean(learnResult)}
+                    onClick={() => void handleLearnChoiceAnswer(option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <button className="secondary-button" type="button" onClick={revealLearnAnswer} disabled={Boolean(learnResult)}>
+                Пропустить
+              </button>
+            </div>
+          ) : null}
+          {isListening ? (
+            <form className="stack-form" onSubmit={handleLearnListeningSubmit}>
+              <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
+              <input value={learnTextAnswer} onChange={(event) => setLearnTextAnswer(event.target.value)} placeholder="Твой ответ" />
+              <div className="button-row">
+                <button className="primary-button" type="submit">Проверить</button>
+                <button className="secondary-button" type="button" onClick={revealLearnAnswer} disabled={Boolean(learnResult)}>
+                  Пропустить
+                </button>
+              </div>
+            </form>
+          ) : null}
+          {isSpeaking ? (
+            <div className="quiz-panel">
+              <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
+              <div className="button-row">
+                <button
+                  className={isRecording ? "secondary-button" : "primary-button"}
+                  type="button"
+                  onClick={isRecording ? stopSpeakingRecording : startSpeakingRecording}
+                  disabled={busy || !canRecordSpeech}
+                >
+                  {isRecording ? "⏹️ Остановить запись" : "🎙️ Начать запись"}
+                </button>
+              </div>
+              {!learnResult ? (
+                <div className="empty-state">
+                  {!canRecordSpeech
+                    ? "В этом браузере запись голоса недоступна."
+                    : isRecording
+                      ? "Идёт запись. Нажми «Остановить запись» после произношения."
+                      : "Нажми на запись и произнеси слово."}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {learnResult ? (
+            <div className={isSpeaking ? statusClass : learnResult.correct ? "result-box good" : "result-box bad"}>
+              <span>
+                {isSpeaking
+                  ? `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
+                  : learnResult.skipped
+                    ? `Правильный ответ: ${learnResult.correct_answer}`
+                    : learnResult.correct
+                      ? "Верно"
+                      : `Правильный ответ: ${learnResult.correct_answer}`}
+              </span>
+              <button className="secondary-button" type="button" onClick={() => void advanceLearnSession()}>
+                Дальше
+              </button>
+            </div>
+          ) : null}
+        </section>
       </div>
     );
   }
@@ -1502,7 +1527,7 @@ function App() {
                   <p className="word-item-example">{item.example}</p>
                 </div>
                 <span className={item.is_learned ? "status-tag good" : "status-tag"}>
-                  {item.is_learned ? "Выучено" : `${item.correct_count}/${settings?.repeat_threshold || 3}`}
+                  {item.is_learned ? "Выучено" : `${item.correct_count}/${settings?.exercise_goal || 4}`}
                 </span>
               </div>
               <input
@@ -1882,8 +1907,14 @@ function App() {
         <h3>Настройки ⚙️</h3>
         <form className="settings-grid" onSubmit={saveSettings}>
           <label>
-            <span>Repeats to learned</span>
-            <input type="number" min="1" max="10" value={settings.repeat_threshold} onChange={(event) => setSettings((current) => ({ ...current, repeat_threshold: Number(event.target.value) }))} />
+            <span>Exercises to learn</span>
+            <small>Сколько разных упражнений нужно выполнить, чтобы слово стало выученным.</small>
+            <input type="number" min="2" max="5" value={settings.exercise_goal} onChange={(event) => setSettings((current) => ({ ...current, exercise_goal: Number(event.target.value) }))} />
+          </label>
+          <label>
+            <span>Questions per run</span>
+            <small>Максимум заданий за один прогон практики без повторов слов.</small>
+            <input type="number" min="1" max="50" value={settings.session_question_limit} onChange={(event) => setSettings((current) => ({ ...current, session_question_limit: Number(event.target.value) }))} />
           </label>
           <label>
             <span>Days before review</span>

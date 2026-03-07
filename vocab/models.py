@@ -10,7 +10,8 @@ def generate_web_login_token() -> str:
 class TelegramUser(models.Model):
     chat_id = models.BigIntegerField(unique=True)
     username = models.CharField(max_length=255, null=True, blank=True)
-    repeat_threshold = models.PositiveIntegerField(default=3)
+    repeat_threshold = models.PositiveIntegerField(default=4)
+    session_question_limit = models.PositiveIntegerField(default=12)
     enable_review_old_words = models.BooleanField(default=True)
     days_before_review = models.PositiveIntegerField(default=30)
 
@@ -43,6 +44,7 @@ class VocabularyItem(models.Model):
     example = models.TextField()
     example_translation = models.TextField(blank=True, default="")
     correct_count = models.IntegerField(default=0)
+    completed_exercise_types = models.JSONField(default=list, blank=True)
     is_learned = models.BooleanField(default=False)
     learned_at = models.DateTimeField(null=True, blank=True)
     image_regeneration_count = models.PositiveIntegerField(default=0)

@@ -17,6 +17,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
 from .openai_utils import generate_word_data, generate_word_data_batch, transcribe_speech_file
 from .services import (
+    build_learning_question,
     build_user_progress,
     build_choice_question,
     build_irregular_question,
@@ -37,11 +38,13 @@ from .services import (
     request_draft_image_generation,
     request_word_image_generation,
     refresh_draft_language_data,
+    recalculate_user_word_progress,
     regenerate_word_image,
     resolve_shared_image_path,
     serialize_user,
     serialize_draft,
     serialize_word,
+    submit_learning_text_answer,
     submit_choice_answer,
     submit_listening_answer,
     evaluate_speaking_answer,
@@ -596,7 +599,8 @@ def settings_view(request: HttpRequest) -> JsonResponse:
             {
                 "ok": True,
                 "settings": {
-                    "repeat_threshold": user.repeat_threshold,
+                    "exercise_goal": max(2, min(user.repeat_threshold, 5)),
+                    "session_question_limit": max(1, min(user.session_question_limit, 50)),
                     "enable_review_old_words": user.enable_review_old_words,
                     "days_before_review": user.days_before_review,
                     "reminder_enabled": user.reminder_enabled,
@@ -613,7 +617,10 @@ def settings_view(request: HttpRequest) -> JsonResponse:
         return _json_error(str(exc))
 
     try:
-        user.repeat_threshold = max(1, min(int(payload.get("repeat_threshold", user.repeat_threshold)), 10))
+        previous_goal = user.repeat_threshold
+        exercise_goal = payload.get("exercise_goal", payload.get("repeat_threshold", user.repeat_threshold))
+        user.repeat_threshold = max(2, min(int(exercise_goal), 5))
+        user.session_question_limit = max(1, min(int(payload.get("session_question_limit", user.session_question_limit)), 50))
         user.enable_review_old_words = bool(payload.get("enable_review_old_words", user.enable_review_old_words))
         user.days_before_review = max(1, min(int(payload.get("days_before_review", user.days_before_review)), 365))
         user.reminder_enabled = bool(payload.get("reminder_enabled", user.reminder_enabled))
@@ -625,7 +632,53 @@ def settings_view(request: HttpRequest) -> JsonResponse:
         return _json_error(f"Invalid settings payload: {exc}")
 
     user.save()
+    if user.repeat_threshold != previous_goal:
+        recalculate_user_word_progress(user)
     return JsonResponse({"ok": True})
+
+
+@require_GET
+def learn_question(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    raw_exclude = [chunk.strip() for chunk in request.GET.get("exclude_ids", "").split(",") if chunk.strip()]
+    exclude_ids: list[int] = []
+    for chunk in raw_exclude:
+        try:
+            exclude_ids.append(int(chunk))
+        except ValueError:
+            continue
+
+    question = build_learning_question(user, exclude_ids=exclude_ids)
+    if question is None:
+        return JsonResponse({"ok": True, "empty": True, "session_limit": max(1, min(user.session_question_limit, 50))})
+    return JsonResponse({"ok": True, "question": question, "session_limit": max(1, min(user.session_question_limit, 50))})
+
+
+@require_POST
+def learn_answer(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    try:
+        payload = _json_body(request)
+        word_id = int(payload.get("word_id"))
+        answer = str(payload.get("answer", ""))
+        exercise_type = str(payload.get("exercise_type", ""))
+    except (TypeError, ValueError):
+        return _json_error("Invalid learning answer payload.")
+
+    if exercise_type not in {"practice_en_ru", "practice_ru_en", "listening_word", "listening_translate"}:
+        return _json_error("Unknown exercise type.")
+
+    try:
+        result = submit_learning_text_answer(user, word_id, answer, exercise_type)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    return JsonResponse({"ok": True, **result})
 
 
 @require_GET

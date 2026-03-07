@@ -33,6 +33,20 @@ DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
 _IMAGE_OPTIMIZATION_LOCK = Lock()
 _IMAGE_OPTIMIZATION_IN_FLIGHT: set[str] = set()
 logger = logging.getLogger(__name__)
+EXERCISE_TYPE_LABELS = {
+    "practice_en_ru": "Тест EN -> RU",
+    "practice_ru_en": "Тест RU -> EN",
+    "listening_word": "Аудирование: слово",
+    "listening_translate": "Аудирование: перевод",
+    "speaking": "Говорение",
+}
+EXERCISE_PRIORITY = [
+    "practice_en_ru",
+    "listening_word",
+    "practice_ru_en",
+    "speaking",
+    "listening_translate",
+]
 ACHIEVEMENT_DEFINITIONS = [
     {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
     {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
@@ -272,6 +286,7 @@ def serialize_word(item: VocabularyItem) -> dict:
         "example_translation": item.example_translation,
         "part_of_speech": item.part_of_speech,
         "correct_count": item.correct_count,
+        "completed_exercise_types": list(item.completed_exercise_types or []),
         "is_learned": item.is_learned,
         "image_regeneration_count": item.image_regeneration_count,
         "image_generation_in_progress": item.image_generation_in_progress,
@@ -345,6 +360,51 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
         image_regeneration_count=data.get("image_regeneration_count", 0) or 0,
         image_path=image_path,
     )
+
+
+def get_exercise_goal(user: TelegramUser) -> int:
+    return max(2, min(int(user.repeat_threshold or 4), 5))
+
+
+def get_session_question_limit(user: TelegramUser) -> int:
+    return max(1, min(int(user.session_question_limit or 12), 50))
+
+
+def get_required_exercise_types(user: TelegramUser) -> list[str]:
+    return EXERCISE_PRIORITY[:get_exercise_goal(user)]
+
+
+def get_completed_exercise_types(item: VocabularyItem) -> list[str]:
+    raw = item.completed_exercise_types or []
+    cleaned: list[str] = []
+    for exercise_type in raw:
+        if exercise_type in EXERCISE_TYPE_LABELS and exercise_type not in cleaned:
+            cleaned.append(exercise_type)
+    return cleaned
+
+
+def sync_word_learning_state(item: VocabularyItem) -> VocabularyItem:
+    completed = get_completed_exercise_types(item)
+    goal = get_exercise_goal(item.user)
+    item.completed_exercise_types = completed
+    item.correct_count = len(completed)
+    item.is_learned = len(completed) >= goal
+    if item.is_learned and not item.learned_at:
+        item.learned_at = now()
+    if not item.is_learned:
+        item.learned_at = None
+    return item
+
+
+def get_pending_exercise_types(item: VocabularyItem) -> list[str]:
+    completed = set(get_completed_exercise_types(item))
+    return [exercise_type for exercise_type in get_required_exercise_types(item.user) if exercise_type not in completed]
+
+
+def recalculate_user_word_progress(user: TelegramUser) -> None:
+    for item in VocabularyItem.objects.filter(user=user).iterator():
+        sync_word_learning_state(item)
+        item.save(update_fields=["completed_exercise_types", "correct_count", "is_learned", "learned_at", "updated_at"])
 
 
 def serialize_draft(draft: AddWordDraft) -> dict:
@@ -660,15 +720,14 @@ def get_learned_words(user: TelegramUser) -> list[VocabularyItem]:
     return list(VocabularyItem.objects.filter(user=user, is_learned=True).order_by("updated_at", "id"))
 
 
-def update_word_progress(item_id: int, correct: bool) -> VocabularyItem:
+def update_word_progress(item_id: int, correct: bool, exercise_type: str | None = None) -> VocabularyItem:
     item = VocabularyItem.objects.select_related("user").get(id=item_id)
-    if correct:
-        item.correct_count += 1
-        threshold = item.user.repeat_threshold if item.user.repeat_threshold else 3
-        if item.correct_count >= threshold and not item.is_learned:
-            item.is_learned = True
-            item.learned_at = now()
-    item.save(update_fields=["correct_count", "is_learned", "learned_at", "updated_at"])
+    completed = get_completed_exercise_types(item)
+    if correct and exercise_type and exercise_type in EXERCISE_TYPE_LABELS and exercise_type not in completed:
+        completed.append(exercise_type)
+        item.completed_exercise_types = completed
+    sync_word_learning_state(item)
+    item.save(update_fields=["completed_exercise_types", "correct_count", "is_learned", "learned_at", "updated_at"])
     return item
 
 
@@ -684,7 +743,8 @@ def reset_word_progress(item_id: int) -> VocabularyItem:
     item.is_learned = False
     item.learned_at = None
     item.correct_count = 0
-    item.save(update_fields=["is_learned", "learned_at", "correct_count", "updated_at"])
+    item.completed_exercise_types = []
+    item.save(update_fields=["is_learned", "learned_at", "correct_count", "completed_exercise_types", "updated_at"])
     return item
 
 
@@ -707,6 +767,79 @@ def get_fake_translations(user: TelegramUser, exclude_word: str, part_of_speech:
             if len(translations) == count:
                 break
     return translations
+
+
+def get_learning_candidates(user: TelegramUser, exclude_ids: Iterable[int] | None = None) -> list[VocabularyItem]:
+    qs = VocabularyItem.objects.filter(user=user, is_learned=False).exclude(id__in=list(exclude_ids or []))
+    items = list(qs)
+    random.shuffle(items)
+    return [item for item in items if get_pending_exercise_types(item)]
+
+
+def _build_choice_options(item: VocabularyItem, answer_mode: str) -> tuple[str, list[str]]:
+    if answer_mode == "practice_ru_en":
+        correct_answer = item.word
+        fake_options = list(
+            VocabularyItem.objects.exclude(id=item.id)
+            .values_list("word", flat=True)
+            .distinct()
+            .order_by("?")[:3]
+        )
+    else:
+        correct_answer = item.translation
+        fake_options = get_fake_translations(
+            item.user,
+            exclude_word=item.word,
+            part_of_speech=item.part_of_speech,
+            count=3,
+        )
+    options = list(dict.fromkeys(fake_options + [correct_answer]))
+    random.shuffle(options)
+    return correct_answer, options
+
+
+def build_learning_question(user: TelegramUser, exclude_ids: Iterable[int] | None = None) -> dict | None:
+    candidates = get_learning_candidates(user, exclude_ids=exclude_ids)
+    if not candidates:
+        return None
+
+    item = candidates[0]
+    pending_types = get_pending_exercise_types(item)
+    if not pending_types:
+        return None
+
+    exercise_type = random.choice(pending_types)
+    payload = {
+        "exercise_type": exercise_type,
+        "exercise_label": EXERCISE_TYPE_LABELS[exercise_type],
+        "item": serialize_word(item),
+    }
+
+    if exercise_type in {"practice_en_ru", "practice_ru_en"}:
+        correct_answer, options = _build_choice_options(item, exercise_type)
+        payload.update(
+            {
+                "kind": "choice",
+                "prompt": "Выбери правильный перевод" if exercise_type == "practice_en_ru" else "Выбери правильное английское слово",
+                "answer_mode": exercise_type,
+                "options": options,
+                "correct_answer": correct_answer,
+            }
+        )
+        return payload
+
+    if exercise_type in {"listening_word", "listening_translate"}:
+        payload.update(
+            {
+                "kind": "listening",
+                "prompt": "Напиши услышанное слово" if exercise_type == "listening_word" else "Напиши перевод услышанного слова",
+                "answer_mode": exercise_type,
+            }
+        )
+        return payload
+
+    payload.update({"kind": "speaking", "prompt": "Прослушай пример и произнеси слово"})
+    return payload
 
 
 def build_choice_question(user: TelegramUser, mode: str) -> dict | None:
@@ -753,7 +886,7 @@ def submit_choice_answer(user: TelegramUser, item_id: int, answer: str, mode: st
 
     if mode == "reverse":
         correct = normalized == item.word.lower()
-        updated = update_word_progress(item.id, correct=correct)
+        updated = update_word_progress(item.id, correct=correct, exercise_type="practice_ru_en")
         correct_answer = item.word
         if correct:
             increment_user_metric(user, "practice_correct")
@@ -765,7 +898,7 @@ def submit_choice_answer(user: TelegramUser, item_id: int, answer: str, mode: st
             increment_user_metric(user, "review_correct")
     else:
         correct = normalized == item.translation.lower()
-        updated = update_word_progress(item.id, correct=correct)
+        updated = update_word_progress(item.id, correct=correct, exercise_type="practice_en_ru")
         correct_answer = item.translation
         if correct:
             increment_user_metric(user, "practice_correct")
@@ -792,7 +925,11 @@ def submit_listening_answer(user: TelegramUser, item_id: int, answer: str, mode:
     item = VocabularyItem.objects.get(id=item_id, user=user)
     expected = item.word if mode == "word" else item.translation
     correct = answer.strip().lower() == expected.lower()
-    updated = update_word_progress(item.id, correct=correct)
+    updated = update_word_progress(
+        item.id,
+        correct=correct,
+        exercise_type="listening_word" if mode == "word" else "listening_translate",
+    )
     if correct:
         increment_user_metric(user, "listening_correct")
     update_learning_streak(user)
@@ -819,7 +956,7 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
     similarity = SequenceMatcher(None, spoken, expected).ratio() if spoken else 0.0
 
     if spoken == expected:
-        updated = update_word_progress(item.id, correct=True)
+        updated = update_word_progress(item.id, correct=True, exercise_type="speaking")
         increment_user_metric(user, "speaking_correct")
         update_learning_streak(user)
         return {
@@ -851,6 +988,48 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
         "item": serialize_word(item),
         "correct_answer": item.word,
         "progress": build_user_progress(user),
+    }
+
+
+def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, exercise_type: str) -> dict:
+    item = VocabularyItem.objects.get(id=item_id, user=user)
+    normalized = answer.strip().lower()
+    if exercise_type == "practice_en_ru":
+        expected = item.translation
+        correct = normalized == item.translation.lower()
+        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        if correct:
+            increment_user_metric(user, "practice_correct")
+    elif exercise_type == "practice_ru_en":
+        expected = item.word
+        correct = normalized == item.word.lower()
+        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        if correct:
+            increment_user_metric(user, "practice_correct")
+    elif exercise_type == "listening_word":
+        expected = item.word
+        correct = normalized == item.word.lower()
+        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        if correct:
+            increment_user_metric(user, "listening_correct")
+    elif exercise_type == "listening_translate":
+        expected = item.translation
+        correct = normalized == item.translation.lower()
+        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        if correct:
+            increment_user_metric(user, "listening_correct")
+    else:
+        raise ValueError("Unsupported exercise type.")
+
+    if correct:
+        update_learning_streak(user)
+
+    return {
+        "correct": correct,
+        "item": serialize_word(updated),
+        "correct_answer": expected,
+        "progress": build_user_progress(user),
+        "exercise_type": exercise_type,
     }
 
 
