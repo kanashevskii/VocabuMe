@@ -891,6 +891,15 @@ function App() {
     if (!correctAnswer || !learnQuestion) {
       return;
     }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsRecording(false);
     setLearnSelection("");
     setLearnResult({ correct: false, correct_answer: correctAnswer, skipped: true, exercise_type: learnQuestion.exercise_type });
   }
@@ -1444,6 +1453,9 @@ function App() {
                   disabled={busy || !canRecordSpeech}
                 >
                   {isRecording ? "⏹️ Остановить запись" : "🎙️ Начать запись"}
+                </button>
+                <button className="secondary-button" type="button" onClick={revealLearnAnswer} disabled={Boolean(learnResult)}>
+                  Пропустить
                 </button>
               </div>
               {!learnResult ? (
