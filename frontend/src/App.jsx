@@ -267,18 +267,6 @@ function App() {
     }
   }, []);
 
-  useEffect(() => {
-    setNoticeState((current) => {
-      if (!current) {
-        return current;
-      }
-      if (current.scope === "global" || current.scope === noticeScope) {
-        return current;
-      }
-      return null;
-    });
-  }, [noticeScope]);
-
   const stats = useMemo(() => {
     const progress = dashboard?.progress || auth.progress;
     return [
@@ -319,6 +307,18 @@ function App() {
       addDraftStep,
     ].join(":");
   }, [auth.authenticated, primaryTab, libraryMode, morePanel, showLibraryAdd, addDraftStep]);
+
+  useEffect(() => {
+    setNoticeState((current) => {
+      if (!current) {
+        return current;
+      }
+      if (current.scope === "global" || current.scope === noticeScope) {
+        return current;
+      }
+      return null;
+    });
+  }, [noticeScope]);
 
   function clearNotice() {
     if (noticeTimerRef.current) {
