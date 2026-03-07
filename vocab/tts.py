@@ -4,8 +4,12 @@ import re
 import shutil
 import edge_tts
 import logging
-from gtts import gTTS
 from edge_tts.exceptions import NoAudioReceived
+
+try:
+    from gtts import gTTS
+except ImportError:  # pragma: no cover - depends on runtime env
+    gTTS = None
 
 AUDIO_DIR = "media/audio"
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -64,17 +68,20 @@ async def generate_tts_audio(text: str) -> str:
     if _is_valid_audio(plain_path):
         return plain_path
 
-    # Primary: gTTS (быстрее/стабильнее в нашей среде)
+    # Primary: gTTS when installed.
     last_err = None
-    try:
-        tts = gTTS(text)
-        tts.save(plain_path)
-        if _is_valid_audio(plain_path):
-            logging.info("gTTS generated audio for %s", text)
-            return plain_path
-    except Exception as exc:  # noqa: BLE001
-        last_err = exc
-        logging.exception("gTTS failed for %s: %s", text, exc)
+    if gTTS is not None:
+        try:
+            tts = gTTS(text)
+            tts.save(plain_path)
+            if _is_valid_audio(plain_path):
+                logging.info("gTTS generated audio for %s", text)
+                return plain_path
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            logging.exception("gTTS failed for %s: %s", text, exc)
+    else:
+        logging.warning("gTTS is not installed, falling back to edge-tts for %s", text)
 
     # Fallback: edge-tts с несколькими голосами
     attempts = 2

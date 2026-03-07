@@ -56,4 +56,6 @@ All product changes should preserve shared progress, shared dictionary state, an
 ## Documentation expectations
 
 - Keep README aligned with the actual product state.
+- Keep README aligned with the actual legal/usage terms as well.
 - Do not describe VocabuMe as bot-only anymore.
+- Preserve and update the rule that VocabuMe is for personal non-commercial use only unless the author has granted separate written permission for commercial use.

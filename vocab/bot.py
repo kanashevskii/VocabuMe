@@ -653,48 +653,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             return
 
-    webapp_note = ""
+    keyboard = []
     if WEBAPP_URL:
-        webapp_note = "🌐 Открывай веб-приложение прямо в Telegram для быстрого доступа.\n"
-
-    keyboard = [
-        [
-            InlineKeyboardButton("➕ Добавить", callback_data="start_add"),
-            InlineKeyboardButton("📚 Учить", callback_data="start_learn_cards"),
-        ],
-        [
-            InlineKeyboardButton("🎯 Практиковать", callback_data="start_practice"),
-            InlineKeyboardButton("🎧 Аудирование", callback_data="start_listening"),
-        ],
-        [InlineKeyboardButton("🔁 Повтор старых слов", callback_data="start_review_old")],
-        [InlineKeyboardButton("🔥 Неправильные глаголы", callback_data="start_irregular")],
-        [
-            InlineKeyboardButton("📘 Мои слова", callback_data="start_mywords"),
-            InlineKeyboardButton("📊 Прогресс", callback_data="start_progress"),
-        ],
-        [InlineKeyboardButton("⚙️ Настройки", callback_data="start_settings")],
-    ]
-
-    if WEBAPP_URL:
-        keyboard.insert(0, [InlineKeyboardButton("Открыть приложение", web_app=WebAppInfo(url=WEBAPP_URL))])
+        keyboard.append([InlineKeyboardButton("🚀 Открыть VocabuMe", web_app=WebAppInfo(url=WEBAPP_URL))])
 
     await safe_reply(
         update,
-        "👋 Привет! Я помогу тебе выучить английские слова — просто и эффективно.\n\n"
-        "Вот что я умею:\n"
-        "➕ /add — добавить новые слова\n"
-        "📚 /learn — карточки с твоими словами (листай по одному)\n"
-        "🎯 /practice — практиковать перевод (классический или обратный режим)\n"
-        "🔁 /review — повтор старых выученных слов\n"
-        "🎧 /listening — аудирование по твоим словам\n"
-        "📘 /mywords — список слов, которые ты учишь\n"
-        "📊 /progress — посмотреть свою статистику и достижения\n"
-        "⚙️ /settings — изменить настройки обучения и напоминаний\n\n"
-        "🔥 /irregular — тренировать неправильные глаголы\n"
-        f"{webapp_note}"
-        "⏰ Я могу напоминать тебе о занятиях каждый день или через день — настрой это через /settings!\n\n"
-        "🚀 Готов начать? Жми /add, /learn или /practice!",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        "👋 VocabuMe теперь работает как Telegram Mini App.\n\n"
+        "Открывай приложение, чтобы добавлять слова, проходить практику, смотреть прогресс и управлять словарём.\n"
+        "Этот бот остаётся для входа и напоминаний о занятиях.",
+        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
     )
 
 async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1556,95 +1524,8 @@ def run_telegram_bot():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_error_handler(on_telegram_error)
-
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("add", add_command),
-            CallbackQueryHandler(add_command, pattern="^start_add$"),
-        ],
-        states={
-            ADD_WORDS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_words)],
-            WAIT_TRANSLATION: [
-                CallbackQueryHandler(handle_translation_choice, pattern="^translation_choice_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_manual_translation),
-            ],
-            WAIT_PHOTO: [
-                CallbackQueryHandler(handle_photo_choice, pattern="^photo_(accept|skip|manual)$"),
-                MessageHandler(filters.PHOTO, handle_photo_upload),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_photo_text),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    reminder_time_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(handle_settings_callback, pattern="^set_reminder_time$"),
-            CallbackQueryHandler(handle_settings_callback, pattern="^set_reminder_tz$"),
-        ],
-        states={
-            SET_REMINDER_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_reminder_time)],
-            SET_REMINDER_TZ: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_reminder_timezone)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-
-    app.add_handler(reminder_time_conv)
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(start, pattern="^start$") )
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("learn", learn_cards))
-    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^start_learn_cards$"))
-    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_next_batch$"))
-    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_next$"))
-    app.add_handler(CallbackQueryHandler(learn_cards, pattern="^cards_repeat$"))
-    app.add_handler(CommandHandler("review", review_old_words))
-    app.add_handler(CallbackQueryHandler(review_old_words, pattern="^start_review_old$"))
-    app.add_handler(CommandHandler("practice", practice_menu))
-    app.add_handler(CallbackQueryHandler(practice_menu, pattern="^start_practice$"))
-    app.add_handler(CommandHandler("learnreverse", learn_reverse))
-    app.add_handler(CallbackQueryHandler(learn, pattern="^practice_classic$"))
-    app.add_handler(CallbackQueryHandler(learn_reverse, pattern="^practice_reverse$"))
-    app.add_handler(CommandHandler("listening", listening_menu))
-    app.add_handler(CallbackQueryHandler(listening_menu, pattern="^start_listening$"))
-    app.add_handler(CallbackQueryHandler(listening_word, pattern="^listening_word$"))
-    app.add_handler(CallbackQueryHandler(listening_translate, pattern="^listening_translate$"))
-    app.add_handler(CommandHandler("irregular", irregular_menu))
-    app.add_handler(CallbackQueryHandler(irregular_menu, pattern="^start_irregular$"))
-    app.add_handler(CallbackQueryHandler(irregular_repeat, pattern="^irregular_repeat$"))
-    app.add_handler(CallbackQueryHandler(irregular_train, pattern="^irregular_train$"))
-    app.add_handler(CallbackQueryHandler(handle_irregular_list, pattern="^irrlist_"))
-    app.add_handler(CommandHandler("stop", stop))
-    # Support both new and legacy callback data formats
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^ans\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^oldans\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^\d+\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^skip\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^oldskip\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^rev_\d+\|"))
-    app.add_handler(CallbackQueryHandler(handle_answer, pattern=r"^revskip\|"))
-    app.add_handler(CallbackQueryHandler(handle_listening_skip, pattern="^audskip$"))
-    app.add_handler(CallbackQueryHandler(handle_irregular_answer, pattern=r"^irr(ans|skip)"))
-    app.add_handler(CommandHandler("mywords", mywords))
-    app.add_handler(CallbackQueryHandler(mywords, pattern="^start_mywords$"))
-    app.add_handler(CallbackQueryHandler(handle_mywords_pagination, pattern="^mywords_(prev|next)$"))
-    app.add_handler(CallbackQueryHandler(handle_mywords_delete, pattern="^mywords_delete"))
-    app.add_handler(CallbackQueryHandler(handle_mywords_edit, pattern="^mywords_edit"))
-    app.add_handler(CommandHandler("settings", settings))
-    app.add_handler(CallbackQueryHandler(settings, pattern="^start_settings$"))
-    app.add_handler(CommandHandler("progress", progress))
-    app.add_handler(CallbackQueryHandler(progress, pattern="^start_progress$"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_listening_answer))
-    app.add_handler(
-        CallbackQueryHandler(
-            handle_settings_callback,
-            pattern=(
-                "^(settings_repeat|settings_review|settings_reminders|back_to_settings|"
-                "set_repeat_|toggle_review|toggle_reminder|set_review_days_|"
-                "set_reminder_interval_|set_reminder_time|set_reminder_tz)$"
-            ),
-        )
-    )
+    app.add_handler(CallbackQueryHandler(start, pattern="^start$"))
     logging.info("Telegram bot is running...")
     # When running inside a background thread (see run.py) the default
     # signal handlers used by run_polling() can't be registered. Setting

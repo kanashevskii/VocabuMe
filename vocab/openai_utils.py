@@ -4,8 +4,14 @@ import logging
 import json
 import ast
 import re
+import base64
+from pathlib import Path
 
 client = OpenAI(api_key=config("OPENAI_API_KEY"))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DRAFT_IMAGE_DIR = PROJECT_ROOT / "media" / "draft_images"
+TEXT_MODEL = "gpt-5-mini"
+IMAGE_MODEL = "gpt-image-1.5"
 
 
 def detect_language(text):
@@ -128,7 +134,7 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
     if lang == "ru":
         prompt_translate = f"Translate the Russian word or phrase \"{word}\" to English. Just give the main English equivalent."
         translation_resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=TEXT_MODEL,
             messages=[{"role": "user", "content": prompt_translate}],
             temperature=0.2,
         )
@@ -142,7 +148,7 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
         prompt = _build_prompt(word, effective_part, translation_hint, prompt_note)
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=TEXT_MODEL,
                 messages=[
                     {"role": "user", "content": prompt}
                 ],
@@ -171,3 +177,56 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
 
     logging.warning("Falling back after validation failures: %s", last_error)
     return None
+
+
+def build_visual_prompt(word: str, translation: str, part_of_speech: str, example: str = "") -> str | None:
+    prompt = f"""
+You create short visual briefs for vocabulary learning images.
+
+Task:
+- English word or phrase: "{word}"
+- Russian translation: "{translation}"
+- Part of speech: "{part_of_speech}"
+- Example context: "{example}"
+
+Return JSON only:
+{{
+  "prompt": "A concise image-generation prompt in English"
+}}
+
+Rules:
+- Show the actual meaning of the word or phrase, not a random literal association.
+- If the word is abstract, generate a clear symbolic but understandable scene.
+- Mention the action/object/context explicitly.
+- The image must help a learner remember the exact translation.
+- Avoid text, captions, watermarks, UI, collages, split screens.
+- Keep it suitable for a clean educational flashcard.
+"""
+    try:
+        response = client.chat.completions.create(
+            model=TEXT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        content = response.choices[0].message.content.strip()
+        parsed = _parse_model_json(content)
+        return parsed.get("prompt", "").strip() or None
+    except Exception as exc:
+        logging.exception("Failed to build visual prompt: %s", exc)
+        return None
+
+
+def generate_card_image(prompt: str, slug: str) -> str:
+    DRAFT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{slug}.png"
+    destination = DRAFT_IMAGE_DIR / filename
+
+    response = client.images.generate(
+        model=IMAGE_MODEL,
+        prompt=prompt,
+        size="1024x1024",
+        quality="low",
+    )
+    image_b64 = response.data[0].b64_json
+    destination.write_bytes(base64.b64decode(image_b64))
+    return str(destination.relative_to(PROJECT_ROOT))

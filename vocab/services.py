@@ -6,19 +6,22 @@ from pathlib import Path
 from typing import Iterable
 import random
 import re
+import time
 
 from django.db.models import Count, Min, Q
 from django.utils import timezone
 from django.utils.timezone import now
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
-from .models import IrregularVerbProgress, TelegramUser, VocabularyItem, WebLoginToken
+from .models import AddWordDraft, IrregularVerbProgress, TelegramUser, VocabularyItem, WebLoginToken
+from .openai_utils import build_visual_prompt, generate_card_image, generate_word_data
 from .utils import clean_word, translate_to_ru
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEDIA_ROOT = PROJECT_ROOT / "media"
 IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
 USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
+DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
 ACHIEVEMENT_DEFINITIONS = [
     {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
     {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
@@ -131,7 +134,11 @@ def get_word_image_file(item: VocabularyItem) -> Path | None:
         ]
     )
 
-    allowed_roots = (IMAGE_CACHE_DIR.resolve(), USER_IMAGE_DIR.resolve())
+    allowed_roots = (
+        IMAGE_CACHE_DIR.resolve(),
+        USER_IMAGE_DIR.resolve(),
+        DRAFT_IMAGE_DIR.resolve(),
+    )
     for candidate in candidates:
         try:
             resolved = candidate.resolve(strict=True)
@@ -233,6 +240,131 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
         part_of_speech=data.get("part_of_speech", "unknown"),
         image_path=image_path,
     )
+
+
+def serialize_draft(draft: AddWordDraft) -> dict:
+    image_file = get_draft_image_file(draft)
+    return {
+        "id": draft.id,
+        "source_text": draft.source_text,
+        "word": draft.word,
+        "translation": draft.translation,
+        "translation_confirmed": draft.translation_confirmed,
+        "transcription": draft.transcription,
+        "example": draft.example,
+        "example_translation": draft.example_translation,
+        "part_of_speech": draft.part_of_speech,
+        "image_prompt": draft.image_prompt,
+        "image_path": draft.image_path,
+        "has_image": image_file is not None,
+        "created_at": draft.created_at.isoformat(),
+        "updated_at": draft.updated_at.isoformat(),
+    }
+
+
+def get_draft_image_file(draft: AddWordDraft) -> Path | None:
+    if not draft.image_path:
+        return None
+    raw_path = Path(draft.image_path)
+    candidate = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (FileNotFoundError, OSError):
+        return None
+    draft_root = (PROJECT_ROOT / "media" / "draft_images").resolve()
+    allowed_roots = (
+        draft_root,
+        IMAGE_CACHE_DIR.resolve(),
+        USER_IMAGE_DIR.resolve(),
+    )
+    if any(resolved.is_relative_to(root) for root in allowed_roots):
+        return resolved
+    return None
+
+
+def create_word_draft(user: TelegramUser, source_text: str, generated: dict, translation_hint: str | None = None) -> AddWordDraft:
+    translation = (translation_hint or generated.get("translation") or "").strip()
+    return AddWordDraft.objects.create(
+        user=user,
+        source_text=source_text,
+        word=generated["word"],
+        normalized_word=clean_word(generated["word"]),
+        translation=translation,
+        translation_confirmed=bool(translation_hint),
+        transcription=generated.get("transcription", "") or "",
+        example=generated.get("example", "") or "",
+        example_translation=generated.get("example_translation") or translate_to_ru(generated.get("example", "")),
+        part_of_speech=generated.get("part_of_speech", "unknown"),
+    )
+
+
+def refresh_draft_language_data(draft: AddWordDraft, translation: str) -> AddWordDraft:
+    generated = generate_word_data(draft.word, part_hint=draft.part_of_speech, translation_hint=translation)
+    if generated:
+        draft.translation = translation
+        draft.translation_confirmed = True
+        draft.transcription = generated.get("transcription", "") or draft.transcription
+        draft.example = generated.get("example", "") or draft.example
+        draft.example_translation = generated.get("example_translation") or translate_to_ru(draft.example)
+        draft.part_of_speech = generated.get("part_of_speech", draft.part_of_speech) or draft.part_of_speech
+    else:
+        draft.translation = translation
+        draft.translation_confirmed = True
+    draft.save(
+        update_fields=[
+            "translation",
+            "translation_confirmed",
+            "transcription",
+            "example",
+            "example_translation",
+            "part_of_speech",
+            "updated_at",
+        ]
+    )
+    return draft
+
+
+def ensure_draft_image(draft: AddWordDraft, force_regenerate: bool = False) -> AddWordDraft:
+    if not force_regenerate:
+        reused_path = resolve_shared_image_path(draft.word, draft.translation, "")
+        if reused_path:
+            draft.image_path = reused_path
+            draft.image_prompt = ""
+            draft.save(update_fields=["image_path", "image_prompt", "updated_at"])
+            return draft
+        if draft.image_path and get_draft_image_file(draft):
+            return draft
+
+    visual_prompt = build_visual_prompt(
+        draft.word,
+        draft.translation,
+        draft.part_of_speech,
+        draft.example,
+    )
+    if not visual_prompt:
+        return draft
+
+    slug = f"{draft.user_id}_{draft.normalized_word}_{int(time.time())}"
+    image_path = generate_card_image(visual_prompt, slug)
+    draft.image_prompt = visual_prompt
+    draft.image_path = image_path
+    draft.save(update_fields=["image_prompt", "image_path", "updated_at"])
+    return draft
+
+
+def finalize_word_draft(draft: AddWordDraft, use_image: bool = True) -> VocabularyItem:
+    payload = {
+        "word": draft.word,
+        "translation": draft.translation,
+        "transcription": draft.transcription,
+        "example": draft.example,
+        "example_translation": draft.example_translation,
+        "part_of_speech": draft.part_of_speech,
+        "image_path": draft.image_path if use_image else "",
+    }
+    item = create_word(draft.user, payload)
+    draft.delete()
+    return item
 
 
 def get_ordered_unlearned_words(

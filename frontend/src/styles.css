@@ -208,6 +208,11 @@ h3 {
   color: var(--bg-deep);
 }
 
+.active-pill {
+  color: white;
+  background: linear-gradient(180deg, #1490ef, #0867c0);
+}
+
 .status-tag.good {
   color: var(--success);
   background: rgba(15, 138, 87, 0.12);
@@ -254,7 +259,10 @@ h3 {
 .stack-form,
 .settings-grid,
 .option-grid,
-.segment-wrap {
+.segment-wrap,
+.wizard-steps,
+.draft-preview-grid,
+.draft-card {
   display: grid;
   gap: 12px;
 }
@@ -456,6 +464,10 @@ h3 {
   gap: 2px;
 }
 
+.status-note {
+  padding: 14px 16px;
+}
+
 .simple-list .simple-row + .simple-row {
   margin-top: 8px;
 }
@@ -466,6 +478,10 @@ h3 {
 }
 
 .main-segment {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.more-segment {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -482,6 +498,10 @@ h3 {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
   gap: 16px;
+}
+
+.draft-preview-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.8fr);
 }
 
 .study-main,
@@ -569,6 +589,15 @@ h3 {
   display: grid;
   grid-template-columns: 1fr 180px;
   gap: 12px;
+}
+
+.wizard-steps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stack-label {
+  display: grid;
+  gap: 8px;
 }
 
 .word-list {
@@ -663,6 +692,7 @@ textarea {
 @media (max-width: 980px) {
   .auth-shell,
   .study-layout,
+  .draft-preview-grid,
   .settings-grid,
   .word-list {
     grid-template-columns: 1fr;
@@ -798,6 +828,10 @@ textarea {
 
   .main-segment {
     grid-template-columns: 1fr;
+  }
+
+  .more-segment {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .segment-wrap {

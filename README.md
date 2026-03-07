@@ -7,6 +7,17 @@ VocabuMe is an English learning product that now runs in three connected surface
 
 All three surfaces share the same `TelegramUser`, dictionary, settings, and learning progress.
 
+Links:
+- Telegram bot: [@VocabuMe_bot](https://t.me/VocabuMe_bot)
+
+## Usage terms
+
+VocabuMe is provided for personal, non-commercial use only.
+
+Commercial use, resale, sublicensing, paid access, white-label use, use inside commercial products, or any other commercial exploitation is prohibited without prior written permission from the author.
+
+If you want to use VocabuMe commercially, obtain explicit written permission first.
+
 ## Current product scope
 
 VocabuMe supports:
@@ -32,12 +43,12 @@ VocabuMe supports:
 
 ## Repo structure
 
-- [frontend](/Users/eduard/PycharmProjects/englishbot/frontend) - React SPA for Telegram Mini App and website
-- [vocab/bot.py](/Users/eduard/PycharmProjects/englishbot/vocab/bot.py) - Telegram bot flows
-- [vocab/views.py](/Users/eduard/PycharmProjects/englishbot/vocab/views.py) - SPA entry and API endpoints
-- [vocab/services.py](/Users/eduard/PycharmProjects/englishbot/vocab/services.py) - shared application logic
-- [vocab/telegram_auth.py](/Users/eduard/PycharmProjects/englishbot/vocab/telegram_auth.py) - Telegram auth verification
-- [run.py](/Users/eduard/PycharmProjects/englishbot/run.py) - local combined runner for bot, reminders, and Django server
+- [frontend](frontend) - React SPA for Telegram Mini App and website
+- [vocab/bot.py](vocab/bot.py) - Telegram bot flows
+- [vocab/views.py](vocab/views.py) - SPA entry and API endpoints
+- [vocab/services.py](vocab/services.py) - shared application logic
+- [vocab/telegram_auth.py](vocab/telegram_auth.py) - Telegram auth verification
+- [run.py](run.py) - local combined runner for bot, reminders, and Django server
 
 ## Environment
 
@@ -63,7 +74,7 @@ Key environment variables:
 - `ALERT_CHAT_ID`
 - `CSRF_TRUSTED_ORIGINS`
 
-See [.env.example](/Users/eduard/PycharmProjects/englishbot/.env.example).
+See [.env.example](.env.example).
 
 ## Local setup
 
@@ -136,8 +147,10 @@ For Telegram website login widget flows, the bot domain must be configured in Bo
 python scripts/clean_existing_words.py
 ```
 
-- Local audio endpoints require TTS dependencies from [requirements.txt](/Users/eduard/PycharmProjects/englishbot/requirements.txt).
+- Local audio endpoints require TTS dependencies from [requirements.txt](requirements.txt).
 
 ## License
 
-MIT
+This repository is not provided under an open commercial license.
+
+Use is limited by the terms above: personal non-commercial use only unless separate written permission is granted by the author.

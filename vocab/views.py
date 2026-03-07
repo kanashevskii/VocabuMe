@@ -10,7 +10,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from .models import TelegramUser, VocabularyItem
+from .models import AddWordDraft, TelegramUser, VocabularyItem
 from .openai_utils import generate_word_data
 from .services import (
     build_user_progress,
@@ -18,14 +18,21 @@ from .services import (
     build_irregular_question,
     build_listening_question,
     consume_web_login_token,
+    create_word_draft,
     create_web_login_token,
     create_word,
+    ensure_draft_image,
+    finalize_word_draft,
+    get_draft_image_file,
     get_word_image_file,
     get_ordered_unlearned_words,
     list_words,
     list_irregular_page,
     parse_word_batch,
+    refresh_draft_language_data,
+    resolve_shared_image_path,
     serialize_user,
+    serialize_draft,
     serialize_word,
     submit_choice_answer,
     submit_listening_answer,
@@ -190,6 +197,13 @@ def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
     return JsonResponse({"ok": True, "authenticated": True, "user": serialize_user(user), "progress": build_user_progress(user)})
 
 
+def _get_draft_for_user(user: TelegramUser, draft_id: int) -> AddWordDraft | JsonResponse:
+    try:
+        return AddWordDraft.objects.get(id=draft_id, user=user)
+    except AddWordDraft.DoesNotExist:
+        return _json_error("Draft not found.", status=404)
+
+
 @require_GET
 def dashboard(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
@@ -259,6 +273,129 @@ def words(request: HttpRequest) -> JsonResponse:
             "failed": failed,
         }
     )
+
+
+@require_POST
+def word_draft_create(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    try:
+        payload = _json_body(request)
+    except ValueError as exc:
+        return _json_error(str(exc))
+
+    entries = parse_word_batch(payload.get("text", ""))
+    if not entries:
+        return _json_error("Add one word or phrase.", status=400)
+    if len(entries) > 1:
+        return _json_error("Add one word at a time in the app.", status=400)
+
+    entry = entries[0]
+    if word_already_exists(user, entry.word):
+        return _json_error("This word already exists.", status=400)
+
+    generated = generate_word_data(entry.word, translation_hint=entry.translation_hint)
+    if not generated:
+        return _json_error("Could not prepare the word data.", status=400)
+
+    shared_image_path = resolve_shared_image_path(generated["word"], generated.get("translation", ""), "")
+    if generated.get("translation") and shared_image_path:
+        item = create_word(user, {**generated, "image_path": shared_image_path})
+        return JsonResponse(
+            {
+                "ok": True,
+                "auto_saved": True,
+                "item": serialize_word(item),
+                "progress": build_user_progress(user),
+            }
+        )
+
+    draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
+    step = "confirm_translation"
+    if draft.translation_confirmed:
+        draft = ensure_draft_image(draft)
+        step = "confirm_image"
+    return JsonResponse({"ok": True, "draft": serialize_draft(draft), "step": step})
+
+
+@require_POST
+def word_draft_confirm_translation(request: HttpRequest, draft_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    draft = _get_draft_for_user(user, draft_id)
+    if isinstance(draft, JsonResponse):
+        return draft
+
+    try:
+        payload = _json_body(request)
+    except ValueError as exc:
+        return _json_error(str(exc))
+
+    translation = (payload.get("translation") or "").strip()
+    if not translation:
+        return _json_error("Translation is required.", status=400)
+
+    draft = refresh_draft_language_data(draft, translation)
+    draft = ensure_draft_image(draft)
+    return JsonResponse({"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"})
+
+
+@require_POST
+def word_draft_regenerate_image(request: HttpRequest, draft_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    draft = _get_draft_for_user(user, draft_id)
+    if isinstance(draft, JsonResponse):
+        return draft
+    if not draft.translation_confirmed:
+        return _json_error("Confirm translation first.", status=400)
+
+    draft = ensure_draft_image(draft, force_regenerate=True)
+    return JsonResponse({"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"})
+
+
+@require_POST
+def word_draft_save(request: HttpRequest, draft_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    draft = _get_draft_for_user(user, draft_id)
+    if isinstance(draft, JsonResponse):
+        return draft
+    if not draft.translation_confirmed:
+        return _json_error("Confirm translation first.", status=400)
+    if word_already_exists(user, draft.word):
+        draft.delete()
+        return _json_error("This word already exists.", status=400)
+
+    try:
+        payload = _json_body(request)
+    except ValueError as exc:
+        return _json_error(str(exc))
+
+    use_image = bool(payload.get("use_image", True))
+    item = finalize_word_draft(draft, use_image=use_image)
+    return JsonResponse({"ok": True, "item": serialize_word(item), "progress": build_user_progress(user)})
+
+
+@require_http_methods(["DELETE"])
+def word_draft_delete(request: HttpRequest, draft_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    draft = _get_draft_for_user(user, draft_id)
+    if isinstance(draft, JsonResponse):
+        return draft
+    draft.delete()
+    return JsonResponse({"ok": True})
 
 
 @require_http_methods(["PATCH", "DELETE"])
@@ -412,9 +549,12 @@ def word_audio(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
     import os
     from .tts import get_audio_path, generate_tts_audio
 
-    audio_path = get_audio_path(item.word)
-    if not audio_path or not os.path.exists(audio_path):
-        audio_path = asyncio.run(generate_tts_audio(item.word))
+    try:
+        audio_path = get_audio_path(item.word)
+        if not audio_path or not os.path.exists(audio_path):
+            audio_path = asyncio.run(generate_tts_audio(item.word))
+    except Exception:
+        return _json_error("Audio is temporarily unavailable.", status=503)
     return FileResponse(open(audio_path, "rb"), content_type="audio/mpeg")
 
 
@@ -435,6 +575,24 @@ def word_image(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
 
     content_type, _ = mimetypes.guess_type(image_path.name)
     return FileResponse(open(image_path, "rb"), content_type=content_type or "image/jpeg")
+
+
+@require_GET
+def draft_image(request: HttpRequest, draft_id: int) -> JsonResponse | FileResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    draft = _get_draft_for_user(user, draft_id)
+    if isinstance(draft, JsonResponse):
+        return draft
+
+    image_path = get_draft_image_file(draft)
+    if image_path is None:
+        return _json_error("Image not found.", status=404)
+
+    content_type, _ = mimetypes.guess_type(image_path.name)
+    return FileResponse(open(image_path, "rb"), content_type=content_type or "image/png")
 
 
 @require_GET

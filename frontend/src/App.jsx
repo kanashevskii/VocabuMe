@@ -142,6 +142,11 @@ function App() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [draftTranslation, setDraftTranslation] = useState({});
   const [addText, setAddText] = useState("");
+  const [addDraft, setAddDraft] = useState(null);
+  const [addDraftStep, setAddDraftStep] = useState("input");
+  const [addTranslationInput, setAddTranslationInput] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addBusyLabel, setAddBusyLabel] = useState("");
   const [cardQueue, setCardQueue] = useState([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [cardReveal, setCardReveal] = useState(false);
@@ -190,10 +195,10 @@ function App() {
   const currentTitle = useMemo(() => {
     if (primaryTab === "today") return "Сегодня";
     if (primaryTab === "learn") return "Практика";
-    if (primaryTab === "words") return libraryMode === "cards" ? "Карточки" : "Все слова";
+    if (primaryTab === "words") return showLibraryAdd ? "Добавить" : libraryMode === "cards" ? "Карточки" : "Все слова";
     if (primaryTab === "progress") return "Прогресс";
     return MORE_PANELS.find((item) => item.id === morePanel)?.label || "Ещё";
-  }, [libraryMode, learnMode, morePanel, primaryTab]);
+  }, [libraryMode, learnMode, morePanel, primaryTab, showLibraryAdd]);
 
   const filteredRecentWords = dashboard?.recent_words || [];
   const nextCards = dashboard?.next_cards || [];
@@ -228,6 +233,10 @@ function App() {
     setCardQueue(data.items);
     setCardIndex(0);
     setCardReveal(false);
+  }
+
+  async function loadLearningData() {
+    await Promise.all([loadCards(), loadPractice(practiceMode), loadListening(listeningMode), loadReview()]);
   }
 
   function showPreviousCard() {
@@ -306,7 +315,7 @@ function App() {
     if (!auth.authenticated) {
       return;
     }
-    Promise.all([loadDashboard(), loadCards(), loadPractice(practiceMode), loadListening(listeningMode), loadReview(), loadIrregularQuestion()])
+    Promise.all([loadDashboard(), loadLearningData(), loadIrregularQuestion()])
       .catch((error) => setNotice(error.message));
   }, [auth.authenticated, deferredSearch, statusFilter, irregularPage]);
 
@@ -364,22 +373,135 @@ function App() {
     }
   }
 
+  function resetAddFlow() {
+    setAddText("");
+    setAddDraft(null);
+    setAddDraftStep("input");
+    setAddTranslationInput("");
+    setAddBusy(false);
+    setAddBusyLabel("");
+  }
+
+  async function refreshAfterWordMutation() {
+    await Promise.all([loadDashboard(), loadLearningData()]);
+  }
+
   async function handleAddWords(event) {
     event.preventDefault();
-    setBusy(true);
+    if (!addText.trim()) {
+      setNotice("Добавь одно слово или фразу.");
+      return;
+    }
+    setAddBusy(true);
+    setAddBusyLabel("Понимаем слово...");
     try {
-      const data = await api("/api/words", {
+      const data = await api("/api/words/draft", {
         method: "POST",
         body: JSON.stringify({ text: addText })
       });
-      setNotice(`Добавлено ${data.created.length}, пропущено ${data.skipped.length}, ошибок ${data.failed.length}.`);
-      setAddText("");
-      await Promise.all([loadDashboard(), loadCards(), loadPractice(practiceMode), loadListening(listeningMode), loadReview()]);
+      if (data.auto_saved) {
+        setAuth((previous) => ({ ...previous, progress: data.progress }));
+        setShowLibraryAdd(false);
+        setLibraryMode("cards");
+        setNotice(`Слово ${data.item.word} добавлено из общей библиотеки.`);
+        resetAddFlow();
+        await refreshAfterWordMutation();
+        return;
+      }
+      setAddDraft(data.draft);
+      setAddDraftStep(data.step);
+      setAddTranslationInput(data.draft.translation || "");
+      setNotice(data.step === "confirm_translation" ? "Подтверди перевод, затем проверим изображение." : "Проверь карточку и изображение перед сохранением.");
     } catch (error) {
       setNotice(error.message);
     } finally {
-      setBusy(false);
+      setAddBusy(false);
+      setAddBusyLabel("");
     }
+  }
+
+  async function confirmDraftTranslation() {
+    if (!addDraft || !addTranslationInput.trim()) {
+      setNotice("Подтверди перевод.");
+      return;
+    }
+    setAddBusy(true);
+    setAddBusyLabel("Готовим картинку...");
+    try {
+      const data = await api(`/api/words/draft/${addDraft.id}/translation`, {
+        method: "POST",
+        body: JSON.stringify({ translation: addTranslationInput.trim() })
+      });
+      setAddDraft(data.draft);
+      setAddDraftStep(data.step);
+      setNotice("Проверь картинку и сохрани слово.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setAddBusy(false);
+      setAddBusyLabel("");
+    }
+  }
+
+  async function regenerateDraftImage() {
+    if (!addDraft) {
+      return;
+    }
+    setAddBusy(true);
+    setAddBusyLabel("Готовим другую картинку...");
+    try {
+      const data = await api(`/api/words/draft/${addDraft.id}/image/regenerate`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setAddDraft(data.draft);
+      setAddDraftStep(data.step);
+      setNotice("Показали новый вариант.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setAddBusy(false);
+      setAddBusyLabel("");
+    }
+  }
+
+  async function saveDraft(useImage) {
+    if (!addDraft) {
+      return;
+    }
+    setAddBusy(true);
+    setAddBusyLabel("Сохраняем слово...");
+    try {
+      const data = await api(`/api/words/draft/${addDraft.id}/save`, {
+        method: "POST",
+        body: JSON.stringify({ use_image: useImage })
+      });
+      setAuth((previous) => ({ ...previous, progress: data.progress }));
+      setShowLibraryAdd(false);
+      setLibraryMode("cards");
+      setNotice(`Слово ${data.item.word} добавлено.`);
+      resetAddFlow();
+      await refreshAfterWordMutation();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setAddBusy(false);
+      setAddBusyLabel("");
+    }
+  }
+
+  async function closeAddWords() {
+    if (addDraft) {
+      try {
+        await api(`/api/words/draft/${addDraft.id}`, {
+          method: "DELETE"
+        });
+      } catch (error) {
+        setNotice(error.message);
+      }
+    }
+    resetAddFlow();
+    setShowLibraryAdd(false);
   }
 
   async function handleCardAnswer(correct) {
@@ -545,7 +667,7 @@ function App() {
     setBusy(true);
     try {
       await api(`/api/words/${wordId}`, { method: "DELETE", body: JSON.stringify({}) });
-      await loadDashboard();
+      await refreshAfterWordMutation();
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -571,6 +693,9 @@ function App() {
   }
 
   function openLearn(mode) {
+    if (showLibraryAdd) {
+      void closeAddWords();
+    }
     startTransition(() => {
       setPrimaryTab("learn");
       setLearnMode(mode);
@@ -579,6 +704,9 @@ function App() {
   }
 
   function openMore(panel) {
+    if (showLibraryAdd) {
+      void closeAddWords();
+    }
     startTransition(() => {
       setPrimaryTab("more");
       setMorePanel(panel);
@@ -962,23 +1090,95 @@ function App() {
   }
 
   function renderAddWords() {
+    const isTranslationStep = addDraftStep === "confirm_translation";
+    const isImageStep = addDraftStep === "confirm_image";
+
     return (
-      <section className="glass-card compact-section">
+      <section className="glass-card compact-section add-wizard">
         <div className="section-head">
           <div>
             <p className="overline">Add</p>
-            <h3>Добавить слова ➕</h3>
+            <h3>Добавить слово ✨</h3>
+            <p className="lead compact">Сначала подтверждаем перевод, затем показываем одну подходящую картинку.</p>
           </div>
+          <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>
+            Закрыть
+          </button>
         </div>
-        <form className="stack-form" onSubmit={handleAddWords}>
-          <textarea
-            rows={10}
-            value={addText}
-            onChange={(event) => setAddText(event.target.value)}
-            placeholder={"travel - путешествие\naccurate - точный\nfigure out"}
-          />
-          <button className="primary-button" type="submit" disabled={busy}>Add words</button>
-        </form>
+        <div className="wizard-steps">
+          <span className={addDraftStep === "input" ? "mode-pill active-pill" : "mode-pill"}>1. Слово</span>
+          <span className={isTranslationStep ? "mode-pill active-pill" : "mode-pill"}>2. Перевод</span>
+          <span className={isImageStep ? "mode-pill active-pill" : "mode-pill"}>3. Картинка</span>
+        </div>
+
+        {addBusyLabel ? <div className="inline-note status-note"><strong>{addBusyLabel}</strong></div> : null}
+
+        {!addDraft ? (
+          <form className="stack-form" onSubmit={handleAddWords}>
+            <textarea
+              rows={4}
+              value={addText}
+              onChange={(event) => setAddText(event.target.value)}
+              placeholder={"stare\nfigure out\ntravel - путешествие"}
+            />
+            <button className="primary-button" type="submit" disabled={addBusy}>
+              {addBusy ? "Обрабатываем..." : "Добавить слово"}
+            </button>
+          </form>
+        ) : null}
+
+        {addDraft && isTranslationStep ? (
+          <div className="draft-card">
+            <div className="prompt-card">
+              <strong>{addDraft.word}</strong>
+              <span>{addDraft.part_of_speech || "word"}</span>
+            </div>
+            <div className="stack-form">
+              <label className="stack-label">
+                <span>Подтверди перевод</span>
+                <input value={addTranslationInput} onChange={(event) => setAddTranslationInput(event.target.value)} placeholder="Перевод" />
+              </label>
+              <div className="button-row">
+                <button className="primary-button" type="button" onClick={confirmDraftTranslation} disabled={addBusy}>
+                  {addBusy ? "Проверяем..." : "Подтвердить перевод"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {addDraft && isImageStep ? (
+          <div className="draft-card">
+            <div className="draft-preview-grid">
+              <div className="study-main">
+                {addDraft.has_image ? (
+                  <div className="card-visual">
+                    <img src={`/api/draft-image/${addDraft.id}?v=${addDraft.updated_at}`} alt={addDraft.word} />
+                  </div>
+                ) : (
+                  <div className="empty-card">Картинка не готова. Можно сохранить слово без неё.</div>
+                )}
+              </div>
+              <div className="study-side">
+                <strong>{addDraft.word}</strong>
+                <span>{addTranslationInput || addDraft.translation}</span>
+                <span>{addDraft.part_of_speech || "word"}</span>
+                {addDraft.example ? <span>{addDraft.example}</span> : null}
+                <div className="button-row">
+                  <button className="primary-button" type="button" onClick={() => saveDraft(true)} disabled={addBusy}>
+                    {addBusy ? "Сохраняем..." : "Сохранить"}
+                  </button>
+                  <button className="secondary-button" type="button" onClick={regenerateDraftImage} disabled={addBusy}>
+                    Другое изображение
+                  </button>
+                  <button className="secondary-button" type="button" onClick={() => saveDraft(false)} disabled={addBusy}>
+                    Без изображения
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -1112,7 +1312,7 @@ function App() {
   function renderMore() {
     return (
       <div className="screen-stack">
-        <div className="segment-wrap main-segment">
+        <div className="segment-wrap main-segment more-segment">
           {MORE_PANELS.map((item) => (
             <button
               key={item.id}
@@ -1171,7 +1371,14 @@ function App() {
           <button
             className={showLibraryAdd ? "secondary-button header-action active" : "secondary-button header-action"}
             type="button"
-            onClick={() => setShowLibraryAdd((value) => !value)}
+            onClick={() => {
+              if (showLibraryAdd) {
+                closeAddWords();
+                return;
+              }
+              resetAddFlow();
+              setShowLibraryAdd(true);
+            }}
             aria-label="Добавить слова"
           >
             <span className="header-action-mark">＋</span>
@@ -1195,6 +1402,9 @@ function App() {
             className={item.id === primaryTab ? "nav-pill active" : "nav-pill"}
             type="button"
             onClick={() => startTransition(() => {
+              if (item.id !== "words" && showLibraryAdd) {
+                void closeAddWords();
+              }
               setPrimaryTab(item.id);
               if (item.id !== "words") {
                 setShowLibraryAdd(false);

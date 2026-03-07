@@ -3,7 +3,7 @@ from asgiref.sync import sync_to_async
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 from vocab.models import TelegramUser
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from decouple import config
 from vocab.utils import timezone_from_name
 
@@ -25,6 +25,7 @@ class Command(BaseCommand):
 
     async def _async_handle(self):
         bot = Bot(token=config("TELEGRAM_TOKEN"))
+        webapp_url = config("WEBAPP_URL", default="")
         self.stdout.write(f"⏰ Запуск напоминаний: {now().strftime('%Y-%m-%d %H:%M')}")
 
         users = await self._get_users()
@@ -45,9 +46,15 @@ class Command(BaseCommand):
                     continue
 
             try:
+                reply_markup = None
+                if webapp_url:
+                    reply_markup = InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("🚀 Открыть VocabuMe", web_app=WebAppInfo(url=webapp_url))]]
+                    )
                 await bot.send_message(
                     chat_id=user.chat_id,
-                    text="🕒 Время для повторения слов! Напиши /learn, чтобы продолжить обучение."
+                    text="🕒 Пора продолжить занятие. Открой VocabuMe и пройди короткую практику.",
+                    reply_markup=reply_markup,
                 )
                 await self._mark_sent(user, today_local)
                 self.stdout.write(self.style.SUCCESS(f"✅ Напоминание отправлено {user.chat_id}"))

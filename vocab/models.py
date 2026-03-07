@@ -98,3 +98,26 @@ class WebLoginToken(models.Model):
 
     def __str__(self):
         return f"WebLoginToken({self.token[:8]})"
+
+
+class AddWordDraft(models.Model):
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    source_text = models.CharField(max_length=255)
+    word = models.CharField(max_length=255)
+    normalized_word = models.CharField(max_length=255)
+    translation = models.CharField(max_length=255, blank=True, default="")
+    translation_confirmed = models.BooleanField(default=False)
+    transcription = models.CharField(max_length=255, blank=True, default="")
+    example = models.TextField(blank=True, default="")
+    example_translation = models.TextField(blank=True, default="")
+    part_of_speech = models.CharField(max_length=50, default="unknown")
+    image_prompt = models.TextField(blank=True, default="")
+    image_path = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+
+    def __str__(self):
+        return f"AddWordDraft({self.word} -> {self.translation})"
