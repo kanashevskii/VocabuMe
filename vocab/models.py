@@ -10,6 +10,9 @@ def generate_web_login_token() -> str:
 class TelegramUser(models.Model):
     chat_id = models.BigIntegerField(unique=True)
     username = models.CharField(max_length=255, null=True, blank=True)
+    email = models.EmailField(unique=True, null=True, blank=True)
+    password_hash = models.CharField(max_length=255, blank=True, default="")
+    auth_provider = models.CharField(max_length=20, default="telegram")
     repeat_threshold = models.PositiveIntegerField(default=4)
     session_question_limit = models.PositiveIntegerField(default=12)
     enable_review_old_words = models.BooleanField(default=True)
@@ -32,7 +35,7 @@ class TelegramUser(models.Model):
     review_correct = models.PositiveIntegerField(default=0)
 
     def __str__(self):
-        return f"{self.username or 'User'} ({self.chat_id})"
+        return f"{self.username or self.email or 'User'} ({self.chat_id})"
 
 
 class VocabularyItem(models.Model):

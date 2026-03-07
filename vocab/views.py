@@ -18,6 +18,7 @@ from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
 from .openai_utils import generate_word_data, generate_word_data_batch, transcribe_speech_file
 from .services import (
     add_pack_words_to_user,
+    authenticate_web_user,
     build_learning_question,
     build_user_progress,
     build_choice_question,
@@ -25,6 +26,7 @@ from .services import (
     build_listening_question,
     build_speaking_question,
     consume_web_login_token,
+    create_web_user,
     create_word_draft,
     create_web_login_token,
     create_word,
@@ -242,6 +244,34 @@ def auth_request_link(request: HttpRequest) -> JsonResponse:
             "expires_at": login_token.expires_at.isoformat(),
         }
     )
+
+
+@require_POST
+def auth_web_register(request: HttpRequest) -> JsonResponse:
+    try:
+        payload = _json_body(request)
+        email = (payload.get("email") or "").strip()
+        password = payload.get("password") or ""
+        user = create_web_user(email, password)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+
+    return _login(request, user)
+
+
+@require_POST
+def auth_web_login(request: HttpRequest) -> JsonResponse:
+    try:
+        payload = _json_body(request)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    user = authenticate_web_user(email, password)
+    if user is None:
+        return _json_error("Invalid email or password.", status=400)
+    return _login(request, user)
 
 
 @require_GET

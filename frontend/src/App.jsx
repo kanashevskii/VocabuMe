@@ -158,7 +158,23 @@ function LogoMark() {
 
 const MAX_IMAGE_REGENERATIONS = 3;
 
-function AuthPanel({ config, onOpenLogin, loginLink, loginPending }) {
+function AuthPanel({
+  config,
+  onOpenLogin,
+  loginLink,
+  loginPending,
+  webAuthMode,
+  onChangeWebAuthMode,
+  onSubmitWebAuth,
+  webAuthPending,
+  webEmail,
+  webPassword,
+  onWebEmailChange,
+  onWebPasswordChange,
+}) {
+  const webSubmitLabel = webAuthMode === "register" ? "Создать web-аккаунт" : "Войти по email";
+  const telegramBotLink = `https://t.me/${config.bot_username || "VocabuMe_bot"}`;
+
   return (
     <section className="auth-shell">
       <div className="glass-card auth-copy">
@@ -169,20 +185,75 @@ function AuthPanel({ config, onOpenLogin, loginLink, loginPending }) {
             <h1>Один вход. Один словарь. Один общий прогресс.</h1>
           </div>
         </div>
-        <p className="lead">Открой в Telegram или подтверди вход через бота. После этого приложение продолжит с того же места.</p>
-        <div className="auth-actions">
-          <button className="primary-button" type="button" onClick={onOpenLogin} disabled={loginPending}>
-            {loginPending ? "Готовим вход..." : "🚀 Войти"}
-          </button>
-          {config.webapp_url ? (
-            <a className="secondary-button" href={config.webapp_url} target="_blank" rel="noreferrer">
-              💬 Mini App
+        <p className="lead">Выбери способ входа. Для локальной веб-версии можно использовать email и пароль, а Telegram остаётся основным способом синхронизации.</p>
+        <div className="glass-card compact-section auth-method-panel">
+          <div className="section-head section-head-wrap">
+            <div>
+              <p className="overline">Telegram</p>
+              <h3>Вход через бота</h3>
+            </div>
+          </div>
+          <p className="lead compact">Подходит для обычного Telegram flow и Mini App. Если тестируешь локальный веб, используй блок ниже.</p>
+          <div className="auth-actions">
+            <button className="primary-button" type="button" onClick={onOpenLogin} disabled={loginPending}>
+              {loginPending ? "Готовим ссылку..." : "Войти через Telegram"}
+            </button>
+            <a className="secondary-button" href={telegramBotLink} target="_blank" rel="noreferrer">
+              Открыть бота
             </a>
-          ) : null}
+            {config.webapp_url ? (
+              <a className="secondary-button" href={config.webapp_url} target="_blank" rel="noreferrer">
+                Открыть Mini App
+              </a>
+            ) : null}
+          </div>
+        </div>
+        <div className="glass-card compact-section auth-web-panel">
+          <div className="section-head section-head-wrap">
+            <div>
+              <p className="overline">Web</p>
+              <h3>{webAuthMode === "register" ? "Создать веб-аккаунт" : "Вход в веб-версию"}</h3>
+            </div>
+            <div className="segment-wrap auth-mode-switch">
+              <button
+                className={webAuthMode === "login" ? "segment-button active" : "segment-button"}
+                type="button"
+                onClick={() => onChangeWebAuthMode("login")}
+              >
+                Вход
+              </button>
+              <button
+                className={webAuthMode === "register" ? "segment-button active" : "segment-button"}
+                type="button"
+                onClick={() => onChangeWebAuthMode("register")}
+              >
+                Регистрация
+              </button>
+            </div>
+          </div>
+          <form className="stack-form auth-web-form" onSubmit={onSubmitWebAuth}>
+            <label className="stack-label">
+              <span>Email</span>
+              <input type="email" value={webEmail} onChange={(event) => onWebEmailChange(event.target.value)} placeholder="you@example.com" autoComplete="email" />
+            </label>
+            <label className="stack-label">
+              <span>Пароль</span>
+              <input
+                type="password"
+                value={webPassword}
+                onChange={(event) => onWebPasswordChange(event.target.value)}
+                placeholder="Минимум 8 символов"
+                autoComplete={webAuthMode === "register" ? "new-password" : "current-password"}
+              />
+            </label>
+            <button className="secondary-button" type="submit" disabled={webAuthPending}>
+              {webAuthPending ? "Секунду..." : webSubmitLabel}
+            </button>
+          </form>
         </div>
         {loginLink ? (
           <div className="inline-note">
-            <span>Открой бота и нажми Start.</span>
+            <span>Открой бота и нажми Start, чтобы подтвердить Telegram-вход.</span>
             <a className="primary-link" href={loginLink} target="_blank" rel="noreferrer">
               🤖 Открыть бота
             </a>
@@ -270,6 +341,9 @@ function App() {
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const [webAuthMode, setWebAuthMode] = useState("login");
+  const [webEmail, setWebEmail] = useState("");
+  const [webPassword, setWebPassword] = useState("");
   const pollRef = useRef(null);
   const stageRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -319,6 +393,49 @@ function App() {
       window.clearTimeout(noticeTimerRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById("root");
+    const previousHtmlOverflow = html.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlHeight = html.style.height;
+    const previousBodyHeight = body.style.height;
+    const previousRootOverflow = root?.style.overflow ?? "";
+    const previousRootHeight = root?.style.height ?? "";
+
+    if (auth.authenticated) {
+      html.style.overflow = "hidden";
+      body.style.overflow = "hidden";
+      html.style.height = "100%";
+      body.style.height = "100%";
+      if (root) {
+        root.style.overflow = "hidden";
+        root.style.height = "100%";
+      }
+    } else {
+      html.style.overflow = "auto";
+      body.style.overflow = "auto";
+      html.style.height = "auto";
+      body.style.height = "auto";
+      if (root) {
+        root.style.overflow = "visible";
+        root.style.height = "auto";
+      }
+    }
+
+    return () => {
+      html.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+      html.style.height = previousHtmlHeight;
+      body.style.height = previousBodyHeight;
+      if (root) {
+        root.style.overflow = previousRootOverflow;
+        root.style.height = previousRootHeight;
+      }
+    };
+  }, [auth.authenticated]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -747,6 +864,66 @@ function App() {
       setLoginLink(data.deep_link);
       setLoginToken(data.token);
       setNotice("Открой бота и нажми Start.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logoutWeb() {
+    setBusy(true);
+    try {
+      await api("/api/auth/logout", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      stopPolling();
+      setLoginLink("");
+      setLoginToken("");
+      setDashboard(null);
+      setSettings(null);
+      setWords([]);
+      setCardQueue([]);
+      setReviewQuestion(null);
+      setLearnQuestion(null);
+      setIrregularQuestion(null);
+      setShowLibraryAdd(false);
+      setAuth({ loading: false, authenticated: false, user: null, progress: null });
+      setNotice("Выход выполнен.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitWebAuth(event) {
+    event.preventDefault();
+    if (!webEmail.trim()) {
+      setNotice("Укажи email.");
+      return;
+    }
+    if (!webPassword) {
+      setNotice("Укажи пароль.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const endpoint = webAuthMode === "register" ? "/api/auth/web/register" : "/api/auth/web/login";
+      const data = await api(endpoint, {
+        method: "POST",
+        body: JSON.stringify({
+          email: webEmail.trim(),
+          password: webPassword,
+        }),
+      });
+      stopPolling();
+      setLoginLink("");
+      setLoginToken("");
+      setAuth({ loading: false, authenticated: true, user: data.user, progress: data.progress });
+      setNotice(webAuthMode === "register" ? "Web-аккаунт создан." : "Вход выполнен.");
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -2498,20 +2675,30 @@ function App() {
   if (!auth.authenticated) {
     return (
       <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
-        {notice ? <div className="notice">{notice.message}</div> : null}
-        <AuthPanel
-          config={config}
-          onOpenLogin={requestLoginLink}
-          loginLink={loginLink}
-          loginPending={busy}
-        />
+        <main className="auth-stage">
+          {notice ? <div className="notice">{notice.message}</div> : null}
+          <AuthPanel
+            config={config}
+            onOpenLogin={requestLoginLink}
+            loginLink={loginLink}
+            loginPending={busy}
+            webAuthMode={webAuthMode}
+            onChangeWebAuthMode={setWebAuthMode}
+            onSubmitWebAuth={submitWebAuth}
+            webAuthPending={busy}
+            webEmail={webEmail}
+            webPassword={webPassword}
+            onWebEmailChange={setWebEmail}
+            onWebPasswordChange={setWebPassword}
+          />
+        </main>
       </div>
     );
   }
 
-  return (
-    <div className={`app-shell${isKeyboardOpen ? " keyboard-open" : ""}`}>
-      <header className="glass-card topbar">
+  function renderTopbar(extraClass = "") {
+    return (
+      <header className={`glass-card topbar ${extraClass}`.trim()}>
         <div className="topbar-brand">
           <LogoMark />
           <div>
@@ -2547,14 +2734,25 @@ function App() {
             <span className="header-action-mark">＋</span>
             <span>Добавить</span>
           </button>
+        ) : !isMiniApp ? (
+          <button className="secondary-button header-action" type="button" onClick={logoutWeb} disabled={busy}>
+            <span>Выйти</span>
+          </button>
         ) : (
-          <span className="mode-pill">{isMiniApp ? "Telegram" : "Web"}</span>
+          <span className="mode-pill">Telegram</span>
         )}
       </header>
+    );
+  }
+
+  return (
+    <div className={`app-shell${isKeyboardOpen ? " keyboard-open" : ""}`}>
+      {renderTopbar()}
 
       {notice ? <div className="notice">{notice.message}</div> : null}
 
       <main className="app-stage" ref={stageRef}>
+        {renderTopbar("desktop-scroll-topbar")}
         {renderScreen()}
       </main>
 
