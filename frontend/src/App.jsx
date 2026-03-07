@@ -23,6 +23,20 @@ const IRREGULAR_MODES = [
   { id: "test", label: "Тест" }
 ];
 
+const TIMEZONE_OPTIONS = [
+  { value: "UTC", label: "UTC" },
+  { value: "UTC+03:00", label: "UTC+03:00" },
+  { value: "Europe/Moscow", label: "Москва (Europe/Moscow)" },
+  { value: "Europe/Berlin", label: "Берлин (Europe/Berlin)" },
+  { value: "Europe/London", label: "Лондон (Europe/London)" },
+  { value: "Asia/Tbilisi", label: "Тбилиси (Asia/Tbilisi)" },
+  { value: "Asia/Yerevan", label: "Ереван (Asia/Yerevan)" },
+  { value: "Asia/Almaty", label: "Алматы (Asia/Almaty)" },
+  { value: "Asia/Dubai", label: "Дубай (Asia/Dubai)" },
+  { value: "America/New_York", label: "Нью-Йорк (America/New_York)" },
+  { value: "America/Los_Angeles", label: "Лос-Анджелес (America/Los_Angeles)" },
+];
+
 function getCookie(name) {
   const match = document.cookie.match(new RegExp(`(^| )${name}=([^;]+)`));
   return match ? decodeURIComponent(match[2]) : "";
@@ -354,6 +368,9 @@ function App() {
       addDraftStep,
     ].join(":");
   }, [auth.authenticated, primaryTab, libraryMode, learnPanel, showLibraryAdd, addDraftStep]);
+  const showHeaderBack = primaryTab === "learn" && learnPanel === "irregular" && irregularMode === "review";
+  const showHeaderClose = (primaryTab === "learn" && Boolean(learnQuestion))
+    || (primaryTab === "learn" && learnPanel === "irregular" && irregularMode === "test");
 
   useEffect(() => {
     setNoticeState((current) => {
@@ -751,9 +768,13 @@ function App() {
   }
 
   async function addSelectedPack() {
-    const selected = Object.entries(selectedPackWords)
-      .filter(([, checked]) => checked)
-      .map(([word]) => word);
+    const selectedPack = packs.find((pack) => pack.id === selectedPackId) || packs[0] || null;
+    const selectedLevel = selectedPack?.levels.find((level) => level.id === selectedPackLevelId) || selectedPack?.levels?.[0] || null;
+    const selected = selectedLevel
+      ? selectedLevel.items
+        .filter((item) => selectedPackWords[item.normalized_word] ?? !item.already_added)
+        .map((item) => item.normalized_word)
+      : [];
     if (!selected.length) {
       setNotice("Отметь слова для добавления.");
       return;
@@ -1335,6 +1356,10 @@ function App() {
   }
 
   function closeLearnSession() {
+    const hasProgress = Boolean(learnQuestion || learnResult || learnQuestionCount > 0 || learnSessionDone);
+    if (hasProgress && !window.confirm("Закрыть практику? Текущий прогресс в этой сессии сбросится.")) {
+      return;
+    }
     if (isRecording) {
       stopSpeakingRecording();
     }
@@ -1689,7 +1714,7 @@ function App() {
     const promptTitle = isChoice
       ? (learnQuestion.exercise_type === "practice_ru_en" ? learnQuestion.item.translation : learnQuestion.item.word)
       : isListening
-        ? "Введите перевод 🎧"
+        ? (learnQuestion.exercise_type === "listening_word" ? "Введите слово 🎧" : "Введите перевод 🎧")
         : learnQuestion.item.word;
 
     return (
@@ -1700,12 +1725,7 @@ function App() {
               <p className="overline">Practice</p>
               <h3>Учить слова 🎯</h3>
             </div>
-            <div className="button-row">
-              <span className="status-tag">{learnQuestionCount + 1} / {learnSessionLimit}</span>
-              <button className="secondary-button" type="button" onClick={closeLearnSession}>
-                Закрыть
-              </button>
-            </div>
+            <span className="status-tag">{learnQuestionCount + 1} / {learnSessionLimit}</span>
           </div>
           <div className="prompt-card">
             <strong>{promptTitle}</strong>
@@ -2237,9 +2257,6 @@ function App() {
                 <p className="overline">Irregular</p>
                 <h3>Повторять глаголы 📘</h3>
               </div>
-              <button className="secondary-button" type="button" onClick={backFromIrregularReview}>
-                ← Назад
-              </button>
             </div>
             <div className="simple-list">
               {(irregularList?.items || []).map((item) => (
@@ -2291,9 +2308,6 @@ function App() {
                     </button>
                   </div>
                 ) : null}
-                <button className="danger-button" type="button" onClick={closeIrregularTest}>
-                  Закрыть тест
-                </button>
               </div>
             ) : (
               <div className="stack-form">
@@ -2307,9 +2321,6 @@ function App() {
                     Начать новый тест
                   </button>
                 ) : null}
-                <button className="danger-button" type="button" onClick={closeIrregularTest}>
-                  Закрыть тест
-                </button>
               </div>
             )}
           </section>
@@ -2322,6 +2333,9 @@ function App() {
     if (!settings) {
       return null;
     }
+    const timezoneOptions = TIMEZONE_OPTIONS.some((item) => item.value === settings.reminder_timezone)
+      ? TIMEZONE_OPTIONS
+      : [...TIMEZONE_OPTIONS, { value: settings.reminder_timezone, label: settings.reminder_timezone }];
     return (
       <section className="glass-card compact-section">
         <p className="overline">Settings</p>
@@ -2356,7 +2370,11 @@ function App() {
           </label>
           <label>
             <span>Time zone</span>
-            <input value={settings.reminder_timezone} onChange={(event) => setSettings((current) => ({ ...current, reminder_timezone: event.target.value }))} />
+            <select value={settings.reminder_timezone} onChange={(event) => setSettings((current) => ({ ...current, reminder_timezone: event.target.value }))}>
+              {timezoneOptions.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
           </label>
           <label className="toggle-row">
             <input type="checkbox" checked={settings.reminder_enabled} onChange={(event) => setSettings((current) => ({ ...current, reminder_enabled: event.target.checked }))} />
@@ -2408,7 +2426,19 @@ function App() {
             <strong className="app-title">{currentTitle}</strong>
           </div>
         </div>
-        {primaryTab === "words" ? (
+        {showHeaderBack ? (
+          <button className="secondary-button header-action" type="button" onClick={backFromIrregularReview}>
+            <span>← Назад</span>
+          </button>
+        ) : showHeaderClose ? (
+          <button
+            className="secondary-button header-action"
+            type="button"
+            onClick={learnPanel === "irregular" && irregularMode === "test" ? closeIrregularTest : closeLearnSession}
+          >
+            <span>Закрыть</span>
+          </button>
+        ) : primaryTab === "words" ? (
           <button
             className={showLibraryAdd ? "secondary-button header-action active" : "secondary-button header-action"}
             type="button"
