@@ -36,6 +36,35 @@ const TIMEZONE_OPTIONS = [
   { value: "America/New_York", label: "Нью-Йорк (America/New_York)" },
   { value: "America/Los_Angeles", label: "Лос-Анджелес (America/Los_Angeles)" },
 ];
+const MAX_ADD_BATCH_WORDS = 10;
+
+function getSessionPraise(correct, total) {
+  if (!total) {
+    return "Сессию можно пройти в своём темпе.";
+  }
+  const ratio = correct / total;
+  if (ratio >= 0.9) {
+    return "🔥 Отличный результат. Почти всё выполнено без ошибок.";
+  }
+  if (ratio >= 0.7) {
+    return "👏 Очень хорошо. Большая часть заданий выполнена верно.";
+  }
+  if (ratio >= 0.45) {
+    return `💪 Неплохо. Основа уже есть, можно пройти ещё один круг.`;
+  }
+  return `🌱 Начало положено. Следующая сессия уже будет увереннее.`;
+}
+
+function formatLearnCorrectAnswer(learnQuestion, learnResult) {
+  const answer = learnResult?.correct_answer || "";
+  if (!learnQuestion || !learnResult) {
+    return answer;
+  }
+  if (learnQuestion.exercise_type === "listening_translate" && learnQuestion.item?.word) {
+    return `${answer} (${learnQuestion.item.word})`;
+  }
+  return answer;
+}
 
 function getCookie(name) {
   const match = document.cookie.match(new RegExp(`(^| )${name}=([^;]+)`));
@@ -222,6 +251,7 @@ function App() {
   const [learnTextAnswer, setLearnTextAnswer] = useState("");
   const [learnUsedWordIds, setLearnUsedWordIds] = useState([]);
   const [learnQuestionCount, setLearnQuestionCount] = useState(0);
+  const [learnCorrectCount, setLearnCorrectCount] = useState(0);
   const [learnSessionLimit, setLearnSessionLimit] = useState(12);
   const [learnSessionDone, setLearnSessionDone] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -234,6 +264,7 @@ function App() {
   const [irregularResult, setIrregularResult] = useState(null);
   const [irregularMode, setIrregularMode] = useState("review");
   const [irregularQuestionCount, setIrregularQuestionCount] = useState(0);
+  const [irregularCorrectCount, setIrregularCorrectCount] = useState(0);
   const [irregularSessionLimit, setIrregularSessionLimit] = useState(12);
   const [irregularSessionDone, setIrregularSessionDone] = useState(false);
   const [loginLink, setLoginLink] = useState("");
@@ -536,6 +567,7 @@ function App() {
     if (resetLearn) {
       setLearnUsedWordIds([]);
       setLearnQuestionCount(0);
+      setLearnCorrectCount(0);
       setLearnSessionDone(false);
     }
     await Promise.all([
@@ -754,6 +786,14 @@ function App() {
     event.preventDefault();
     if (!addText.trim()) {
       setNotice("Добавь одно слово или фразу.");
+      return;
+    }
+    const filledLines = addText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (filledLines.length > MAX_ADD_BATCH_WORDS) {
+      setNotice(`За один раз можно добавить максимум ${MAX_ADD_BATCH_WORDS} слов или фраз.`);
       return;
     }
     setAddBusy(true);
@@ -1133,6 +1173,9 @@ function App() {
         })
       });
       setLearnResult(data);
+      if (data.correct) {
+        setLearnCorrectCount((current) => current + 1);
+      }
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       await loadDashboard();
     } catch (error) {
@@ -1158,6 +1201,9 @@ function App() {
         })
       });
       setLearnResult(data);
+      if (data.correct) {
+        setLearnCorrectCount((current) => current + 1);
+      }
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       await loadDashboard();
     } catch (error) {
@@ -1182,6 +1228,9 @@ function App() {
         body: formData
       });
       setLearnResult(data);
+      if (data.status === "correct") {
+        setLearnCorrectCount((current) => current + 1);
+      }
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       await loadDashboard();
     } catch (error) {
@@ -1245,6 +1294,9 @@ function App() {
         })
       });
       setIrregularResult(data);
+      if (data.correct) {
+        setIrregularCorrectCount((current) => current + 1);
+      }
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       await loadDashboard();
     } catch (error) {
@@ -1404,6 +1456,7 @@ function App() {
     setLearnTextAnswer("");
     setLearnUsedWordIds([]);
     setLearnQuestionCount(0);
+    setLearnCorrectCount(0);
     setLearnSessionDone(false);
     setLearnPanel("mixed");
   }
@@ -1421,6 +1474,7 @@ function App() {
     setIrregularQuestion(null);
     setIrregularResult(null);
     setIrregularQuestionCount(0);
+    setIrregularCorrectCount(0);
     setIrregularSessionDone(false);
     setLearnPanel("mixed");
     setIrregularMode("test");
@@ -1428,6 +1482,7 @@ function App() {
 
   async function startIrregularTest() {
     setIrregularQuestionCount(0);
+    setIrregularCorrectCount(0);
     setIrregularSessionDone(false);
     setIrregularSessionLimit(settings?.session_question_limit || 12);
     await loadIrregularQuestion();
@@ -1636,10 +1691,8 @@ function App() {
 
   function renderLearn() {
     const hasWordsToLearn = (auth.progress?.learning ?? 0) > 0;
-    const hasActiveIrregularExercise = learnPanel === "irregular" && (
-      irregularMode === "review" || Boolean(irregularQuestion || irregularResult || irregularSessionDone)
-    );
-    const showLearnOverview = learnPanel !== "irregular" && !learnQuestion && !learnSessionDone && !hasActiveIrregularExercise;
+    const hasActiveIrregularTest = learnPanel === "irregular" && irregularMode === "test";
+    const showLearnOverview = learnPanel !== "irregular" && !learnQuestion && !hasActiveIrregularTest;
 
     if (showLearnOverview) {
       return (
@@ -1650,16 +1703,23 @@ function App() {
                 <p className="overline">Practice</p>
                 <h3>Учить слова 🎯</h3>
                 <p className="lead compact">
-                  {hasWordsToLearn
+                  {learnSessionDone
+                    ? getSessionPraise(learnCorrectCount, learnQuestionCount)
+                    : hasWordsToLearn
                     ? "Случайные задания по словам, которые ты сейчас изучаешь."
                     : "Сейчас нет подходящих заданий, потому что у тебя пока нет новых слов для изучения."}
                 </p>
               </div>
             </div>
+            {learnSessionDone ? (
+              <div className="inline-note status-note">
+                <strong>Сессия завершена.</strong> Верно: {learnCorrectCount} из {learnQuestionCount || learnSessionLimit}.
+              </div>
+            ) : null}
             <div className="button-row">
               {hasWordsToLearn ? (
                 <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
-                  Начать сессию
+                  {learnSessionDone ? "Начать новую сессию" : "Начать сессию"}
                 </button>
               ) : null}
               <button className="secondary-button" type="button" onClick={openAddWords}>
@@ -1712,36 +1772,6 @@ function App() {
       : learnResult?.status === "close"
         ? "result-box"
         : "result-box bad";
-
-    if (!learnQuestion) {
-      return (
-        <section className="glass-card learn-card">
-          <div className="section-head section-head-wrap">
-            <div>
-              <p className="overline">Practice</p>
-              <h3>Учить слова 🎯</h3>
-            </div>
-          </div>
-          <div className="empty-state">
-            {learnSessionDone
-              ? `Сессия завершена. Выполнено ${learnQuestionCount} из ${learnSessionLimit} заданий.`
-              : "Сейчас нет подходящих заданий, потому что у тебя пока нет новых слов для изучения."}
-          </div>
-          <div className="button-row">
-            {learnSessionDone && hasWordsToLearn ? (
-              <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
-                Начать новую сессию
-              </button>
-            ) : null}
-            {!hasWordsToLearn || !learnSessionDone ? (
-              <button className="secondary-button" type="button" onClick={openAddWords}>
-                ＋ Добавить слова
-              </button>
-            ) : null}
-          </div>
-        </section>
-      );
-    }
 
     const isChoice = learnQuestion.kind === "choice";
     const isListening = learnQuestion.kind === "listening";
@@ -1834,10 +1864,10 @@ function App() {
                     ? `Правильный ответ: ${learnResult.correct_answer}`
                     : `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
                   : learnResult.skipped
-                    ? `Правильный ответ: ${learnResult.correct_answer}`
+                    ? `Правильный ответ: ${formatLearnCorrectAnswer(learnQuestion, learnResult)}`
                     : learnResult.correct
                       ? "Верно"
-                      : `Правильный ответ: ${learnResult.correct_answer}`}
+                      : `Правильный ответ: ${formatLearnCorrectAnswer(learnQuestion, learnResult)}`}
               </span>
               <button className="secondary-button" type="button" onClick={() => void advanceLearnSession()}>
                 Дальше
@@ -2045,7 +2075,7 @@ function App() {
             <p className="lead compact">
               {isBatchReview
                 ? "Проверь переводы. Фото загружаются автоматически и не тормозят добавление."
-                : "Подтверждаем перевод, а фото загружается автоматически в фоне."}
+                : `Можно вставить до ${MAX_ADD_BATCH_WORDS} слов или фраз за раз. Подтверждаем перевод, а фото загружается автоматически в фоне.`}
             </p>
           </div>
           <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>
@@ -2063,6 +2093,9 @@ function App() {
         {!addDraft && !isBatchReview ? (
           <div className="stack-form">
             <form className="stack-form" onSubmit={handleAddWords}>
+              <div className="inline-note">
+                Вставляй по одному слову на строку. За один раз можно добавить до {MAX_ADD_BATCH_WORDS} слов или фраз.
+              </div>
               <textarea
                 rows={5}
                 value={addText}
@@ -2354,12 +2387,12 @@ function App() {
                 ) : null}
               </div>
             ) : (
-              <div className="stack-form">
-                <div className="empty-state">
-                  {irregularSessionDone
-                    ? `Тест завершён. Выполнено ${irregularQuestionCount} из ${irregularSessionLimit} заданий.`
+                <div className="stack-form">
+                  <div className="empty-state">
+                    {irregularSessionDone
+                    ? `Тест завершён. Верно ${irregularCorrectCount} из ${irregularQuestionCount || irregularSessionLimit}. ${getSessionPraise(irregularCorrectCount, irregularQuestionCount || irregularSessionLimit)}`
                     : "Сейчас нет вопроса по глаголам."}
-                </div>
+                  </div>
                 {irregularSessionDone ? (
                   <button className="primary-button" type="button" onClick={() => void startIrregularTest()}>
                     Начать новый тест

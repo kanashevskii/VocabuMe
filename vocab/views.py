@@ -63,6 +63,7 @@ from .utils import normalize_timezone_value
 SESSION_USER_KEY = "telegram_user_id"
 logger = logging.getLogger(__name__)
 MAX_IMAGE_REGENERATIONS = 3
+MAX_ADD_BATCH_WORDS = 10
 
 
 def _json_body(request: HttpRequest) -> dict:
@@ -325,6 +326,8 @@ def words(request: HttpRequest) -> JsonResponse:
     entries = parse_word_batch(payload.get("text", ""))
     if not entries:
         return _json_error("Add at least one word.", status=400)
+    if len(entries) > MAX_ADD_BATCH_WORDS:
+        return _json_error(f"You can add at most {MAX_ADD_BATCH_WORDS} words at once.", status=400)
 
     created_items = []
     skipped = []
@@ -371,6 +374,8 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
         entries = parse_word_batch(payload.get("text", ""))
         if not entries:
             return _json_error("Add one word or phrase.", status=400)
+        if len(entries) > MAX_ADD_BATCH_WORDS:
+            return _json_error(f"За один раз можно добавить максимум {MAX_ADD_BATCH_WORDS} слов или фраз.", status=400)
         if len(entries) > 1:
             missing_translation = [entry.word for entry in entries if not entry.translation_hint]
             if missing_translation:
