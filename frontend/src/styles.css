@@ -1013,6 +1013,10 @@ textarea {
     padding-bottom: 84px;
   }
 
+  .quiz-panel-tight {
+    padding-bottom: 0;
+  }
+
   .practice-result-box {
     position: sticky;
     bottom: calc(76px + env(safe-area-inset-bottom, 0px));
@@ -1159,6 +1163,10 @@ textarea {
 
   .quiz-panel {
     padding-bottom: 80px;
+  }
+
+  .quiz-panel-tight {
+    padding-bottom: 0;
   }
 
   .practice-result-box {

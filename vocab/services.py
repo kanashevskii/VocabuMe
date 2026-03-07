@@ -83,6 +83,54 @@ class ParsedWordEntry:
     translation_hint: str | None = None
 
 
+def normalize_translation_value(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", (value or "").strip().lower().replace("ё", "е"))
+    return normalized.strip(" \t\r\n.,;:!?\"'")
+
+
+def split_translation_variants(translation: str) -> list[str]:
+    source = (translation or "").strip()
+    if not source:
+        return []
+
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+
+    for char in source:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}" and depth > 0:
+            depth -= 1
+
+        if depth == 0 and char in {",", "/"}:
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+            continue
+
+        current.append(char)
+
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+
+    normalized_variants: list[str] = []
+    for candidate in [source, *parts]:
+        normalized = normalize_translation_value(candidate)
+        if normalized and normalized not in normalized_variants:
+            normalized_variants.append(normalized)
+    return normalized_variants
+
+
+def is_translation_answer_correct(answer: str, translation: str) -> bool:
+    normalized_answer = normalize_translation_value(answer)
+    if not normalized_answer:
+        return False
+    return normalized_answer in split_translation_variants(translation)
+
+
 def upsert_telegram_user(chat_id: int, username: str | None = None) -> TelegramUser:
     user, created = TelegramUser.objects.get_or_create(
         chat_id=chat_id,
@@ -1228,13 +1276,13 @@ def submit_choice_answer(user: TelegramUser, item_id: int, answer: str, mode: st
         if correct:
             increment_user_metric(user, "practice_correct")
     elif mode == "review":
-        correct = normalized == item.translation.lower()
+        correct = is_translation_answer_correct(answer, item.translation)
         updated = update_word_progress(item.id, correct=True) if correct else reset_word_progress(item.id)
         correct_answer = item.translation
         if correct:
             increment_user_metric(user, "review_correct")
     else:
-        correct = normalized == item.translation.lower()
+        correct = is_translation_answer_correct(answer, item.translation)
         updated = update_word_progress(item.id, correct=correct, exercise_type="practice_en_ru")
         correct_answer = item.translation
         if correct:
@@ -1261,7 +1309,7 @@ def build_listening_question(user: TelegramUser, mode: str) -> dict | None:
 def submit_listening_answer(user: TelegramUser, item_id: int, answer: str, mode: str) -> dict:
     item = VocabularyItem.objects.get(id=item_id, user=user)
     expected = item.word if mode == "word" else item.translation
-    correct = answer.strip().lower() == expected.lower()
+    correct = answer.strip().lower() == expected.lower() if mode == "word" else is_translation_answer_correct(answer, expected)
     updated = update_word_progress(
         item.id,
         correct=correct,
@@ -1333,7 +1381,7 @@ def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, e
     normalized = answer.strip().lower()
     if exercise_type == "practice_en_ru":
         expected = item.translation
-        correct = normalized == item.translation.lower()
+        correct = is_translation_answer_correct(answer, item.translation)
         updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
         if correct:
             increment_user_metric(user, "practice_correct")
@@ -1351,7 +1399,7 @@ def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, e
             increment_user_metric(user, "listening_correct")
     elif exercise_type == "listening_translate":
         expected = item.translation
-        correct = normalized == item.translation.lower()
+        correct = is_translation_answer_correct(answer, item.translation)
         updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
         if correct:
             increment_user_metric(user, "listening_correct")

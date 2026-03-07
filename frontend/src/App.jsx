@@ -448,6 +448,41 @@ function App() {
     return () => window.clearInterval(intervalId);
   }, [addDraft, addDrafts]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const draftsToSync = [
+      ...(addDraft ? [addDraft] : []),
+      ...addDrafts,
+    ].filter((draft, index, all) => draft?.has_image && all.findIndex((item) => item.id === draft.id) === index);
+
+    async function syncDraftImages() {
+      for (const draft of draftsToSync) {
+        const token = draft.updated_at;
+        if (!token || draftImageVersions[draft.id] === token) {
+          continue;
+        }
+        const loaded = await preloadDraftImage(draft.id, token);
+        if (cancelled || !loaded) {
+          continue;
+        }
+        setDraftImageVersions((current) => {
+          if (current[draft.id] === token) {
+            return current;
+          }
+          return { ...current, [draft.id]: token };
+        });
+      }
+    }
+
+    if (draftsToSync.length) {
+      void syncDraftImages();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addDraft, addDrafts, draftImageVersions]);
+
   async function bootstrap() {
     const [cfg, me] = await Promise.all([api("/api/app-config"), api("/api/auth/me")]);
     setConfig(cfg);
@@ -1733,7 +1768,7 @@ function App() {
             <span className="study-hint">{learnQuestion.exercise_label}</span>
           </div>
           {isChoice ? (
-            <div className="quiz-panel">
+            <div className="quiz-panel quiz-panel-tight">
               <div className="option-grid">
                 {learnQuestion.options.map((option) => (
                   <button
@@ -1753,7 +1788,7 @@ function App() {
             </div>
           ) : null}
           {isListening ? (
-            <form className="stack-form" onSubmit={handleLearnListeningSubmit}>
+            <form className="stack-form quiz-panel-tight" onSubmit={handleLearnListeningSubmit}>
               <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
               <input value={learnTextAnswer} onChange={(event) => setLearnTextAnswer(event.target.value)} placeholder="Твой ответ" />
               <div className="button-row">
@@ -1765,7 +1800,7 @@ function App() {
             </form>
           ) : null}
           {isSpeaking ? (
-            <div className="quiz-panel">
+            <div className="quiz-panel quiz-panel-tight">
               <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
               <div className="button-row">
                 <button
@@ -2133,6 +2168,9 @@ function App() {
 
         {isBatchReview && addDrafts.length ? (
           <div className="word-list batch-draft-list">
+            <div className="inline-note status-note">
+              <strong>Можно сохранять слова сразу.</strong> Если часть фото ещё не появилась, они догрузятся автоматически позже и подтянутся в карточках.
+            </div>
             {addDrafts.map((draft) => (
               <article className="glass-card word-item" key={draft.id}>
                 <div className="word-item-head">
@@ -2146,17 +2184,21 @@ function App() {
                   value={batchTranslations[draft.id] ?? draft.translation}
                   onChange={(event) => setBatchTranslations((current) => ({ ...current, [draft.id]: event.target.value }))}
                 />
-                {draft.has_image ? (
+                {draft.has_image && draftImageVersions[draft.id] === draft.updated_at ? (
                   <div className="word-image-preview">
                     <img
-                      key={draftImageVersions[draft.id] || draft.updated_at}
-                      src={`/api/draft-image/${draft.id}?v=${draftImageVersions[draft.id] || draft.updated_at}`}
+                      key={draftImageVersions[draft.id]}
+                      src={`/api/draft-image/${draft.id}?v=${draftImageVersions[draft.id]}`}
                       alt={draft.word}
                     />
                   </div>
                 ) : (
                   <div className="empty-card">
-                    {draft.image_generation_in_progress ? "Фото готовится автоматически..." : "Фото появится автоматически позже."}
+                    {draft.image_generation_in_progress
+                      ? "Фото готовится автоматически. Можно не ждать и сохранить слова сразу."
+                      : draft.has_image
+                        ? "Фото уже почти готово к показу..."
+                        : "Фото появится автоматически позже."}
                   </div>
                 )}
                 <div className="button-row">
@@ -2205,11 +2247,11 @@ function App() {
           <div className="draft-card">
             <div className="draft-preview-grid">
               <div className="study-main">
-                {addDraft.has_image ? (
+                {addDraft.has_image && draftImageVersions[addDraft.id] === addDraft.updated_at ? (
                   <div className="card-visual">
                     <img
-                      key={draftImageVersions[addDraft.id] || addDraft.updated_at}
-                      src={`/api/draft-image/${addDraft.id}?v=${draftImageVersions[addDraft.id] || addDraft.updated_at}`}
+                      key={draftImageVersions[addDraft.id]}
+                      src={`/api/draft-image/${addDraft.id}?v=${draftImageVersions[addDraft.id]}`}
                       alt={addDraft.word}
                     />
                   </div>
@@ -2217,6 +2259,8 @@ function App() {
                   <div className="empty-card">
                     {addDraft.image_generation_in_progress
                       ? "Фото готовится автоматически. Можно сохранить слово, оно появится позже."
+                      : addDraft.has_image
+                        ? "Фото уже почти готово к показу..."
                       : "Фото появится автоматически позже."}
                   </div>
                 )}
