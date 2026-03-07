@@ -1393,7 +1393,9 @@ function App() {
     const isSpeaking = learnQuestion.kind === "speaking";
     const promptTitle = isChoice
       ? (learnQuestion.exercise_type === "practice_ru_en" ? learnQuestion.item.translation : learnQuestion.item.word)
-      : learnQuestion.item.word;
+      : isListening
+        ? "Слушай внимательно 🎧"
+        : learnQuestion.item.word;
 
     return (
       <div className="screen-stack">
