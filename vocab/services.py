@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Iterable
+import logging
 import random
 import re
 import time
@@ -31,6 +32,7 @@ USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
 DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
 _IMAGE_OPTIMIZATION_LOCK = Lock()
 _IMAGE_OPTIMIZATION_IN_FLIGHT: set[str] = set()
+logger = logging.getLogger(__name__)
 ACHIEVEMENT_DEFINITIONS = [
     {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
     {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
@@ -271,6 +273,8 @@ def serialize_word(item: VocabularyItem) -> dict:
         "part_of_speech": item.part_of_speech,
         "correct_count": item.correct_count,
         "is_learned": item.is_learned,
+        "image_regeneration_count": item.image_regeneration_count,
+        "image_generation_in_progress": item.image_generation_in_progress,
         "image_path": item.image_path,
         "has_image": image_file is not None,
         "created_at": item.created_at.isoformat(),
@@ -338,6 +342,7 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
         example=data["example"],
         example_translation=example_translation,
         part_of_speech=data.get("part_of_speech", "unknown"),
+        image_regeneration_count=data.get("image_regeneration_count", 0) or 0,
         image_path=image_path,
     )
 
@@ -354,6 +359,8 @@ def serialize_draft(draft: AddWordDraft) -> dict:
         "example": draft.example,
         "example_translation": draft.example_translation,
         "part_of_speech": draft.part_of_speech,
+        "image_regeneration_count": draft.image_regeneration_count,
+        "image_generation_in_progress": draft.image_generation_in_progress,
         "image_prompt": draft.image_prompt,
         "image_path": draft.image_path,
         "has_image": image_file is not None,
@@ -418,10 +425,136 @@ def refresh_draft_language_data(draft: AddWordDraft, translation: str) -> AddWor
             "example",
             "example_translation",
             "part_of_speech",
+            "image_path",
+            "image_prompt",
+            "image_generation_version",
+            "image_generation_in_progress",
             "updated_at",
         ]
     )
     return draft
+
+
+def _build_item_image(word: str, translation: str, part_of_speech: str, example: str, slug: str) -> tuple[str, str] | None:
+    visual_prompt = build_visual_prompt(word, translation, part_of_speech, example)
+    if not visual_prompt:
+        return None
+    image_path = generate_card_image(visual_prompt, slug)
+    return visual_prompt, image_path
+
+
+def _run_draft_image_generation(draft_id: int, version: int) -> None:
+    try:
+        draft = AddWordDraft.objects.get(id=draft_id)
+    except AddWordDraft.DoesNotExist:
+        return
+
+    try:
+        built = _build_item_image(
+            draft.word,
+            draft.translation,
+            draft.part_of_speech,
+            draft.example,
+            f"{draft.user_id}_{draft.normalized_word}_{int(time.time())}",
+        )
+        try:
+            latest = AddWordDraft.objects.get(id=draft_id)
+        except AddWordDraft.DoesNotExist:
+            return
+        if latest.image_generation_version != version:
+            return
+        if not built:
+            latest.image_generation_in_progress = False
+            latest.save(update_fields=["image_generation_in_progress", "updated_at"])
+            return
+        visual_prompt, image_path = built
+        latest.image_prompt = visual_prompt
+        latest.image_path = image_path
+        latest.image_generation_in_progress = False
+        latest.save(update_fields=["image_prompt", "image_path", "image_generation_in_progress", "updated_at"])
+    except Exception:
+        logger.exception("Draft image generation failed for draft %s", draft_id)
+        AddWordDraft.objects.filter(id=draft_id, image_generation_version=version).update(image_generation_in_progress=False)
+
+
+def request_draft_image_generation(draft: AddWordDraft, force_regenerate: bool = False) -> AddWordDraft:
+    reused_path = "" if force_regenerate else resolve_shared_image_path(draft.word, draft.translation, "")
+    if reused_path:
+        draft.image_path = reused_path
+        draft.image_prompt = ""
+        draft.image_generation_in_progress = False
+        draft.save(update_fields=["image_path", "image_prompt", "image_generation_in_progress", "updated_at"])
+        return draft
+
+    draft.image_path = ""
+    draft.image_prompt = ""
+    draft.image_generation_version += 1
+    draft.image_generation_in_progress = True
+    if force_regenerate:
+        draft.image_regeneration_count += 1
+    draft.save(
+        update_fields=[
+            "image_path",
+            "image_prompt",
+            "image_generation_version",
+            "image_generation_in_progress",
+            "image_regeneration_count",
+            "updated_at",
+        ]
+    )
+    Thread(target=_run_draft_image_generation, args=(draft.id, draft.image_generation_version), daemon=True).start()
+    return draft
+
+
+def _run_word_image_generation(item_id: int, version: int) -> None:
+    try:
+        item = VocabularyItem.objects.get(id=item_id)
+    except VocabularyItem.DoesNotExist:
+        return
+
+    try:
+        built = _build_item_image(
+            item.word,
+            item.translation,
+            item.part_of_speech,
+            item.example,
+            f"word_{item.user_id}_{item.normalized_word}_{int(time.time())}",
+        )
+        try:
+            latest = VocabularyItem.objects.get(id=item_id)
+        except VocabularyItem.DoesNotExist:
+            return
+        if latest.image_generation_version != version:
+            return
+        if not built:
+            latest.image_generation_in_progress = False
+            latest.save(update_fields=["image_generation_in_progress", "updated_at"])
+            return
+        _, image_path = built
+        latest.image_path = image_path
+        latest.image_generation_in_progress = False
+        latest.save(update_fields=["image_path", "image_generation_in_progress", "updated_at"])
+    except Exception:
+        logger.exception("Word image generation failed for item %s", item_id)
+        VocabularyItem.objects.filter(id=item_id, image_generation_version=version).update(image_generation_in_progress=False)
+
+
+def request_word_image_generation(item: VocabularyItem, force_regenerate: bool = False) -> VocabularyItem:
+    reused_path = "" if force_regenerate else resolve_shared_image_path(item.word, item.translation, "")
+    if reused_path:
+        item.image_path = reused_path
+        item.image_generation_in_progress = False
+        item.save(update_fields=["image_path", "image_generation_in_progress", "updated_at"])
+        return item
+
+    item.image_path = ""
+    item.image_generation_version += 1
+    item.image_generation_in_progress = True
+    if force_regenerate:
+        item.image_regeneration_count += 1
+    item.save(update_fields=["image_path", "image_generation_version", "image_generation_in_progress", "image_regeneration_count", "updated_at"])
+    Thread(target=_run_word_image_generation, args=(item.id, item.image_generation_version), daemon=True).start()
+    return item
 
 
 def ensure_draft_image(draft: AddWordDraft, force_regenerate: bool = False) -> AddWordDraft:
@@ -448,7 +581,9 @@ def ensure_draft_image(draft: AddWordDraft, force_regenerate: bool = False) -> A
     image_path = generate_card_image(visual_prompt, slug)
     draft.image_prompt = visual_prompt
     draft.image_path = image_path
-    draft.save(update_fields=["image_prompt", "image_path", "updated_at"])
+    if force_regenerate:
+        draft.image_regeneration_count += 1
+    draft.save(update_fields=["image_prompt", "image_path", "image_regeneration_count", "updated_at"])
     return draft
 
 
@@ -460,14 +595,18 @@ def finalize_word_draft(draft: AddWordDraft, use_image: bool = True) -> Vocabula
         "example": draft.example,
         "example_translation": draft.example_translation,
         "part_of_speech": draft.part_of_speech,
+        "image_regeneration_count": draft.image_regeneration_count,
         "image_path": draft.image_path if use_image else "",
     }
     item = create_word(draft.user, payload)
+    if use_image and not item.image_path:
+        item = request_word_image_generation(item)
     draft.delete()
     return item
 
 
 def regenerate_word_image(item: VocabularyItem) -> VocabularyItem:
+    item.image_regeneration_count += 1
     visual_prompt = build_visual_prompt(
         item.word,
         item.translation,
@@ -479,7 +618,7 @@ def regenerate_word_image(item: VocabularyItem) -> VocabularyItem:
 
     slug = f"word_{item.user_id}_{item.normalized_word}_{int(time.time())}"
     item.image_path = generate_card_image(visual_prompt, slug)
-    item.save(update_fields=["image_path", "updated_at"])
+    item.save(update_fields=["image_path", "image_regeneration_count", "updated_at"])
     return item
 
 

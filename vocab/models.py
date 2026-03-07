@@ -45,6 +45,9 @@ class VocabularyItem(models.Model):
     correct_count = models.IntegerField(default=0)
     is_learned = models.BooleanField(default=False)
     learned_at = models.DateTimeField(null=True, blank=True)
+    image_regeneration_count = models.PositiveIntegerField(default=0)
+    image_generation_version = models.PositiveIntegerField(default=0)
+    image_generation_in_progress = models.BooleanField(default=False)
     part_of_speech = models.CharField(max_length=50, default="unknown")
     image_path = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -118,6 +121,9 @@ class AddWordDraft(models.Model):
     part_of_speech = models.CharField(max_length=50, default="unknown")
     image_prompt = models.TextField(blank=True, default="")
     image_path = models.CharField(max_length=500, blank=True, default="")
+    image_regeneration_count = models.PositiveIntegerField(default=0)
+    image_generation_version = models.PositiveIntegerField(default=0)
+    image_generation_in_progress = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -126,3 +132,21 @@ class AddWordDraft(models.Model):
 
     def __str__(self):
         return f"AddWordDraft({self.word} -> {self.translation})"
+
+
+class AppErrorLog(models.Model):
+    user = models.ForeignKey(TelegramUser, on_delete=models.SET_NULL, null=True, blank=True)
+    category = models.CharField(max_length=50, default="server")
+    level = models.CharField(max_length=20, default="error")
+    message = models.TextField()
+    path = models.CharField(max_length=255, blank=True, default="")
+    method = models.CharField(max_length=10, blank=True, default="")
+    status_code = models.PositiveIntegerField(null=True, blank=True)
+    context = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.category}:{self.level} {self.path or '-'}"

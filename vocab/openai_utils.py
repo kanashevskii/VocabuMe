@@ -50,10 +50,18 @@ def _infer_part_from_translation(translation_hint: str | None) -> str | None:
     if not translation_hint:
         return None
     t = translation_hint.strip().lower()
+    if re.match(r"^[а-яё-]+(?:\s*/\s*[а-яё-]+)*$", t):
+        variants = [part.strip() for part in t.split("/") if part.strip()]
+        if variants and all(variant.endswith(("о", "е")) for variant in variants):
+            return "adverb"
     if t.endswith(("ть", "ться")):
         return "verb"
+    if t.endswith(("о", "е")):
+        return "adverb"
     if t.endswith(("ый", "ий", "ая", "ое", "ее", "ие", "ые", "ой", "ей", "ых", "их")):
         return "adjective"
+    if " " in t:
+        return "phrase"
     return "noun"
 
 
@@ -176,6 +184,77 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
 
     logging.warning("Falling back after validation failures: %s", last_error)
     return None
+
+
+def generate_word_data_batch(entries: list[dict]) -> list[dict | None]:
+    if not entries:
+        return []
+
+    payload = [
+        {
+            "word": entry["word"],
+            "translation_hint": entry.get("translation_hint") or "",
+            "part_hint": entry.get("part_hint") or "",
+        }
+        for entry in entries
+    ]
+
+    prompt = f"""
+You are an English language assistant.
+
+For each entry in the JSON array below, return one object in the same order.
+Each result object must contain:
+1. "word": original English word or phrase
+2. "translation": the matching Russian translation for the intended sense
+3. "transcription": IPA transcription
+4. "example": short English sentence using the same sense
+5. "part_of_speech": one of noun, verb, adjective, adverb, pronoun, preposition, conjunction, interjection, phrase
+
+Important:
+- Respect the provided translation_hint if present.
+- Respect the provided part_hint if present.
+- Keep phrase meanings intact.
+- Return JSON array only, no prose.
+
+Input:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+    try:
+        response = client.chat.completions.create(
+            model=TEXT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = response.choices[0].message.content.strip()
+        parsed = _parse_model_json(content)
+        if not isinstance(parsed, list) or len(parsed) != len(entries):
+            raise ValueError("Batch response shape mismatch")
+
+        normalized_results: list[dict | None] = []
+        for source, item in zip(entries, parsed, strict=False):
+            if not isinstance(item, dict):
+                normalized_results.append(None)
+                continue
+            effective_part = source.get("part_hint") or _infer_part_from_translation(source.get("translation_hint"))
+            if effective_part:
+                item["part_of_speech"] = effective_part
+
+            example_ok = _is_valid_example(source["word"], effective_part, item.get("example", ""))
+            pos_ok = not effective_part or item.get("part_of_speech", "").lower() == effective_part
+            if not example_ok or not pos_ok:
+                normalized_results.append(None)
+                continue
+            normalized_results.append(item | {"word": source["word"]})
+        return normalized_results
+    except Exception as exc:
+        logging.exception("Batch OpenAI generation failed: %s", exc)
+        return [
+            generate_word_data(
+                entry["word"],
+                part_hint=entry.get("part_hint"),
+                translation_hint=entry.get("translation_hint"),
+            )
+            for entry in entries
+        ]
 
 
 def build_visual_prompt(word: str, translation: str, part_of_speech: str, example: str = "") -> str | None:

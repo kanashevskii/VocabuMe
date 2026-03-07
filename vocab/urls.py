@@ -12,6 +12,7 @@ urlpatterns = [
     path("api/auth/telegram/poll/<str:token>", views.auth_poll_link, name="auth-poll-link"),
     path("api/auth/telegram/widget", views.auth_telegram_widget, name="auth-telegram-widget"),
     path("api/auth/telegram/webapp", views.auth_telegram_webapp, name="auth-telegram-webapp"),
+    path("api/client-error", views.client_error_log, name="client-error-log"),
     path("api/dashboard", views.dashboard, name="dashboard"),
     path("api/words", views.words, name="words"),
     path("api/words/draft", views.word_draft_create, name="word-draft-create"),

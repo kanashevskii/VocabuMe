@@ -45,6 +45,28 @@ function getCookie(name) {
   return match ? decodeURIComponent(match[2]) : "";
 }
 
+async function reportClientError(payload) {
+  try {
+    const telegramInitData = window.Telegram?.WebApp?.initData || "";
+    const headers = { "Content-Type": "application/json" };
+    if (telegramInitData) {
+      headers["X-Telegram-Init-Data"] = telegramInitData;
+    }
+    const csrf = getCookie("csrftoken");
+    if (csrf) {
+      headers["X-CSRFToken"] = csrf;
+    }
+    await fetch("/api/client-error", {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify(payload)
+    });
+  } catch {
+    // best-effort logging only
+  }
+}
+
 async function api(url, options = {}) {
   const telegramInitData = window.Telegram?.WebApp?.initData || "";
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
@@ -60,10 +82,42 @@ async function api(url, options = {}) {
     headers["X-CSRFToken"] = getCookie("csrftoken");
   }
 
-  const response = await fetch(url, { credentials: "include", ...options, headers });
-  const data = await response.json().catch(() => ({}));
+  let response;
+  try {
+    response = await fetch(url, { credentials: "include", ...options, headers });
+  } catch (error) {
+    await reportClientError({
+      category: "network",
+      message: error?.message || "Network request failed",
+      url,
+      detail: String(error),
+      meta: { method }
+    });
+    throw error;
+  }
+  const rawText = await response.text();
+  let data = {};
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = {};
+  }
   if (!response.ok) {
-    throw new Error(data.error || "Request failed");
+    let errorMessage = data.error || rawText || `Request failed (${response.status})`;
+    if (response.status === 504) {
+      errorMessage = "Сервер отвечал слишком долго. Попробуй ещё раз.";
+    } else if (typeof errorMessage === "string" && errorMessage.includes("<html")) {
+      errorMessage = `Ошибка сервера (${response.status}).`;
+    }
+    await reportClientError({
+      category: "api",
+      status_code: response.status,
+      message: errorMessage.slice(0, 4000),
+      url,
+      detail: rawText.slice(0, 4000),
+      meta: { method }
+    });
+    throw new Error(errorMessage);
   }
   return data;
 }
@@ -75,6 +129,8 @@ function LogoMark() {
     </div>
   );
 }
+
+const MAX_IMAGE_REGENERATIONS = 3;
 
 function AuthPanel({ config, onOpenLogin, loginLink, loginPending }) {
   return (
@@ -130,7 +186,7 @@ function AuthPanel({ config, onOpenLogin, loginLink, loginPending }) {
 function App() {
   const [config, setConfig] = useState({ bot_username: "", webapp_url: "" });
   const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null, progress: null });
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeState] = useState(null);
   const [busy, setBusy] = useState(false);
   const [primaryTab, setPrimaryTab] = useState("today");
   const [learnMode, setLearnMode] = useState("practice");
@@ -153,7 +209,7 @@ function App() {
   const [addDraftStep, setAddDraftStep] = useState("input");
   const [addTranslationInput, setAddTranslationInput] = useState("");
   const [batchTranslations, setBatchTranslations] = useState({});
-  const [batchUseImages, setBatchUseImages] = useState({});
+  const [draftImageVersions, setDraftImageVersions] = useState({});
   const [addBusy, setAddBusy] = useState(false);
   const [addBusyLabel, setAddBusyLabel] = useState("");
   const [cardQueue, setCardQueue] = useState([]);
@@ -185,11 +241,62 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const speakingChunksRef = useRef([]);
+  const noticeTimerRef = useRef(null);
   const deferredSearch = useDeferredValue(search);
 
   const webApp = window.Telegram?.WebApp;
   const isMiniApp = Boolean(webApp?.initData);
   const canRecordSpeech = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+
+  useEffect(() => {
+    const handleWindowError = (event) => {
+      void reportClientError({
+        category: "frontend",
+        level: "error",
+        message: event.message || "Unhandled window error",
+        url: window.location.pathname,
+        detail: event.error?.stack || `${event.filename || ""}:${event.lineno || ""}:${event.colno || ""}`,
+        meta: { source: "window.error" }
+      });
+    };
+
+    const handleUnhandledRejection = (event) => {
+      const reason = event.reason;
+      void reportClientError({
+        category: "frontend",
+        level: "error",
+        message: reason?.message || "Unhandled promise rejection",
+        url: window.location.pathname,
+        detail: reason?.stack || String(reason),
+        meta: { source: "unhandledrejection" }
+      });
+    };
+
+    window.addEventListener("error", handleWindowError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", handleWindowError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    setNoticeState((current) => {
+      if (!current) {
+        return current;
+      }
+      if (current.scope === "global" || current.scope === noticeScope) {
+        return current;
+      }
+      return null;
+    });
+  }, [noticeScope]);
 
   const stats = useMemo(() => {
     const progress = dashboard?.progress || auth.progress;
@@ -219,6 +326,83 @@ function App() {
   const filteredRecentWords = dashboard?.recent_words || [];
   const nextCards = dashboard?.next_cards || [];
   const currentCard = cardQueue[cardIndex];
+  const noticeScope = useMemo(() => {
+    if (!auth.authenticated) {
+      return "auth";
+    }
+    return [
+      primaryTab,
+      learnMode,
+      libraryMode,
+      morePanel,
+      showLibraryAdd ? "add" : "main",
+      addDraftStep,
+    ].join(":");
+  }, [auth.authenticated, primaryTab, learnMode, libraryMode, morePanel, showLibraryAdd, addDraftStep]);
+
+  function clearNotice() {
+    if (noticeTimerRef.current) {
+      window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    setNoticeState(null);
+  }
+
+  function setNotice(message, options = {}) {
+    if (!message) {
+      clearNotice();
+      return;
+    }
+    const nextNotice = {
+      message,
+      scope: options.scope || noticeScope,
+      sticky: Boolean(options.sticky),
+      ttl: options.ttl ?? (options.error ? 7000 : 4500),
+    };
+    if (noticeTimerRef.current) {
+      window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    setNoticeState(nextNotice);
+    if (!nextNotice.sticky) {
+      noticeTimerRef.current = window.setTimeout(() => {
+        setNoticeState((current) => (current === nextNotice ? null : current));
+        noticeTimerRef.current = null;
+      }, nextNotice.ttl);
+    }
+  }
+
+  useEffect(() => {
+    const draftIds = [
+      ...(addDraft?.id ? [addDraft.id] : []),
+      ...addDrafts.map((item) => item.id)
+    ];
+    if (!draftIds.length) {
+      return;
+    }
+
+    const shouldPoll = Boolean(addDraft?.image_generation_in_progress) || addDrafts.some((item) => item.image_generation_in_progress);
+    if (!shouldPoll) {
+      return;
+    }
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const responses = await Promise.all(draftIds.map((draftId) => api(`/api/words/draft/${draftId}`)));
+        const byId = new Map(responses.map((entry) => [entry.draft.id, entry.draft]));
+        if (addDraft?.id) {
+          setAddDraft((current) => (current ? byId.get(current.id) || current : current));
+        }
+        if (addDrafts.length) {
+          setAddDrafts((current) => current.map((item) => byId.get(item.id) || item));
+        }
+      } catch {
+        // best-effort polling only
+      }
+    }, 2000);
+
+    return () => window.clearInterval(intervalId);
+  }, [addDraft, addDrafts]);
 
   async function bootstrap() {
     const [cfg, me] = await Promise.all([api("/api/app-config"), api("/api/auth/me")]);
@@ -352,6 +536,20 @@ function App() {
   }, [auth.authenticated, deferredSearch, statusFilter, irregularPage]);
 
   useEffect(() => {
+    if (!auth.authenticated) {
+      return;
+    }
+    const hasPendingWordImages = words.some((item) => item.image_generation_in_progress) || cardQueue.some((item) => item.image_generation_in_progress);
+    if (!hasPendingWordImages) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      void loadLearningData();
+    }, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [auth.authenticated, words, cardQueue]);
+
+  useEffect(() => {
     if (!loginToken || auth.authenticated) {
       return;
     }
@@ -412,7 +610,7 @@ function App() {
     setAddDraftStep("input");
     setAddTranslationInput("");
     setBatchTranslations({});
-    setBatchUseImages({});
+    setDraftImageVersions({});
     setAddBusy(false);
     setAddBusyLabel("");
   }
@@ -438,8 +636,7 @@ function App() {
         setAddDrafts(data.drafts);
         setAddDraftStep("batch_review");
         setBatchTranslations(Object.fromEntries(data.drafts.map((draft) => [draft.id, draft.translation || ""])));
-        setBatchUseImages(Object.fromEntries(data.drafts.map((draft) => [draft.id, true])));
-        setNotice(`Проверь ${data.drafts.length} слов и сохрани всё разом.`);
+        setNotice(`Проверь ${data.drafts.length} слов. Фото загрузятся автоматически, можно не ждать.`);
         return;
       }
       if (data.auto_saved) {
@@ -454,7 +651,7 @@ function App() {
       setAddDraft(data.draft);
       setAddDraftStep(data.step);
       setAddTranslationInput(data.draft.translation || "");
-      setNotice(data.step === "confirm_translation" ? "Подтверди перевод, затем проверим изображение." : "Проверь карточку и изображение перед сохранением.");
+      setNotice(data.step === "confirm_translation" ? "Подтверди перевод. Фото загрузится автоматически." : "Фото загружается автоматически. Можно сохранить слово сразу.");
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -469,7 +666,7 @@ function App() {
       return;
     }
     setAddBusy(true);
-    setAddBusyLabel("Готовим картинку...");
+    setAddBusyLabel("Подтверждаем перевод...");
     try {
       const data = await api(`/api/words/draft/${addDraft.id}/translation`, {
         method: "POST",
@@ -477,7 +674,7 @@ function App() {
       });
       setAddDraft(data.draft);
       setAddDraftStep(data.step);
-      setNotice("Проверь картинку и сохрани слово.");
+      setNotice("Фото загружается автоматически. Можно сохранить слово и не ждать.");
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -491,13 +688,16 @@ function App() {
       return;
     }
     setAddBusy(true);
-    setAddBusyLabel("Готовим другую картинку...");
+    setAddBusyLabel(addDraft.has_image ? "Готовим другую картинку..." : "Генерируем фото...");
     try {
       const data = await api(`/api/words/draft/${addDraft.id}/image/regenerate`, {
         method: "POST",
         body: JSON.stringify({})
       });
+      const version = `${data.draft.updated_at}-${Date.now()}`;
+      await preloadDraftImage(addDraft.id, version);
       setAddDraft(data.draft);
+      setDraftImageVersions((current) => ({ ...current, [addDraft.id]: version }));
       setAddDraftStep(data.step);
       setNotice("Показали новый вариант.");
     } catch (error) {
@@ -549,14 +749,18 @@ function App() {
   }
 
   async function regenerateBatchDraftImage(draftId) {
+    const currentDraft = addDrafts.find((item) => item.id === draftId);
     setAddBusy(true);
-    setAddBusyLabel("Готовим другую картинку...");
+    setAddBusyLabel(currentDraft?.has_image ? "Готовим другую картинку..." : "Генерируем фото...");
     try {
       const data = await api(`/api/words/draft/${draftId}/image/regenerate`, {
         method: "POST",
         body: JSON.stringify({})
       });
+      const version = `${data.draft.updated_at}-${Date.now()}`;
+      await preloadDraftImage(draftId, version);
       setAddDrafts((current) => current.map((item) => (item.id === draftId ? data.draft : item)));
+      setDraftImageVersions((current) => ({ ...current, [draftId]: version }));
       setNotice("Картинка обновлена.");
     } catch (error) {
       setNotice(error.message);
@@ -588,7 +792,7 @@ function App() {
         }
         await api(`/api/words/draft/${currentDraft.id}/save`, {
           method: "POST",
-          body: JSON.stringify({ use_image: batchUseImages[currentDraft.id] !== false })
+          body: JSON.stringify({ use_image: true })
         });
       }
       setShowLibraryAdd(false);
@@ -840,6 +1044,23 @@ function App() {
 
   async function preloadWordImage(wordId, version, attempts = 5) {
     const src = `/api/image/${wordId}?v=${version}`;
+    for (let index = 0; index < attempts; index += 1) {
+      const loaded = await new Promise((resolve) => {
+        const image = new window.Image();
+        image.onload = () => resolve(true);
+        image.onerror = () => resolve(false);
+        image.src = src;
+      });
+      if (loaded) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+    return false;
+  }
+
+  async function preloadDraftImage(draftId, version, attempts = 5) {
+    const src = `/api/draft-image/${draftId}?v=${version}`;
     for (let index = 0; index < attempts; index += 1) {
       const loaded = await new Promise((resolve) => {
         const image = new window.Image();
@@ -1313,9 +1534,13 @@ function App() {
                       className={regeneratingWordId === item.id ? "secondary-button is-loading" : "secondary-button"}
                       type="button"
                       onClick={() => regenerateWordImage(item.id)}
-                      disabled={regeneratingWordId === item.id}
+                      disabled={regeneratingWordId === item.id || (item.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
                     >
-                      {regeneratingWordId === item.id ? "⏳ Обновляем..." : "♻️ Обновить фото"}
+                      {regeneratingWordId === item.id
+                        ? "⏳ Обновляем..."
+                        : (item.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS
+                          ? "Лимит фото"
+                          : "♻️ Обновить фото"}
                     </button>
                     <button className="danger-button" type="button" onClick={() => deleteWord(item.id)}>
                       Удалить
@@ -1418,8 +1643,8 @@ function App() {
             <h3>{isBatchReview ? "Проверить слова ✨" : "Добавить слово ✨"}</h3>
             <p className="lead compact">
               {isBatchReview
-                ? "Проверь переводы и картинки для всех слов, затем сохрани всё разом."
-                : "Сначала подтверждаем перевод, затем показываем одну подходящую картинку."}
+                ? "Проверь переводы. Фото загружаются автоматически и не тормозят добавление."
+                : "Подтверждаем перевод, а фото загружается автоматически в фоне."}
             </p>
           </div>
           <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>
@@ -1465,22 +1690,28 @@ function App() {
                 />
                 {draft.has_image ? (
                   <div className="word-image-preview">
-                    <img src={`/api/draft-image/${draft.id}?v=${draft.updated_at}`} alt={draft.word} />
+                    <img
+                      key={draftImageVersions[draft.id] || draft.updated_at}
+                      src={`/api/draft-image/${draft.id}?v=${draftImageVersions[draft.id] || draft.updated_at}`}
+                      alt={draft.word}
+                    />
                   </div>
                 ) : (
-                  <div className="empty-card">Картинка пока не готова.</div>
+                  <div className="empty-card">
+                    {draft.image_generation_in_progress ? "Фото готовится автоматически..." : "Фото появится автоматически позже."}
+                  </div>
                 )}
                 <div className="button-row">
-                  <button
-                    className={batchUseImages[draft.id] !== false ? "secondary-button active-inline" : "secondary-button"}
-                    type="button"
-                    onClick={() => setBatchUseImages((current) => ({ ...current, [draft.id]: current[draft.id] === false }))}
-                  >
-                    {batchUseImages[draft.id] !== false ? "✅ С фото" : "🚫 Без фото"}
-                  </button>
-                  <button className="secondary-button" type="button" onClick={() => regenerateBatchDraftImage(draft.id)} disabled={addBusy}>
-                    ♻️ Другое фото
-                  </button>
+                  {draft.has_image ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => regenerateBatchDraftImage(draft.id)}
+                      disabled={addBusy || (draft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
+                    >
+                      {(draft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS ? "Лимит фото" : "♻️ Другое фото"}
+                    </button>
+                  ) : null}
                 </div>
               </article>
             ))}
@@ -1518,10 +1749,18 @@ function App() {
               <div className="study-main">
                 {addDraft.has_image ? (
                   <div className="card-visual">
-                    <img src={`/api/draft-image/${addDraft.id}?v=${addDraft.updated_at}`} alt={addDraft.word} />
+                    <img
+                      key={draftImageVersions[addDraft.id] || addDraft.updated_at}
+                      src={`/api/draft-image/${addDraft.id}?v=${draftImageVersions[addDraft.id] || addDraft.updated_at}`}
+                      alt={addDraft.word}
+                    />
                   </div>
                 ) : (
-                  <div className="empty-card">Картинка не готова. Можно сохранить слово без неё.</div>
+                  <div className="empty-card">
+                    {addDraft.image_generation_in_progress
+                      ? "Фото готовится автоматически. Можно сохранить слово, оно появится позже."
+                      : "Фото появится автоматически позже."}
+                  </div>
                 )}
               </div>
               <div className="study-side">
@@ -1529,15 +1768,17 @@ function App() {
                 <span>{addTranslationInput || addDraft.translation}</span>
                 <span>{addDraft.part_of_speech || "word"}</span>
                 {addDraft.example ? <span>{addDraft.example}</span> : null}
-                <div className="button-row">
+                <div className="button-row draft-action-row">
                   <button className="primary-button" type="button" onClick={() => saveDraft(true)} disabled={addBusy}>
                     {addBusy ? "Сохраняем..." : "Сохранить"}
                   </button>
-                  <button className="secondary-button" type="button" onClick={regenerateDraftImage} disabled={addBusy}>
-                    Другое изображение
-                  </button>
-                  <button className="secondary-button" type="button" onClick={() => saveDraft(false)} disabled={addBusy}>
-                    Без изображения
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={regenerateDraftImage}
+                    disabled={addBusy || (addDraft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
+                  >
+                    {(addDraft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS ? "Лимит фото" : "Другое изображение"}
                   </button>
                 </div>
               </div>
@@ -1711,7 +1952,7 @@ function App() {
   if (!auth.authenticated) {
     return (
       <div className="app-shell auth-layout">
-        {notice ? <div className="notice">{notice}</div> : null}
+        {notice ? <div className="notice">{notice.message}</div> : null}
         <AuthPanel
           config={config}
           onOpenLogin={requestLoginLink}
@@ -1754,7 +1995,7 @@ function App() {
         )}
       </header>
 
-      {notice ? <div className="notice">{notice}</div> : null}
+      {notice ? <div className="notice">{notice.message}</div> : null}
 
       <main className="app-stage" ref={stageRef}>
         {renderScreen()}
