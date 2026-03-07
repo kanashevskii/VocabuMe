@@ -7,6 +7,9 @@ import re
 import base64
 import time
 from pathlib import Path
+from contextlib import contextmanager
+
+from django.db import close_old_connections, connection
 
 client = OpenAI(api_key=config("OPENAI_API_KEY"))
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -14,6 +17,8 @@ DRAFT_IMAGE_DIR = PROJECT_ROOT / "media" / "draft_images"
 TEXT_MODEL = "gpt-5-mini"
 IMAGE_MODEL = "gpt-image-1.5"
 TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
+OPENAI_QUEUE_LOCK_KEY = int(config("OPENAI_QUEUE_LOCK_KEY", default=841725))
+OPENAI_QUEUE_WAIT_SECONDS = int(config("OPENAI_QUEUE_WAIT_SECONDS", default=180))
 
 
 def detect_language(text):
@@ -33,6 +38,37 @@ def _strip_code_fences(text: str) -> str:
             body = body[4:].strip()
         return body
     return stripped
+
+
+@contextmanager
+def openai_request_slot(label: str):
+    close_old_connections()
+    started_at = time.monotonic()
+    acquired = False
+
+    try:
+        with connection.cursor() as cursor:
+            while True:
+                cursor.execute("SELECT pg_try_advisory_lock(%s)", [OPENAI_QUEUE_LOCK_KEY])
+                acquired = bool(cursor.fetchone()[0])
+                if acquired:
+                    waited = time.monotonic() - started_at
+                    if waited >= 0.25:
+                        logging.info("OpenAI queue acquired for %s after %.2fs", label, waited)
+                    break
+                if time.monotonic() - started_at >= OPENAI_QUEUE_WAIT_SECONDS:
+                    raise TimeoutError(f"OpenAI queue wait timed out for {label}")
+                time.sleep(0.2)
+
+        yield
+    finally:
+        if acquired:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_advisory_unlock(%s)", [OPENAI_QUEUE_LOCK_KEY])
+            except Exception:
+                logging.exception("Failed to release OpenAI advisory lock for %s", label)
+        close_old_connections()
 
 
 def _parse_model_json(payload: str) -> dict:
@@ -143,10 +179,11 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
     lang = detect_language(word)
     if lang == "ru":
         prompt_translate = f"Translate the Russian word or phrase \"{word}\" to English. Just give the main English equivalent."
-        translation_resp = client.chat.completions.create(
-            model=TEXT_MODEL,
-            messages=[{"role": "user", "content": prompt_translate}],
-        )
+        with openai_request_slot("translate-ru-to-en"):
+            translation_resp = client.chat.completions.create(
+                model=TEXT_MODEL,
+                messages=[{"role": "user", "content": prompt_translate}],
+            )
         word = _strip_code_fences(translation_resp.choices[0].message.content)
 
     effective_part = part_hint or _infer_part_from_translation(translation_hint)
@@ -156,12 +193,13 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
     for _ in range(3):
         prompt = _build_prompt(word, effective_part, translation_hint, prompt_note)
         try:
-            response = client.chat.completions.create(
-                model=TEXT_MODEL,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-            )
+            with openai_request_slot("generate-word-data"):
+                response = client.chat.completions.create(
+                    model=TEXT_MODEL,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                )
             content = response.choices[0].message.content.strip()
             parsed = _parse_model_json(content)
             if effective_part:
@@ -221,10 +259,11 @@ Input:
 {json.dumps(payload, ensure_ascii=False)}
 """
     try:
-        response = client.chat.completions.create(
-            model=TEXT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        with openai_request_slot("generate-word-data-batch"):
+            response = client.chat.completions.create(
+                model=TEXT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+            )
         content = response.choices[0].message.content.strip()
         parsed = _parse_model_json(content)
         if not isinstance(parsed, list) or len(parsed) != len(entries):
@@ -282,10 +321,11 @@ Rules:
 - Keep it suitable for a clean educational flashcard.
 """
     try:
-        response = client.chat.completions.create(
-            model=TEXT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        with openai_request_slot("build-visual-prompt"):
+            response = client.chat.completions.create(
+                model=TEXT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+            )
         content = response.choices[0].message.content.strip()
         parsed = _parse_model_json(content)
         return parsed.get("prompt", "").strip() or None
@@ -302,12 +342,13 @@ def generate_card_image(prompt: str, slug: str) -> str:
     response = None
     for attempt in range(6):
         try:
-            response = client.images.generate(
-                model=IMAGE_MODEL,
-                prompt=prompt,
-                size="1024x1024",
-                quality="low",
-            )
+            with openai_request_slot("generate-card-image"):
+                response = client.images.generate(
+                    model=IMAGE_MODEL,
+                    prompt=prompt,
+                    size="1024x1024",
+                    quality="low",
+                )
             break
         except RateLimitError as exc:
             if attempt >= 5:
@@ -325,10 +366,11 @@ def generate_card_image(prompt: str, slug: str) -> str:
 
 def transcribe_speech_file(audio_path: str) -> str:
     with open(audio_path, "rb") as audio_file:
-        response = client.audio.transcriptions.create(
-            model=TRANSCRIBE_MODEL,
-            file=audio_file,
-            language="en",
-        )
+        with openai_request_slot("transcribe-speech"):
+            response = client.audio.transcriptions.create(
+                model=TRANSCRIBE_MODEL,
+                file=audio_file,
+                language="en",
+            )
     text = getattr(response, "text", "") or ""
     return text.strip()
