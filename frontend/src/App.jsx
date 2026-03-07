@@ -201,11 +201,6 @@ function AuthPanel({
             <a className="secondary-button" href={telegramBotLink} target="_blank" rel="noreferrer">
               Открыть бота
             </a>
-            {config.webapp_url ? (
-              <a className="secondary-button" href={config.webapp_url} target="_blank" rel="noreferrer">
-                Открыть Mini App
-              </a>
-            ) : null}
           </div>
         </div>
         <div className="glass-card compact-section auth-web-panel">
@@ -863,7 +858,12 @@ function App() {
       });
       setLoginLink(data.deep_link);
       setLoginToken(data.token);
-      setNotice("Открой бота и нажми Start.");
+      if (window.Telegram?.WebApp?.openTelegramLink) {
+        window.Telegram.WebApp.openTelegramLink(data.deep_link);
+      } else {
+        window.open(data.deep_link, "_blank", "noopener,noreferrer");
+      }
+      setNotice("Открыл бота. Нажми Start, затем вернись сюда.");
     } catch (error) {
       setNotice(error.message);
     } finally {
