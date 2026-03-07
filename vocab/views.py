@@ -41,8 +41,8 @@ from .services import (
     request_word_image_generation,
     refresh_draft_language_data,
     recalculate_user_word_progress,
-    regenerate_word_image,
     resolve_shared_image_path,
+    request_word_image_generation,
     serialize_user,
     serialize_draft,
     serialize_word,
@@ -592,7 +592,7 @@ def word_image_regenerate(request: HttpRequest, word_id: int) -> JsonResponse:
     if item.image_regeneration_count >= MAX_IMAGE_REGENERATIONS:
         return _json_error("Лимит перегенерации фото исчерпан.", status=400)
 
-    item = regenerate_word_image(item)
+    item = request_word_image_generation(item, force_regenerate=True)
     return JsonResponse({"ok": True, "item": serialize_word(item)})
 
 

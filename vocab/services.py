@@ -201,6 +201,11 @@ def build_user_progress(user: TelegramUser) -> dict:
     start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))["created_at__min"]
     today = now().date()
     learned_today = VocabularyItem.objects.filter(user=user, learned_at__date=today).count()
+    current_moment = timezone.now()
+    week_window_start = current_moment - timedelta(days=7)
+    month_window_start = current_moment - timedelta(days=30)
+    learned_week = VocabularyItem.objects.filter(user=user, learned_at__gte=week_window_start).count()
+    learned_month = VocabularyItem.objects.filter(user=user, learned_at__gte=month_window_start).count()
 
     user_stats = TelegramUser.objects.annotate(
         learned_count=Count("vocabularyitem", filter=Q(vocabularyitem__is_learned=True))
@@ -224,6 +229,8 @@ def build_user_progress(user: TelegramUser) -> dict:
         "study_days": user.total_study_days,
         "studied_today": user.last_study_date == today,
         "learned_today": learned_today,
+        "learned_week": learned_week,
+        "learned_month": learned_month,
         "practice_correct": user.practice_correct,
         "listening_correct": user.listening_correct,
         "speaking_correct": user.speaking_correct,

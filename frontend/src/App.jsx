@@ -684,7 +684,10 @@ function App() {
       return;
     }
     const intervalId = window.setInterval(() => {
-      void loadLearningData({ resetCards: false, resetLearn: false });
+      void Promise.all([
+        loadDashboard(),
+        loadCards({ reset: false }),
+      ]);
     }, 4000);
     return () => window.clearInterval(intervalId);
   }, [auth.authenticated, words, cardQueue]);
@@ -1306,6 +1309,17 @@ function App() {
     }
   }
 
+  function skipIrregularQuestion() {
+    if (!irregularQuestion || irregularResult) {
+      return;
+    }
+    setIrregularResult({
+      correct: false,
+      skipped: true,
+      correct_answer: irregularQuestion.correct_pair,
+    });
+  }
+
   async function saveTranslation(wordId) {
     const translation = draftTranslation[wordId];
     if (!translation?.trim()) {
@@ -1379,13 +1393,10 @@ function App() {
         method: "POST",
         body: JSON.stringify({})
       });
-      const version = `${data.item.updated_at}-${Date.now()}`;
-      await preloadWordImage(wordId, version);
       setWords((current) => current.map((item) => (item.id === wordId ? data.item : item)));
       setCardQueue((current) => current.map((item) => (item.id === wordId ? data.item : item)));
-      setWordImageVersions((current) => ({ ...current, [wordId]: version }));
       setPreviewWordId(wordId);
-      setNotice("Изображение обновлено.");
+      setNotice("Генерируем новое фото. Можно не ждать: оно появится автоматически.");
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -2377,6 +2388,11 @@ function App() {
                     </button>
                   ))}
                 </div>
+                {!irregularResult ? (
+                  <button className="secondary-button" type="button" onClick={skipIrregularQuestion}>
+                    Пропустить
+                  </button>
+                ) : null}
                 {irregularResult ? (
                   <div className={irregularResult.correct ? "result-box good" : "result-box bad"}>
                     <span>{irregularResult.correct ? "Верно" : `Правильный ответ: ${irregularResult.correct_answer}`}</span>
