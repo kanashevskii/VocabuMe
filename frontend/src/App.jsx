@@ -1475,7 +1475,9 @@ function App() {
             <div className={isSpeaking ? statusClass : learnResult.correct ? "result-box good" : "result-box bad"}>
               <span>
                 {isSpeaking
-                  ? `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
+                  ? learnResult.skipped
+                    ? `Правильный ответ: ${learnResult.correct_answer}`
+                    : `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
                   : learnResult.skipped
                     ? `Правильный ответ: ${learnResult.correct_answer}`
                     : learnResult.correct
