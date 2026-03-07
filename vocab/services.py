@@ -21,9 +21,10 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     Image = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
-from .models import AddWordDraft, IrregularVerbProgress, TelegramUser, VocabularyItem, WebLoginToken
-from .openai_utils import build_visual_prompt, generate_card_image, generate_word_data
+from .models import AddWordDraft, IrregularVerbProgress, PackPreparedWord, TelegramUser, VocabularyItem, WebLoginToken
+from .openai_utils import build_visual_prompt, generate_card_image, generate_word_data, generate_word_data_batch
 from .utils import clean_word, translate_to_ru
+from .word_packs import get_pack, get_pack_definitions, get_pack_level
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEDIA_ROOT = PROJECT_ROOT / "media"
@@ -32,6 +33,8 @@ USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
 DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
 _IMAGE_OPTIMIZATION_LOCK = Lock()
 _IMAGE_OPTIMIZATION_IN_FLIGHT: set[str] = set()
+_PACK_PREPARATION_LOCK = Lock()
+_PACK_PREPARATION_IN_FLIGHT: set[str] = set()
 logger = logging.getLogger(__name__)
 EXERCISE_TYPE_LABELS = {
     "practice_en_ru": "Тест EN -> RU",
@@ -337,7 +340,19 @@ def resolve_shared_image_path(word: str, translation: str, preferred_path: str =
         .order_by("-updated_at", "-id")
         .first()
     )
-    return existing.image_path if existing else ""
+    if existing:
+        return existing.image_path
+
+    prepared = (
+        PackPreparedWord.objects.filter(
+            normalized_word=normalized_word,
+            translation__iexact=normalized_translation,
+        )
+        .exclude(image_path="")
+        .order_by("-prepared_at", "-id")
+        .first()
+    )
+    return prepared.image_path if prepared else ""
 
 
 def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
@@ -405,6 +420,328 @@ def recalculate_user_word_progress(user: TelegramUser) -> None:
     for item in VocabularyItem.objects.filter(user=user).iterator():
         sync_word_learning_state(item)
         item.save(update_fields=["completed_exercise_types", "correct_count", "is_learned", "learned_at", "updated_at"])
+
+
+def _serialize_pack_level(
+    pack_id: str,
+    level: dict,
+    prepared_map: dict[str, PackPreparedWord],
+    existing_user_words: set[str] | None = None,
+) -> dict:
+    items = []
+    for entry in level["items"]:
+        normalized = clean_word(entry["word"])
+        prepared = prepared_map.get(normalized)
+        items.append(
+            {
+                "word": entry["word"],
+                "translation": entry["translation"],
+                "normalized_word": normalized,
+                "has_prepared_image": bool(prepared and prepared.image_path),
+                "prepared": bool(prepared and prepared.example and prepared.transcription),
+                "image_generation_in_progress": bool(prepared and prepared.image_generation_in_progress),
+                "already_added": normalized in (existing_user_words or set()),
+            }
+        )
+    prepared_count = sum(1 for item in items if item["prepared"])
+    return {
+        "id": level["id"],
+        "title": level["title"],
+        "description": level["description"],
+        "size": len(level["items"]),
+        "prepared_count": prepared_count,
+        "items": items,
+    }
+
+
+def ensure_pack_placeholders(pack_id: str, level_id: str) -> None:
+    level = get_pack_level(pack_id, level_id)
+    if not level:
+        return
+    for entry in level["items"]:
+        normalized = clean_word(entry["word"])
+        PackPreparedWord.objects.get_or_create(
+            pack_id=pack_id,
+            level_id=level_id,
+            normalized_word=normalized,
+            defaults={
+                "word": entry["word"],
+                "translation": entry["translation"],
+            },
+        )
+
+
+def list_word_packs(user: TelegramUser | None = None) -> list[dict]:
+    definitions = get_pack_definitions()
+    for pack in definitions:
+        for level in pack["levels"]:
+            ensure_pack_placeholders(pack["id"], level["id"])
+    prepared_items = PackPreparedWord.objects.filter(pack_id__in=[pack["id"] for pack in definitions])
+    prepared_map: dict[tuple[str, str], dict[str, PackPreparedWord]] = {}
+    for prepared in prepared_items:
+        prepared_map.setdefault((prepared.pack_id, prepared.level_id), {})[prepared.normalized_word] = prepared
+
+    existing_user_words = set(VocabularyItem.objects.filter(user=user).values_list("normalized_word", flat=True)) if user else set()
+    packs = []
+    for pack in definitions:
+        levels = [
+            _serialize_pack_level(pack["id"], level, prepared_map.get((pack["id"], level["id"]), {}), existing_user_words=existing_user_words)
+            for level in pack["levels"]
+        ]
+        packs.append(
+            {
+                "id": pack["id"],
+                "title": pack["title"],
+                "emoji": pack["emoji"],
+                "description": pack["description"],
+                "levels": levels,
+            }
+        )
+    return packs
+
+
+def prepare_all_word_packs() -> None:
+    for pack in get_pack_definitions():
+        for level in pack["levels"]:
+            _prepare_pack_level_sync(pack["id"], level["id"])
+
+
+def prepare_next_pack_word() -> PackPreparedWord | None:
+    for pack in get_pack_definitions():
+        for level in pack["levels"]:
+            ensure_pack_placeholders(pack["id"], level["id"])
+
+    candidate = (
+        PackPreparedWord.objects.filter(image_generation_in_progress=False)
+        .filter(
+            Q(example="") | Q(transcription="") | Q(image_path="")
+        )
+        .order_by("pack_id", "level_id", "prepared_at", "id")
+        .first()
+    )
+    if not candidate:
+        return None
+
+    candidate.image_generation_in_progress = True
+    candidate.save(update_fields=["image_generation_in_progress", "prepared_at"])
+
+    try:
+        if not candidate.example or not candidate.transcription:
+            generated = generate_word_data(
+                candidate.word,
+                translation_hint=candidate.translation,
+            )
+            if generated:
+                candidate.word = generated["word"]
+                candidate.translation = generated.get("translation") or candidate.translation
+                candidate.transcription = generated.get("transcription", "") or ""
+                candidate.example = generated.get("example", "") or ""
+                candidate.example_translation = generated.get("example_translation") or translate_to_ru(candidate.example)
+                candidate.part_of_speech = generated.get("part_of_speech", "unknown") or "unknown"
+
+        if candidate.example and candidate.translation and not candidate.image_path:
+            built = _build_item_image(
+                candidate.word,
+                candidate.translation,
+                candidate.part_of_speech,
+                candidate.example,
+                f"pack_{candidate.pack_id}_{candidate.level_id}_{candidate.normalized_word}_{int(time.time())}",
+            )
+            if built:
+                _, image_path = built
+                candidate.image_path = image_path
+        candidate.image_generation_in_progress = False
+        candidate.save(
+            update_fields=[
+                "word",
+                "translation",
+                "transcription",
+                "example",
+                "example_translation",
+                "part_of_speech",
+                "image_path",
+                "image_generation_in_progress",
+                "prepared_at",
+            ]
+        )
+        return candidate
+    except Exception:
+        candidate.image_generation_in_progress = False
+        candidate.save(update_fields=["image_generation_in_progress", "prepared_at"])
+        raise
+
+
+def _prepare_pack_level_sync(pack_id: str, level_id: str) -> None:
+    level = get_pack_level(pack_id, level_id)
+    if not level:
+        return
+
+    existing = {
+        item.normalized_word: item
+        for item in PackPreparedWord.objects.filter(pack_id=pack_id, level_id=level_id)
+    }
+    pending_entries = []
+    for entry in level["items"]:
+        normalized = clean_word(entry["word"])
+        cached = existing.get(normalized)
+        if cached and cached.example and cached.transcription and cached.image_path:
+            continue
+        pending_entries.append(
+            {
+                "word": entry["word"],
+                "translation_hint": entry["translation"],
+            }
+        )
+
+    if not pending_entries:
+        return
+
+    generated_items = generate_word_data_batch(pending_entries)
+    for entry, generated in zip(pending_entries, generated_items, strict=False):
+        normalized = clean_word(entry["word"])
+        cached = existing.get(normalized)
+        if cached is None:
+            cached, _ = PackPreparedWord.objects.get_or_create(
+                pack_id=pack_id,
+                level_id=level_id,
+                normalized_word=normalized,
+                defaults={
+                    "word": entry["word"],
+                    "translation": entry["translation_hint"],
+                },
+            )
+            existing[normalized] = cached
+
+        if generated:
+            cached.word = generated["word"]
+            cached.translation = generated.get("translation") or entry["translation_hint"]
+            cached.transcription = generated.get("transcription", "") or ""
+            cached.example = generated.get("example", "") or ""
+            cached.example_translation = generated.get("example_translation") or translate_to_ru(cached.example)
+            cached.part_of_speech = generated.get("part_of_speech", "unknown") or "unknown"
+
+        cached.image_generation_in_progress = True
+        cached.save(
+            update_fields=[
+                "word",
+                "translation",
+                "transcription",
+                "example",
+                "example_translation",
+                "part_of_speech",
+                "image_generation_in_progress",
+                "prepared_at",
+            ]
+        )
+        built = None
+        if cached.example and cached.translation:
+            built = _build_item_image(
+                cached.word,
+                cached.translation,
+                cached.part_of_speech,
+                cached.example,
+                f"pack_{pack_id}_{level_id}_{normalized}_{int(time.time())}",
+            )
+        if built:
+            _, image_path = built
+            cached.image_path = image_path
+        cached.image_generation_in_progress = False
+        cached.save(update_fields=["image_path", "image_generation_in_progress", "prepared_at"])
+
+
+def ensure_pack_preparation(pack_id: str, level_id: str) -> None:
+    key = f"{pack_id}:{level_id}"
+    with _PACK_PREPARATION_LOCK:
+        if key in _PACK_PREPARATION_IN_FLIGHT:
+            return
+        _PACK_PREPARATION_IN_FLIGHT.add(key)
+
+    def _run() -> None:
+        try:
+            _prepare_pack_level_sync(pack_id, level_id)
+        except Exception:
+            logger.exception("Pack preparation failed for %s", key)
+        finally:
+            with _PACK_PREPARATION_LOCK:
+                _PACK_PREPARATION_IN_FLIGHT.discard(key)
+
+    Thread(target=_run, daemon=True).start()
+
+
+def add_pack_words_to_user(user: TelegramUser, pack_id: str, level_id: str, selected_words: list[str]) -> dict:
+    level = get_pack_level(pack_id, level_id)
+    if not level:
+        raise ValueError("Pack level not found.")
+
+    allowed = {clean_word(item["word"]): item for item in level["items"]}
+    normalized_selected = [clean_word(word) for word in selected_words if clean_word(word) in allowed]
+    if not normalized_selected:
+        raise ValueError("Choose at least one word from the pack.")
+
+    prepared_map = {
+        item.normalized_word: item
+        for item in PackPreparedWord.objects.filter(pack_id=pack_id, level_id=level_id, normalized_word__in=normalized_selected)
+    }
+
+    created = []
+    skipped = []
+    fallback_entries = []
+
+    for normalized in normalized_selected:
+        entry = allowed[normalized]
+        if word_already_exists(user, entry["word"]):
+            skipped.append({"word": entry["word"], "reason": "duplicate"})
+            continue
+        prepared = prepared_map.get(normalized)
+        if prepared and prepared.example and prepared.transcription:
+            item = create_word(
+                user,
+                {
+                    "word": prepared.word,
+                    "translation": prepared.translation,
+                    "transcription": prepared.transcription,
+                    "example": prepared.example,
+                    "example_translation": prepared.example_translation,
+                    "part_of_speech": prepared.part_of_speech,
+                    "image_path": prepared.image_path,
+                },
+            )
+            if not item.image_path:
+                request_word_image_generation(item)
+            created.append(serialize_word(item))
+        else:
+            fallback_entries.append({"word": entry["word"], "translation_hint": entry["translation"]})
+
+    if fallback_entries:
+        generated_batch = generate_word_data_batch(fallback_entries)
+        for entry, generated in zip(fallback_entries, generated_batch, strict=False):
+            if not generated:
+                generated = {
+                    "word": entry["word"],
+                    "translation": entry["translation_hint"],
+                    "transcription": "",
+                    "example": "",
+                    "example_translation": "",
+                    "part_of_speech": "unknown",
+                }
+            item = create_word(
+                user,
+                {
+                    "word": generated["word"],
+                    "translation": generated.get("translation") or entry["translation_hint"],
+                    "transcription": generated.get("transcription", "") or "",
+                    "example": generated.get("example", "") or "",
+                    "example_translation": generated.get("example_translation", "") or "",
+                    "part_of_speech": generated.get("part_of_speech", "unknown") or "unknown",
+                    "image_path": resolve_shared_image_path(entry["word"], generated.get("translation") or entry["translation_hint"], ""),
+                },
+            )
+            if not item.image_path:
+                request_word_image_generation(item)
+            created.append(serialize_word(item))
+
+    ensure_pack_preparation(pack_id, level_id)
+    return {"created": created, "skipped": skipped}
 
 
 def serialize_draft(draft: AddWordDraft) -> dict:

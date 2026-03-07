@@ -1,10 +1,11 @@
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from decouple import config
 import logging
 import json
 import ast
 import re
 import base64
+import time
 from pathlib import Path
 
 client = OpenAI(api_key=config("OPENAI_API_KEY"))
@@ -298,12 +299,25 @@ def generate_card_image(prompt: str, slug: str) -> str:
     filename = f"{slug}.png"
     destination = DRAFT_IMAGE_DIR / filename
 
-    response = client.images.generate(
-        model=IMAGE_MODEL,
-        prompt=prompt,
-        size="1024x1024",
-        quality="low",
-    )
+    response = None
+    for attempt in range(6):
+        try:
+            response = client.images.generate(
+                model=IMAGE_MODEL,
+                prompt=prompt,
+                size="1024x1024",
+                quality="low",
+            )
+            break
+        except RateLimitError as exc:
+            if attempt >= 5:
+                raise
+            message = str(exc)
+            match = re.search(r"try again in (\d+)s", message, re.IGNORECASE)
+            delay = int(match.group(1)) + 1 if match else 15
+            time.sleep(delay)
+    if response is None:
+        raise RuntimeError("Image generation did not return a response.")
     image_b64 = response.data[0].b64_json
     destination.write_bytes(base64.b64decode(image_b64))
     return str(destination.relative_to(PROJECT_ROOT))

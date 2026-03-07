@@ -152,3 +152,25 @@ class AppErrorLog(models.Model):
 
     def __str__(self):
         return f"{self.category}:{self.level} {self.path or '-'}"
+
+
+class PackPreparedWord(models.Model):
+    pack_id = models.CharField(max_length=64)
+    level_id = models.CharField(max_length=64)
+    word = models.CharField(max_length=255)
+    normalized_word = models.CharField(max_length=255)
+    translation = models.CharField(max_length=255)
+    transcription = models.CharField(max_length=255, blank=True, default="")
+    example = models.TextField(blank=True, default="")
+    example_translation = models.TextField(blank=True, default="")
+    part_of_speech = models.CharField(max_length=50, default="unknown")
+    image_path = models.CharField(max_length=500, blank=True, default="")
+    image_generation_in_progress = models.BooleanField(default=False)
+    prepared_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("pack_id", "level_id", "normalized_word")
+        ordering = ["pack_id", "level_id", "word"]
+
+    def __str__(self):
+        return f"{self.pack_id}:{self.level_id}:{self.word}"

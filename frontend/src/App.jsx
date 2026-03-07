@@ -5,7 +5,7 @@ const PRIMARY_TABS = [
   { id: "learn", label: "Практика" },
   { id: "words", label: "Слова" },
   { id: "progress", label: "Прогресс" },
-  { id: "more", label: "Ещё" }
+  { id: "more", label: "⚙️", compact: true }
 ];
 
 const LIBRARY_MODES = [
@@ -13,10 +13,9 @@ const LIBRARY_MODES = [
   { id: "words", label: "Все слова" }
 ];
 
-const MORE_PANELS = [
-  { id: "review", label: "Повтор" },
-  { id: "irregular", label: "Глаголы" },
-  { id: "settings", label: "Настройки" }
+const LEARN_PANELS = [
+  { id: "mixed", label: "Учить слова" },
+  { id: "irregular", label: "Глаголы" }
 ];
 
 const IRREGULAR_MODES = [
@@ -174,7 +173,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [primaryTab, setPrimaryTab] = useState("today");
   const [libraryMode, setLibraryMode] = useState("cards");
-  const [morePanel, setMorePanel] = useState("review");
+  const [learnPanel, setLearnPanel] = useState("mixed");
   const [showLibraryAdd, setShowLibraryAdd] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [settings, setSettings] = useState(null);
@@ -187,6 +186,11 @@ function App() {
   const [wordImageVersions, setWordImageVersions] = useState({});
   const [regeneratingWordId, setRegeneratingWordId] = useState(null);
   const [addText, setAddText] = useState("");
+  const [packs, setPacks] = useState([]);
+  const [selectedPackId, setSelectedPackId] = useState("travel");
+  const [selectedPackLevelId, setSelectedPackLevelId] = useState("a1_a2");
+  const [selectedPackWords, setSelectedPackWords] = useState({});
+  const [isPackExpanded, setIsPackExpanded] = useState(false);
   const [addDraft, setAddDraft] = useState(null);
   const [addDrafts, setAddDrafts] = useState([]);
   const [addDraftStep, setAddDraftStep] = useState("input");
@@ -215,8 +219,12 @@ function App() {
   const [irregularQuestion, setIrregularQuestion] = useState(null);
   const [irregularResult, setIrregularResult] = useState(null);
   const [irregularMode, setIrregularMode] = useState("review");
+  const [irregularQuestionCount, setIrregularQuestionCount] = useState(0);
+  const [irregularSessionLimit, setIrregularSessionLimit] = useState(12);
+  const [irregularSessionDone, setIrregularSessionDone] = useState(false);
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const pollRef = useRef(null);
   const stageRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -267,6 +275,45 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      return;
+    }
+
+    const updateKeyboardState = () => {
+      const heightDiff = window.innerHeight - viewport.height;
+      setIsKeyboardOpen(heightDiff > 140);
+    };
+
+    const handleFocusIn = (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.matches("input, textarea")) {
+        return;
+      }
+      window.setTimeout(() => {
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 120);
+    };
+
+    const handleFocusOut = () => {
+      window.setTimeout(updateKeyboardState, 120);
+    };
+
+    updateKeyboardState();
+    viewport.addEventListener("resize", updateKeyboardState);
+    viewport.addEventListener("scroll", updateKeyboardState);
+    document.addEventListener("focusin", handleFocusIn);
+    document.addEventListener("focusout", handleFocusOut);
+
+    return () => {
+      viewport.removeEventListener("resize", updateKeyboardState);
+      viewport.removeEventListener("scroll", updateKeyboardState);
+      document.removeEventListener("focusin", handleFocusIn);
+      document.removeEventListener("focusout", handleFocusOut);
+    };
+  }, []);
+
   const stats = useMemo(() => {
     const progress = dashboard?.progress || auth.progress;
     return [
@@ -289,8 +336,8 @@ function App() {
     if (primaryTab === "learn") return "Практика";
     if (primaryTab === "words") return showLibraryAdd ? "Добавить" : libraryMode === "cards" ? "Карточки" : "Все слова";
     if (primaryTab === "progress") return "Прогресс";
-    return MORE_PANELS.find((item) => item.id === morePanel)?.label || "Ещё";
-  }, [libraryMode, morePanel, primaryTab, showLibraryAdd]);
+    return primaryTab === "more" ? "Настройки" : "Практика";
+  }, [primaryTab, libraryMode, showLibraryAdd]);
 
   const filteredRecentWords = dashboard?.recent_words || [];
   const nextCards = dashboard?.next_cards || [];
@@ -302,11 +349,11 @@ function App() {
     return [
       primaryTab,
       libraryMode,
-      morePanel,
+      learnPanel,
       showLibraryAdd ? "add" : "main",
       addDraftStep,
     ].join(":");
-  }, [auth.authenticated, primaryTab, libraryMode, morePanel, showLibraryAdd, addDraftStep]);
+  }, [auth.authenticated, primaryTab, libraryMode, learnPanel, showLibraryAdd, addDraftStep]);
 
   useEffect(() => {
     setNoticeState((current) => {
@@ -471,9 +518,14 @@ function App() {
     setLearnTextAnswer("");
     setLearnResult(null);
     setIsRecording(false);
-    if (questionCount >= (data.session_limit || 12) || data.empty) {
+    if (questionCount >= (data.session_limit || 12) || (data.empty && questionCount > 0)) {
       setLearnQuestion(null);
       setLearnSessionDone(true);
+      return;
+    }
+    if (data.empty) {
+      setLearnQuestion(null);
+      setLearnSessionDone(false);
       return;
     }
     setLearnQuestion(data.question);
@@ -484,6 +536,7 @@ function App() {
     const data = await api("/api/irregular/question");
     setIrregularQuestion(data.question);
     setIrregularResult(null);
+    setIrregularSessionLimit(settings?.session_question_limit || 12);
   }
 
   function stopPolling() {
@@ -553,6 +606,14 @@ function App() {
   }, [auth.authenticated, words, cardQueue]);
 
   useEffect(() => {
+    if (!auth.authenticated || !showLibraryAdd) {
+      return;
+    }
+    void loadPacks();
+    void preparePacksInBackground();
+  }, [auth.authenticated, showLibraryAdd]);
+
+  useEffect(() => {
     if (!loginToken || auth.authenticated) {
       return;
     }
@@ -587,7 +648,7 @@ function App() {
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [primaryTab, libraryMode, morePanel]);
+  }, [primaryTab, libraryMode, learnPanel]);
 
   async function requestLoginLink() {
     setBusy(true);
@@ -608,6 +669,8 @@ function App() {
 
   function resetAddFlow() {
     setAddText("");
+    setSelectedPackWords({});
+    setIsPackExpanded(false);
     setAddDraft(null);
     setAddDrafts([]);
     setAddDraftStep("input");
@@ -619,7 +682,20 @@ function App() {
   }
 
   async function refreshAfterWordMutation() {
-    await Promise.all([loadDashboard(), loadLearningData()]);
+    await Promise.all([loadDashboard(), loadLearningData(), loadPacks()]);
+  }
+
+  async function loadPacks() {
+    const data = await api("/api/packs");
+    const nextPacks = data.packs || [];
+    setPacks(nextPacks);
+    if (!nextPacks.length) {
+      return;
+    }
+    const nextPack = nextPacks.find((pack) => pack.id === selectedPackId) || nextPacks[0];
+    const nextLevel = nextPack.levels.find((level) => level.id === selectedPackLevelId) || nextPack.levels[0];
+    setSelectedPackId(nextPack.id);
+    setSelectedPackLevelId(nextLevel?.id || "");
   }
 
   async function handleAddWords(event) {
@@ -655,6 +731,51 @@ function App() {
       setAddDraftStep(data.step);
       setAddTranslationInput(data.draft.translation || "");
       setNotice(data.step === "confirm_translation" ? "Подтверди перевод. Фото загрузится автоматически." : "Фото загружается автоматически. Можно сохранить слово сразу.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setAddBusy(false);
+      setAddBusyLabel("");
+    }
+  }
+
+  async function preparePacksInBackground() {
+    try {
+      await api("/api/packs/prepare", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+    } catch {
+      // best effort only
+    }
+  }
+
+  async function addSelectedPack() {
+    const selected = Object.entries(selectedPackWords)
+      .filter(([, checked]) => checked)
+      .map(([word]) => word);
+    if (!selected.length) {
+      setNotice("Отметь слова для добавления.");
+      return;
+    }
+    setAddBusy(true);
+    setAddBusyLabel("Добавляем пакет...");
+    try {
+      const data = await api("/api/packs/add", {
+        method: "POST",
+        body: JSON.stringify({
+          pack_id: selectedPackId,
+          level_id: selectedPackLevelId,
+          selected_words: selected,
+        }),
+      });
+      setPacks(data.packs || []);
+      setAuth((previous) => ({ ...previous, progress: data.progress }));
+      setShowLibraryAdd(false);
+      setLibraryMode("cards");
+      setNotice(`Добавлено ${data.created.length} слов из пака.`);
+      resetAddFlow();
+      await refreshAfterWordMutation();
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -1194,20 +1315,81 @@ function App() {
     }
   }
 
-  function openMore(panel) {
+  function openMore() {
     if (showLibraryAdd) {
       void closeAddWords();
     }
     startTransition(() => {
       setPrimaryTab("more");
-      setMorePanel(panel);
       setShowLibraryAdd(false);
     });
+  }
+
+  function openAddWords() {
+    resetAddFlow();
+    startTransition(() => {
+      setPrimaryTab("words");
+      setLibraryMode("cards");
+      setShowLibraryAdd(true);
+    });
+  }
+
+  function closeLearnSession() {
+    if (isRecording) {
+      stopSpeakingRecording();
+    }
+    setLearnQuestion(null);
+    setLearnResult(null);
+    setLearnSelection("");
+    setLearnTextAnswer("");
+    setLearnUsedWordIds([]);
+    setLearnQuestionCount(0);
+    setLearnSessionDone(false);
+    setLearnPanel("mixed");
+  }
+
+  function backFromIrregularReview() {
+    setLearnPanel("mixed");
+    setIrregularMode("review");
+  }
+
+  function closeIrregularTest() {
+    const hasProgress = Boolean(irregularQuestion || irregularResult);
+    if (hasProgress && !window.confirm("Закрыть тест по глаголам? Текущий прогресс в этом экране сбросится.")) {
+      return;
+    }
+    setIrregularQuestion(null);
+    setIrregularResult(null);
+    setIrregularQuestionCount(0);
+    setIrregularSessionDone(false);
+    setLearnPanel("mixed");
+    setIrregularMode("test");
+  }
+
+  async function startIrregularTest() {
+    setIrregularQuestionCount(0);
+    setIrregularSessionDone(false);
+    setIrregularSessionLimit(settings?.session_question_limit || 12);
+    await loadIrregularQuestion();
+  }
+
+  async function advanceIrregularTest() {
+    const nextCount = irregularQuestionCount + 1;
+    if (nextCount >= irregularSessionLimit) {
+      setIrregularQuestion(null);
+      setIrregularResult(null);
+      setIrregularQuestionCount(nextCount);
+      setIrregularSessionDone(true);
+      return;
+    }
+    setIrregularQuestionCount(nextCount);
+    await loadIrregularQuestion();
   }
 
   function renderToday() {
     const studiedToday = Boolean(auth.progress?.studied_today);
     const learnedToday = auth.progress?.learned_today ?? 0;
+    const hasWordsToLearn = (auth.progress?.learning ?? 0) > 0;
 
     return (
       <div className="screen-stack">
@@ -1227,8 +1409,8 @@ function App() {
               <strong>{learnedToday}</strong>
             </div>
           </div>
-          <button className="primary-button hero-button" type="button" onClick={() => openLearn("practice")}>
-            ▶️ Продолжить
+          <button className="primary-button hero-button" type="button" onClick={() => (hasWordsToLearn ? openLearn("practice") : openAddWords())}>
+            {hasWordsToLearn ? "▶️ Продолжить" : "＋ Добавить слова"}
           </button>
         </section>
 
@@ -1322,7 +1504,14 @@ function App() {
               )}
             </div>
           </div>
-        ) : <div className="empty-state">No cards for now.</div>}
+        ) : (
+          <div className="stack-form">
+            <div className="empty-state">Пока нет карточек. Добавь новые слова для изучения.</div>
+            <button className="primary-button add-words-ghost" type="button" onClick={openAddWords}>
+              ＋ Добавить слова
+            </button>
+          </div>
+        )}
       </section>
     );
   }
@@ -1386,6 +1575,78 @@ function App() {
   }
 
   function renderLearn() {
+    const hasWordsToLearn = (auth.progress?.learning ?? 0) > 0;
+    const hasActiveIrregularExercise = learnPanel === "irregular" && (
+      irregularMode === "review" || Boolean(irregularQuestion || irregularResult || irregularSessionDone)
+    );
+    const showLearnOverview = learnPanel !== "irregular" && !learnQuestion && !learnSessionDone && !hasActiveIrregularExercise;
+
+    if (showLearnOverview) {
+      return (
+        <div className="screen-stack">
+          <section className="glass-card compact-section practice-overview-card">
+            <div className="section-head">
+              <div>
+                <p className="overline">Practice</p>
+                <h3>Учить слова 🎯</h3>
+                <p className="lead compact">
+                  {hasWordsToLearn
+                    ? "Случайные задания по словам, которые ты сейчас изучаешь."
+                    : "Сейчас нет подходящих заданий, потому что у тебя пока нет новых слов для изучения."}
+                </p>
+              </div>
+            </div>
+            <div className="button-row">
+              {hasWordsToLearn ? (
+                <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
+                  Начать сессию
+                </button>
+              ) : null}
+              <button className="secondary-button" type="button" onClick={openAddWords}>
+                ＋ Добавить слова
+              </button>
+            </div>
+          </section>
+
+          <section className="glass-card compact-section practice-overview-card">
+            <div className="section-head">
+              <div>
+                <p className="overline">Irregular</p>
+                <h3>Неправильные глаголы 📘</h3>
+                <p className="lead compact">Можно быстро повторять формы или пройти отдельный тест.</p>
+              </div>
+            </div>
+            <div className="segment-wrap main-segment">
+              {IRREGULAR_MODES.map((item) => (
+                <button
+                  key={item.id}
+                  className={irregularMode === item.id ? "segment-button active" : "segment-button"}
+                  type="button"
+                  onClick={() => {
+                    setLearnPanel("irregular");
+                    setIrregularMode(item.id);
+                    if (item.id === "test" && !irregularQuestion) {
+                      void startIrregularTest();
+                    }
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    if (learnPanel === "irregular") {
+      return (
+        <div className="screen-stack">
+          {renderIrregular()}
+        </div>
+      );
+    }
+
     const statusClass = learnResult?.status === "correct"
       ? "result-box good"
       : learnResult?.status === "close"
@@ -1398,17 +1659,26 @@ function App() {
           <div className="section-head section-head-wrap">
             <div>
               <p className="overline">Practice</p>
-              <h3>Смешанная практика 🎯</h3>
+              <h3>Учить слова 🎯</h3>
             </div>
           </div>
           <div className="empty-state">
             {learnSessionDone
-              ? `Прогон завершён. Выполнено ${learnQuestionCount} из ${learnSessionLimit} заданий.`
-              : "Сейчас нет подходящих заданий."}
+              ? `Сессия завершена. Выполнено ${learnQuestionCount} из ${learnSessionLimit} заданий.`
+              : "Сейчас нет подходящих заданий, потому что у тебя пока нет новых слов для изучения."}
           </div>
-          <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
-            Начать новый прогон
-          </button>
+          <div className="button-row">
+            {learnSessionDone && hasWordsToLearn ? (
+              <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
+                Начать новую сессию
+              </button>
+            ) : null}
+            {!hasWordsToLearn || !learnSessionDone ? (
+              <button className="secondary-button" type="button" onClick={openAddWords}>
+                ＋ Добавить слова
+              </button>
+            ) : null}
+          </div>
         </section>
       );
     }
@@ -1419,7 +1689,7 @@ function App() {
     const promptTitle = isChoice
       ? (learnQuestion.exercise_type === "practice_ru_en" ? learnQuestion.item.translation : learnQuestion.item.word)
       : isListening
-        ? "Слушай внимательно 🎧"
+        ? "Введите перевод 🎧"
         : learnQuestion.item.word;
 
     return (
@@ -1428,9 +1698,14 @@ function App() {
           <div className="section-head section-head-wrap">
             <div>
               <p className="overline">Practice</p>
-              <h3>Смешанная практика 🎯</h3>
+              <h3>Учить слова 🎯</h3>
             </div>
-            <span className="status-tag">{learnQuestionCount + 1} / {learnSessionLimit}</span>
+            <div className="button-row">
+              <span className="status-tag">{learnQuestionCount + 1} / {learnSessionLimit}</span>
+              <button className="secondary-button" type="button" onClick={closeLearnSession}>
+                Закрыть
+              </button>
+            </div>
           </div>
           <div className="prompt-card">
             <strong>{promptTitle}</strong>
@@ -1700,6 +1975,11 @@ function App() {
     const isTranslationStep = addDraftStep === "confirm_translation";
     const isImageStep = addDraftStep === "confirm_image";
     const isBatchReview = addDraftStep === "batch_review";
+    const selectedPack = packs.find((pack) => pack.id === selectedPackId) || packs[0] || null;
+    const selectedLevel = selectedPack?.levels.find((level) => level.id === selectedPackLevelId) || selectedPack?.levels?.[0] || null;
+    const selectedWordCount = selectedLevel
+      ? selectedLevel.items.filter((item) => selectedPackWords[item.normalized_word] ?? !item.already_added).length
+      : 0;
 
     return (
       <section className="glass-card compact-section add-wizard">
@@ -1726,17 +2006,109 @@ function App() {
         {addBusyLabel ? <div className="inline-note status-note"><strong>{addBusyLabel}</strong></div> : null}
 
         {!addDraft && !isBatchReview ? (
-          <form className="stack-form" onSubmit={handleAddWords}>
-            <textarea
-              rows={4}
-              value={addText}
-              onChange={(event) => setAddText(event.target.value)}
-              placeholder={"stare\nfigure out\ntravel - путешествие"}
-            />
-            <button className="primary-button" type="submit" disabled={addBusy}>
-              {addBusy ? "Обрабатываем..." : "Добавить слово"}
-            </button>
-          </form>
+          <div className="stack-form">
+            <form className="stack-form" onSubmit={handleAddWords}>
+              <textarea
+                rows={5}
+                value={addText}
+                onChange={(event) => setAddText(event.target.value)}
+                placeholder={"stare\nfigure out\ntravel - путешествие"}
+              />
+              <button className="primary-button" type="submit" disabled={addBusy}>
+                {addBusy ? "Обрабатываем..." : "Добавить слово"}
+              </button>
+            </form>
+            <section className="glass-card compact-section pack-section">
+              <div className="section-head">
+                <div>
+                  <p className="overline">Packs</p>
+                  <h3>Готовые наборы ✈️</h3>
+                  <p className="lead compact">Выбери набор и уровень. Остальное можно раскрыть ниже.</p>
+                </div>
+              </div>
+              {packs.length ? (
+                <>
+                  <div className="pack-list">
+                    {packs.map((pack) => (
+                      <button
+                        key={pack.id}
+                        className={selectedPackId === pack.id ? "segment-button active" : "segment-button"}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPackId(pack.id);
+                          setSelectedPackLevelId(pack.levels[0]?.id || "");
+                          setSelectedPackWords({});
+                        }}
+                      >
+                        {pack.emoji} {pack.title}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedPack ? (
+                    <>
+                      <div className="pack-list">
+                        {selectedPack.levels.map((level) => (
+                          <button
+                            key={level.id}
+                            className={selectedPackLevelId === level.id ? "segment-button active" : "segment-button"}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPackLevelId(level.id);
+                              setSelectedPackWords({});
+                            }}
+                          >
+                            {level.title} · {level.size}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="button-row">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => setIsPackExpanded((current) => !current)}
+                        >
+                          {isPackExpanded ? "Скрыть слова" : "Показать слова"}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                  {selectedLevel && isPackExpanded ? (
+                    <>
+                      <p className="lead compact">{selectedPack?.description}</p>
+                      <p className="inline-note pack-level-note">{selectedLevel.description}</p>
+                      <div className="pack-word-grid">
+                        {selectedLevel.items.map((item) => {
+                          const checked = selectedPackWords[item.normalized_word] ?? !item.already_added;
+                          return (
+                            <label key={item.normalized_word} className={item.already_added ? "pack-word-row muted" : "pack-word-row"}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={item.already_added}
+                                onChange={(event) => setSelectedPackWords((current) => ({ ...current, [item.normalized_word]: event.target.checked }))}
+                              />
+                              <span className="pack-word-main">
+                                <strong>{item.word}</strong>
+                                <small>{item.translation}</small>
+                              </span>
+                              {item.already_added ? <em className="pack-word-state">Уже есть</em> : null}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div className="button-row batch-save-row">
+                        <button className="primary-button" type="button" onClick={addSelectedPack} disabled={addBusy || !selectedWordCount}>
+                          {addBusy ? "Добавляем..." : `Добавить ${selectedWordCount} слов`}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <div className="empty-state">Готовим первый набор...</div>
+              )}
+            </section>
+          </div>
         ) : null}
 
         {isBatchReview && addDrafts.length ? (
@@ -1858,18 +2230,6 @@ function App() {
   function renderIrregular() {
     return (
       <div className="screen-stack">
-        <div className="segment-wrap main-segment">
-          {IRREGULAR_MODES.map((item) => (
-            <button
-              key={item.id}
-              className={irregularMode === item.id ? "segment-button active" : "segment-button"}
-              type="button"
-              onClick={() => setIrregularMode(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
         {irregularMode === "review" ? (
           <section className="glass-card compact-section">
             <div className="section-head">
@@ -1877,14 +2237,9 @@ function App() {
                 <p className="overline">Irregular</p>
                 <h3>Повторять глаголы 📘</h3>
               </div>
-              <div className="button-row">
-                <button className="secondary-button" type="button" onClick={() => setIrregularPage((value) => Math.max(0, value - 1))} disabled={!irregularList?.has_prev}>
-                  Prev
-                </button>
-                <button className="secondary-button" type="button" onClick={() => setIrregularPage((value) => value + 1)} disabled={!irregularList?.has_next}>
-                  Next
-                </button>
-              </div>
+              <button className="secondary-button" type="button" onClick={backFromIrregularReview}>
+                ← Назад
+              </button>
             </div>
             <div className="simple-list">
               {(irregularList?.items || []).map((item) => (
@@ -1896,6 +2251,14 @@ function App() {
                 </div>
               ))}
             </div>
+            <div className="button-row card-nav-row">
+              <button className="secondary-button nav-arrow" type="button" onClick={() => setIrregularPage((value) => Math.max(0, value - 1))} disabled={!irregularList?.has_prev} aria-label="Предыдущая страница">
+                ←
+              </button>
+              <button className="secondary-button nav-arrow" type="button" onClick={() => setIrregularPage((value) => value + 1)} disabled={!irregularList?.has_next} aria-label="Следующая страница">
+                →
+              </button>
+            </div>
           </section>
         ) : null}
         {irregularMode === "test" ? (
@@ -1905,15 +2268,13 @@ function App() {
                 <p className="overline">Train</p>
                 <h3>Тест по глаголам 🧩</h3>
               </div>
-              <button className="secondary-button" type="button" onClick={loadIrregularQuestion}>
-                Refresh
-              </button>
+              <span className="status-tag">{Math.min(irregularQuestionCount + 1, irregularSessionLimit)} / {irregularSessionLimit}</span>
             </div>
             {irregularQuestion ? (
               <div className="quiz-panel">
                 <div className="prompt-card">
                   <strong>{irregularQuestion.verb.base}</strong>
-                  <span>Pick the correct pair</span>
+                  <span>Выбери правильную форму</span>
                 </div>
                 <div className="option-grid">
                   {irregularQuestion.options.map((option) => (
@@ -1924,14 +2285,33 @@ function App() {
                 </div>
                 {irregularResult ? (
                   <div className={irregularResult.correct ? "result-box good" : "result-box bad"}>
-                    <span>{irregularResult.correct ? "Correct" : `Correct answer: ${irregularResult.correct_answer}`}</span>
-                    <button className="secondary-button" type="button" onClick={loadIrregularQuestion}>
-                      Next
+                    <span>{irregularResult.correct ? "Верно" : `Правильный ответ: ${irregularResult.correct_answer}`}</span>
+                    <button className="secondary-button" type="button" onClick={() => void advanceIrregularTest()}>
+                      Дальше
                     </button>
                   </div>
                 ) : null}
+                <button className="danger-button" type="button" onClick={closeIrregularTest}>
+                  Закрыть тест
+                </button>
               </div>
-            ) : <div className="empty-state">No verb question right now.</div>}
+            ) : (
+              <div className="stack-form">
+                <div className="empty-state">
+                  {irregularSessionDone
+                    ? `Тест завершён. Выполнено ${irregularQuestionCount} из ${irregularSessionLimit} заданий.`
+                    : "Сейчас нет вопроса по глаголам."}
+                </div>
+                {irregularSessionDone ? (
+                  <button className="primary-button" type="button" onClick={() => void startIrregularTest()}>
+                    Начать новый тест
+                  </button>
+                ) : null}
+                <button className="danger-button" type="button" onClick={closeIrregularTest}>
+                  Закрыть тест
+                </button>
+              </div>
+            )}
           </section>
         ) : null}
       </div>
@@ -1950,7 +2330,12 @@ function App() {
           <label>
             <span>Exercises to learn</span>
             <small>Сколько разных упражнений нужно выполнить, чтобы слово стало выученным.</small>
-            <input type="number" min="2" max="5" value={settings.exercise_goal} onChange={(event) => setSettings((current) => ({ ...current, exercise_goal: Number(event.target.value) }))} />
+            <select value={settings.exercise_goal} onChange={(event) => setSettings((current) => ({ ...current, exercise_goal: Number(event.target.value) }))}>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
           </label>
           <label>
             <span>Questions per run</span>
@@ -1974,10 +2359,6 @@ function App() {
             <input value={settings.reminder_timezone} onChange={(event) => setSettings((current) => ({ ...current, reminder_timezone: event.target.value }))} />
           </label>
           <label className="toggle-row">
-            <input type="checkbox" checked={settings.enable_review_old_words} onChange={(event) => setSettings((current) => ({ ...current, enable_review_old_words: event.target.checked }))} />
-            <span>Review old words</span>
-          </label>
-          <label className="toggle-row">
             <input type="checkbox" checked={settings.reminder_enabled} onChange={(event) => setSettings((current) => ({ ...current, reminder_enabled: event.target.checked }))} />
             <span>Enable reminders</span>
           </label>
@@ -1988,25 +2369,7 @@ function App() {
   }
 
   function renderMore() {
-    return (
-      <div className="screen-stack">
-        <div className="segment-wrap main-segment more-segment">
-          {MORE_PANELS.map((item) => (
-            <button
-              key={item.id}
-              className={morePanel === item.id ? "segment-button active" : "segment-button"}
-              type="button"
-              onClick={() => setMorePanel(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        {morePanel === "review" ? renderPractice(reviewQuestion, reviewResult, "review", setReviewResult, loadReview, reviewSelection) : null}
-        {morePanel === "irregular" ? renderIrregular() : null}
-        {morePanel === "settings" ? renderSettings() : null}
-      </div>
-    );
+    return renderSettings();
   }
 
   function renderScreen() {
@@ -2023,7 +2386,7 @@ function App() {
 
   if (!auth.authenticated) {
     return (
-      <div className="app-shell auth-layout">
+      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
         {notice ? <div className="notice">{notice.message}</div> : null}
         <AuthPanel
           config={config}
@@ -2036,7 +2399,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isKeyboardOpen ? " keyboard-open" : ""}`}>
       <header className="glass-card topbar">
         <div className="topbar-brand">
           <LogoMark />
@@ -2054,8 +2417,7 @@ function App() {
                 closeAddWords();
                 return;
               }
-              resetAddFlow();
-              setShowLibraryAdd(true);
+              openAddWords();
             }}
             aria-label="Добавить слова"
           >
@@ -2073,17 +2435,20 @@ function App() {
         {renderScreen()}
       </main>
 
-      <nav className="nav-grid-bottom">
+      <nav className={`nav-grid-bottom${isKeyboardOpen ? " is-hidden" : ""}`}>
         {PRIMARY_TABS.map((item) => (
           <button
             key={item.id}
-            className={item.id === primaryTab ? "nav-pill active" : "nav-pill"}
+            className={`${item.id === primaryTab ? "nav-pill active" : "nav-pill"}${item.compact ? " compact-nav" : ""}`}
             type="button"
             onClick={() => startTransition(() => {
               if (item.id !== "words" && showLibraryAdd) {
                 void closeAddWords();
               }
               setPrimaryTab(item.id);
+              if (item.id === "more") {
+                setMorePanel("settings");
+              }
               if (item.id !== "words") {
                 setShowLibraryAdd(false);
               }

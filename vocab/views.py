@@ -17,6 +17,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
 from .openai_utils import generate_word_data, generate_word_data_batch, transcribe_speech_file
 from .services import (
+    add_pack_words_to_user,
     build_learning_question,
     build_user_progress,
     build_choice_question,
@@ -34,6 +35,7 @@ from .services import (
     get_ordered_unlearned_words,
     list_words,
     list_irregular_page,
+    list_word_packs,
     parse_word_batch,
     request_draft_image_generation,
     request_word_image_generation,
@@ -53,6 +55,7 @@ from .services import (
     update_word_progress,
     upsert_telegram_user,
     word_already_exists,
+    ensure_pack_preparation,
 )
 from .telegram_auth import TelegramAuthError, verify_login_widget, verify_webapp_init_data
 from .utils import normalize_timezone_value
@@ -635,6 +638,49 @@ def settings_view(request: HttpRequest) -> JsonResponse:
     if user.repeat_threshold != previous_goal:
         recalculate_user_word_progress(user)
     return JsonResponse({"ok": True})
+
+
+@require_GET
+def packs_view(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+    return JsonResponse({"ok": True, "packs": list_word_packs(user)})
+
+
+@require_POST
+def packs_prepare(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+    for pack in list_word_packs():
+        for level in pack["levels"]:
+            ensure_pack_preparation(pack["id"], level["id"])
+    return JsonResponse({"ok": True})
+
+
+@require_POST
+def packs_add(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+    try:
+        payload = _json_body(request)
+    except ValueError as exc:
+        return _json_error(str(exc))
+
+    pack_id = str(payload.get("pack_id", "")).strip()
+    level_id = str(payload.get("level_id", "")).strip()
+    selected_words = payload.get("selected_words") or []
+    if not isinstance(selected_words, list):
+        return _json_error("selected_words must be a list.")
+
+    try:
+        result = add_pack_words_to_user(user, pack_id, level_id, [str(word) for word in selected_words])
+    except ValueError as exc:
+        return _json_error(str(exc))
+
+    return JsonResponse({"ok": True, **result, "progress": build_user_progress(user), "packs": list_word_packs(user)})
 
 
 @require_GET
