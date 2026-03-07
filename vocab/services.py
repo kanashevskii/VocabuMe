@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from difflib import SequenceMatcher
 from pathlib import Path
+from threading import Lock, Thread
 from typing import Iterable
 import random
 import re
@@ -11,6 +13,11 @@ import time
 from django.db.models import Count, Min, Q
 from django.utils import timezone
 from django.utils.timezone import now
+
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - Pillow may be absent in some envs
+    Image = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 from .models import AddWordDraft, IrregularVerbProgress, TelegramUser, VocabularyItem, WebLoginToken
@@ -22,11 +29,21 @@ MEDIA_ROOT = PROJECT_ROOT / "media"
 IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
 USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
 DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
+_IMAGE_OPTIMIZATION_LOCK = Lock()
+_IMAGE_OPTIMIZATION_IN_FLIGHT: set[str] = set()
 ACHIEVEMENT_DEFINITIONS = [
     {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
     {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
     {"kind": "words", "threshold": 100, "text": "🎯 Выучено 100 слов — Опытный!"},
     {"kind": "words", "threshold": 200, "text": "🚀 Выучено 200+ слов — Гуру слов!"},
+    {"kind": "practice", "threshold": 10, "text": "🎲 10 тестов — Ты вошёл в ритм!"},
+    {"kind": "practice", "threshold": 50, "text": "🧠 50 тестов — Отличная реакция!"},
+    {"kind": "listening", "threshold": 10, "text": "🎧 10 аудио-ответов — Уже слышишь лучше!"},
+    {"kind": "listening", "threshold": 50, "text": "📻 50 аудио-ответов — Слух прокачан!"},
+    {"kind": "speaking", "threshold": 10, "text": "🎙️ 10 произношений — Голос в деле!"},
+    {"kind": "speaking", "threshold": 50, "text": "🗣️ 50 произношений — Звучишь увереннее!"},
+    {"kind": "review", "threshold": 10, "text": "🔁 10 повторов — Память закрепляется!"},
+    {"kind": "review", "threshold": 50, "text": "🪄 50 повторов — Старые слова держатся!"},
     {"kind": "irregular", "threshold": 10, "text": "🔤 10 неправильных глаголов — База собрана!"},
     {"kind": "irregular", "threshold": 30, "text": "🧩 30 неправильных глаголов — Уже уверенно!"},
     {"kind": "irregular", "threshold": 60, "text": "🏆 60 неправильных глаголов — Мастер форм!"},
@@ -58,19 +75,28 @@ def upsert_telegram_user(chat_id: int, username: str | None = None) -> TelegramU
     return user
 
 
-def get_user_achievements(user: TelegramUser) -> list[str]:
+def get_achievement_stats(user: TelegramUser) -> dict:
     learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     days = user.consecutive_days or 0
     irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
-    stats = {"words": learned, "days": days, "irregular": irregular}
+    return {
+        "words": learned,
+        "days": days,
+        "irregular": irregular,
+        "practice": user.practice_correct or 0,
+        "listening": user.listening_correct or 0,
+        "speaking": user.speaking_correct or 0,
+        "review": user.review_correct or 0,
+    }
+
+
+def get_user_achievements(user: TelegramUser) -> list[str]:
+    stats = get_achievement_stats(user)
     return [item["text"] for item in ACHIEVEMENT_DEFINITIONS if stats[item["kind"]] >= item["threshold"]]
 
 
 def get_pending_achievements(user: TelegramUser) -> list[dict]:
-    learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
-    days = user.consecutive_days or 0
-    irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
-    stats = {"words": learned, "days": days, "irregular": irregular}
+    stats = get_achievement_stats(user)
 
     pending: list[dict] = []
     for item in ACHIEVEMENT_DEFINITIONS:
@@ -85,7 +111,19 @@ def get_pending_achievements(user: TelegramUser) -> list[dict]:
                 "target": item["threshold"],
             }
         )
-    return pending[:8]
+    return pending[:12]
+
+
+def get_pending_achievement_highlights(user: TelegramUser) -> list[dict]:
+    pending = get_pending_achievements(user)
+    highlights: list[dict] = []
+    seen_kinds: set[str] = set()
+    for item in pending:
+        if item["kind"] in seen_kinds:
+            continue
+        seen_kinds.add(item["kind"])
+        highlights.append(item)
+    return highlights
 
 
 def build_user_progress(user: TelegramUser) -> dict:
@@ -95,6 +133,7 @@ def build_user_progress(user: TelegramUser) -> dict:
     irregular_learned = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
     start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))["created_at__min"]
     today = now().date()
+    learned_today = VocabularyItem.objects.filter(user=user, learned_at__date=today).count()
 
     user_stats = TelegramUser.objects.annotate(
         learned_count=Count("vocabularyitem", filter=Q(vocabularyitem__is_learned=True))
@@ -113,10 +152,71 @@ def build_user_progress(user: TelegramUser) -> dict:
         "rank_percent": rank_percent,
         "achievements": get_user_achievements(user),
         "pending_achievements": get_pending_achievements(user),
+        "pending_achievement_highlights": get_pending_achievement_highlights(user),
         "streak_days": user.consecutive_days,
         "study_days": user.total_study_days,
         "studied_today": user.last_study_date == today,
+        "learned_today": learned_today,
+        "practice_correct": user.practice_correct,
+        "listening_correct": user.listening_correct,
+        "speaking_correct": user.speaking_correct,
+        "review_correct": user.review_correct,
     }
+
+
+def _webp_variant_path(source: Path) -> Path:
+    return source.with_suffix(".webp")
+
+
+def _optimize_image_to_webp(source: Path) -> Path | None:
+    if Image is None or source.suffix.lower() == ".webp":
+        return source if source.exists() else None
+
+    target = _webp_variant_path(source)
+    try:
+        if target.exists() and target.stat().st_mtime >= source.stat().st_mtime:
+            return target
+    except OSError:
+        pass
+
+    try:
+        with Image.open(source) as img:
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+            img.save(target, format="WEBP", quality=82, method=6)
+        return target
+    except Exception:
+        return None
+
+
+def _schedule_image_optimization(source: Path) -> None:
+    if Image is None or source.suffix.lower() == ".webp" or not source.exists():
+        return
+
+    key = str(source)
+    with _IMAGE_OPTIMIZATION_LOCK:
+        if key in _IMAGE_OPTIMIZATION_IN_FLIGHT:
+            return
+        _IMAGE_OPTIMIZATION_IN_FLIGHT.add(key)
+
+    def _run() -> None:
+        try:
+            _optimize_image_to_webp(source)
+        finally:
+            with _IMAGE_OPTIMIZATION_LOCK:
+                _IMAGE_OPTIMIZATION_IN_FLIGHT.discard(key)
+
+    Thread(target=_run, daemon=True).start()
+
+
+def _preferred_served_image(source: Path) -> Path:
+    if source.suffix.lower() == ".webp":
+        return source
+    webp = _webp_variant_path(source)
+    if webp.exists():
+        return webp
+    _schedule_image_optimization(source)
+    return source
 
 
 def get_word_image_file(item: VocabularyItem) -> Path | None:
@@ -145,7 +245,7 @@ def get_word_image_file(item: VocabularyItem) -> Path | None:
         except (FileNotFoundError, OSError):
             continue
         if any(resolved.is_relative_to(root) for root in allowed_roots):
-            return resolved
+            return _preferred_served_image(resolved)
     return None
 
 
@@ -278,7 +378,7 @@ def get_draft_image_file(draft: AddWordDraft) -> Path | None:
         USER_IMAGE_DIR.resolve(),
     )
     if any(resolved.is_relative_to(root) for root in allowed_roots):
-        return resolved
+        return _preferred_served_image(resolved)
     return None
 
 
@@ -367,6 +467,22 @@ def finalize_word_draft(draft: AddWordDraft, use_image: bool = True) -> Vocabula
     return item
 
 
+def regenerate_word_image(item: VocabularyItem) -> VocabularyItem:
+    visual_prompt = build_visual_prompt(
+        item.word,
+        item.translation,
+        item.part_of_speech,
+        item.example,
+    )
+    if not visual_prompt:
+        return item
+
+    slug = f"word_{item.user_id}_{item.normalized_word}_{int(time.time())}"
+    item.image_path = generate_card_image(visual_prompt, slug)
+    item.save(update_fields=["image_path", "updated_at"])
+    return item
+
+
 def get_ordered_unlearned_words(
     user: TelegramUser,
     count: int = 10,
@@ -410,17 +526,26 @@ def update_word_progress(item_id: int, correct: bool) -> VocabularyItem:
     if correct:
         item.correct_count += 1
         threshold = item.user.repeat_threshold if item.user.repeat_threshold else 3
-        if item.correct_count >= threshold:
+        if item.correct_count >= threshold and not item.is_learned:
             item.is_learned = True
-    item.save(update_fields=["correct_count", "is_learned", "updated_at"])
+            item.learned_at = now()
+    item.save(update_fields=["correct_count", "is_learned", "learned_at", "updated_at"])
     return item
+
+
+def increment_user_metric(user: TelegramUser, field_name: str) -> TelegramUser:
+    current_value = getattr(user, field_name, 0) or 0
+    setattr(user, field_name, current_value + 1)
+    user.save(update_fields=[field_name])
+    return user
 
 
 def reset_word_progress(item_id: int) -> VocabularyItem:
     item = VocabularyItem.objects.get(id=item_id)
     item.is_learned = False
+    item.learned_at = None
     item.correct_count = 0
-    item.save(update_fields=["is_learned", "correct_count", "updated_at"])
+    item.save(update_fields=["is_learned", "learned_at", "correct_count", "updated_at"])
     return item
 
 
@@ -491,14 +616,20 @@ def submit_choice_answer(user: TelegramUser, item_id: int, answer: str, mode: st
         correct = normalized == item.word.lower()
         updated = update_word_progress(item.id, correct=correct)
         correct_answer = item.word
+        if correct:
+            increment_user_metric(user, "practice_correct")
     elif mode == "review":
         correct = normalized == item.translation.lower()
         updated = update_word_progress(item.id, correct=True) if correct else reset_word_progress(item.id)
         correct_answer = item.translation
+        if correct:
+            increment_user_metric(user, "review_correct")
     else:
         correct = normalized == item.translation.lower()
         updated = update_word_progress(item.id, correct=correct)
         correct_answer = item.translation
+        if correct:
+            increment_user_metric(user, "practice_correct")
 
     update_learning_streak(user)
     return {
@@ -523,11 +654,63 @@ def submit_listening_answer(user: TelegramUser, item_id: int, answer: str, mode:
     expected = item.word if mode == "word" else item.translation
     correct = answer.strip().lower() == expected.lower()
     updated = update_word_progress(item.id, correct=correct)
+    if correct:
+        increment_user_metric(user, "listening_correct")
     update_learning_streak(user)
     return {
         "correct": correct,
         "item": serialize_word(updated),
         "correct_answer": expected,
+        "progress": build_user_progress(user),
+    }
+
+
+def build_speaking_question(user: TelegramUser) -> dict | None:
+    candidates = get_unlearned_words(user, count=10)
+    if not candidates:
+        return None
+    item = candidates[0]
+    return {"item": serialize_word(item), "prompt": "Прослушай и произнеси слово"}
+
+
+def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) -> dict:
+    item = VocabularyItem.objects.get(id=item_id, user=user)
+    expected = clean_word(item.word)
+    spoken = clean_word(transcript)
+    similarity = SequenceMatcher(None, spoken, expected).ratio() if spoken else 0.0
+
+    if spoken == expected:
+        updated = update_word_progress(item.id, correct=True)
+        increment_user_metric(user, "speaking_correct")
+        update_learning_streak(user)
+        return {
+            "status": "correct",
+            "message": "Отлично! Произношение принято.",
+            "similarity": 1.0,
+            "transcript": transcript,
+            "item": serialize_word(updated),
+            "correct_answer": item.word,
+            "progress": build_user_progress(user),
+        }
+
+    if similarity >= 0.6:
+        return {
+            "status": "close",
+            "message": "Неплохо, но попробуй ещё раз.",
+            "similarity": round(similarity, 2),
+            "transcript": transcript,
+            "item": serialize_word(item),
+            "correct_answer": item.word,
+            "progress": build_user_progress(user),
+        }
+
+    return {
+        "status": "wrong",
+        "message": "Пока не совпало. Попробуй ещё раз.",
+        "similarity": round(similarity, 2),
+        "transcript": transcript,
+        "item": serialize_word(item),
+        "correct_answer": item.word,
         "progress": build_user_progress(user),
     }
 
@@ -599,18 +782,42 @@ def consume_web_login_token(token: str) -> TelegramUser | None:
 
 def parse_word_batch(text: str) -> list[ParsedWordEntry]:
     entries: list[ParsedWordEntry] = []
+
+    def normalize_word_part(raw: str) -> str:
+        value = (raw or "").strip()
+        value = re.sub(r"^[•*·\-]+\s*", "", value)
+        value = re.sub(r"\s*:\s*$", "", value)
+        value = re.sub(r"\s*\((?:v|adj|adv|n|noun|verb|adjective|adverb|phrase)\)\s*$", "", value, flags=re.IGNORECASE)
+        value = re.sub(r"\s+(?:v|adj|adv|n)\s*$", "", value, flags=re.IGNORECASE)
+        return value.strip()
+
+    def split_word_and_translation(line: str) -> tuple[str, str | None]:
+        for separator in (" - ", " — ", " – "):
+            if separator in line:
+                word_part, translation_hint = line.split(separator, 1)
+                return normalize_word_part(word_part), translation_hint.strip() or None
+
+        if ":" in line:
+            word_part, translation_hint = line.split(":", 1)
+            normalized = normalize_word_part(word_part)
+            if normalized and translation_hint.strip():
+                return normalized, translation_hint.strip()
+
+        cyrillic_match = re.search(r"[А-Яа-яЁё]", line)
+        if cyrillic_match:
+            word_part = normalize_word_part(line[:cyrillic_match.start()])
+            translation_hint = line[cyrillic_match.start():].strip()
+            if word_part and translation_hint:
+                return word_part, translation_hint
+
+        return normalize_word_part(line), None
+
     for raw_line in (text or "").splitlines():
         line = raw_line.strip()
         if not line:
             continue
 
-        if " - " in line:
-            word_part, translation_hint = line.split(" - ", 1)
-        elif " — " in line:
-            word_part, translation_hint = line.split(" — ", 1)
-        else:
-            word_part, translation_hint = line, None
-
+        word_part, translation_hint = split_word_and_translation(line)
         cleaned = clean_word(word_part)
         if not cleaned:
             continue

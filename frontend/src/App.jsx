@@ -9,8 +9,9 @@ const PRIMARY_TABS = [
 ];
 
 const LEARN_MODES = [
-  { id: "practice", label: "Практика" },
-  { id: "listening", label: "Аудирование" }
+  { id: "practice", label: "Тест" },
+  { id: "listening", label: "Аудирование" },
+  { id: "speaking", label: "Говорение" }
 ];
 
 const LIBRARY_MODES = [
@@ -46,8 +47,9 @@ function getCookie(name) {
 
 async function api(url, options = {}) {
   const telegramInitData = window.Telegram?.WebApp?.initData || "";
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers || {})
   };
   if (telegramInitData) {
@@ -141,10 +143,17 @@ function App() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [draftTranslation, setDraftTranslation] = useState({});
+  const [previewWordId, setPreviewWordId] = useState(null);
+  const [expandedWordId, setExpandedWordId] = useState(null);
+  const [wordImageVersions, setWordImageVersions] = useState({});
+  const [regeneratingWordId, setRegeneratingWordId] = useState(null);
   const [addText, setAddText] = useState("");
   const [addDraft, setAddDraft] = useState(null);
+  const [addDrafts, setAddDrafts] = useState([]);
   const [addDraftStep, setAddDraftStep] = useState("input");
   const [addTranslationInput, setAddTranslationInput] = useState("");
+  const [batchTranslations, setBatchTranslations] = useState({});
+  const [batchUseImages, setBatchUseImages] = useState({});
   const [addBusy, setAddBusy] = useState(false);
   const [addBusyLabel, setAddBusyLabel] = useState("");
   const [cardQueue, setCardQueue] = useState([]);
@@ -158,6 +167,9 @@ function App() {
   const [listeningQuestion, setListeningQuestion] = useState(null);
   const [listeningAnswer, setListeningAnswer] = useState("");
   const [listeningResult, setListeningResult] = useState(null);
+  const [speakingQuestion, setSpeakingQuestion] = useState(null);
+  const [speakingResult, setSpeakingResult] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
   const [reviewQuestion, setReviewQuestion] = useState(null);
   const [reviewResult, setReviewResult] = useState(null);
   const [reviewSelection, setReviewSelection] = useState("");
@@ -170,10 +182,14 @@ function App() {
   const [loginToken, setLoginToken] = useState("");
   const pollRef = useRef(null);
   const stageRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const speakingChunksRef = useRef([]);
   const deferredSearch = useDeferredValue(search);
 
   const webApp = window.Telegram?.WebApp;
   const isMiniApp = Boolean(webApp?.initData);
+  const canRecordSpeech = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 
   const stats = useMemo(() => {
     const progress = dashboard?.progress || auth.progress;
@@ -236,7 +252,7 @@ function App() {
   }
 
   async function loadLearningData() {
-    await Promise.all([loadCards(), loadPractice(practiceMode), loadListening(listeningMode), loadReview()]);
+    await Promise.all([loadCards(), loadPractice(practiceMode), loadListening(listeningMode), loadSpeaking(), loadReview()]);
   }
 
   function showPreviousCard() {
@@ -270,6 +286,13 @@ function App() {
     setReviewSelection("");
   }
 
+  async function loadSpeaking() {
+    const data = await api("/api/speaking/question");
+    setSpeakingQuestion(data.empty ? null : data.question);
+    setSpeakingResult(null);
+    setIsRecording(false);
+  }
+
   async function loadIrregularQuestion() {
     const data = await api("/api/irregular/question");
     setIrregularQuestion(data.question);
@@ -282,6 +305,15 @@ function App() {
       pollRef.current = null;
     }
   }
+
+  useEffect(() => () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+  }, []);
 
   useEffect(() => {
     bootstrap().catch((error) => {
@@ -376,8 +408,11 @@ function App() {
   function resetAddFlow() {
     setAddText("");
     setAddDraft(null);
+    setAddDrafts([]);
     setAddDraftStep("input");
     setAddTranslationInput("");
+    setBatchTranslations({});
+    setBatchUseImages({});
     setAddBusy(false);
     setAddBusyLabel("");
   }
@@ -399,6 +434,14 @@ function App() {
         method: "POST",
         body: JSON.stringify({ text: addText })
       });
+      if (data.batch_review) {
+        setAddDrafts(data.drafts);
+        setAddDraftStep("batch_review");
+        setBatchTranslations(Object.fromEntries(data.drafts.map((draft) => [draft.id, draft.translation || ""])));
+        setBatchUseImages(Object.fromEntries(data.drafts.map((draft) => [draft.id, true])));
+        setNotice(`Проверь ${data.drafts.length} слов и сохрани всё разом.`);
+        return;
+      }
       if (data.auto_saved) {
         setAuth((previous) => ({ ...previous, progress: data.progress }));
         setShowLibraryAdd(false);
@@ -491,9 +534,10 @@ function App() {
   }
 
   async function closeAddWords() {
-    if (addDraft) {
+    const draftIds = [addDraft?.id, ...addDrafts.map((item) => item.id)].filter(Boolean);
+    for (const draftId of draftIds) {
       try {
-        await api(`/api/words/draft/${addDraft.id}`, {
+        await api(`/api/words/draft/${draftId}`, {
           method: "DELETE"
         });
       } catch (error) {
@@ -502,6 +546,62 @@ function App() {
     }
     resetAddFlow();
     setShowLibraryAdd(false);
+  }
+
+  async function regenerateBatchDraftImage(draftId) {
+    setAddBusy(true);
+    setAddBusyLabel("Готовим другую картинку...");
+    try {
+      const data = await api(`/api/words/draft/${draftId}/image/regenerate`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setAddDrafts((current) => current.map((item) => (item.id === draftId ? data.draft : item)));
+      setNotice("Картинка обновлена.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setAddBusy(false);
+      setAddBusyLabel("");
+    }
+  }
+
+  async function saveBatchDrafts() {
+    if (!addDrafts.length) {
+      return;
+    }
+    setAddBusy(true);
+    setAddBusyLabel("Сохраняем слова...");
+    try {
+      for (const draft of addDrafts) {
+        const translation = (batchTranslations[draft.id] || draft.translation || "").trim();
+        if (!translation) {
+          throw new Error(`Заполни перевод для ${draft.word}.`);
+        }
+        let currentDraft = draft;
+        if (translation !== (draft.translation || "").trim()) {
+          const confirmed = await api(`/api/words/draft/${draft.id}/translation`, {
+            method: "POST",
+            body: JSON.stringify({ translation })
+          });
+          currentDraft = confirmed.draft;
+        }
+        await api(`/api/words/draft/${currentDraft.id}/save`, {
+          method: "POST",
+          body: JSON.stringify({ use_image: batchUseImages[currentDraft.id] !== false })
+        });
+      }
+      setShowLibraryAdd(false);
+      setLibraryMode("cards");
+      setNotice(`Добавлено ${addDrafts.length} слов.`);
+      resetAddFlow();
+      await refreshAfterWordMutation();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setAddBusy(false);
+      setAddBusyLabel("");
+    }
   }
 
   async function handleCardAnswer(correct) {
@@ -619,6 +719,69 @@ function App() {
     }
   }
 
+  async function uploadSpeakingAttempt(blob) {
+    if (!speakingQuestion) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const extension = blob.type.includes("mp4") ? "mp4" : "webm";
+      const formData = new FormData();
+      formData.append("word_id", String(speakingQuestion.item.id));
+      formData.append("audio", new File([blob], `speech.${extension}`, { type: blob.type || "audio/webm" }));
+      const data = await api("/api/speaking/answer", {
+        method: "POST",
+        body: formData
+      });
+      setSpeakingResult(data);
+      setAuth((previous) => ({ ...previous, progress: data.progress }));
+      await loadDashboard();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startSpeakingRecording() {
+    if (!speakingQuestion || isRecording) {
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      speakingChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          speakingChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = async () => {
+        const blob = new Blob(speakingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        if (blob.size > 0) {
+          await uploadSpeakingAttempt(blob);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setSpeakingResult(null);
+      setIsRecording(true);
+    } catch (error) {
+      setNotice(error.message || "Не удалось включить микрофон.");
+    }
+  }
+
+  function stopSpeakingRecording() {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+      return;
+    }
+    mediaRecorderRef.current.stop();
+    setIsRecording(false);
+  }
+
   async function handleIrregularAnswer(answer) {
     if (!irregularQuestion) {
       return;
@@ -675,6 +838,44 @@ function App() {
     }
   }
 
+  async function preloadWordImage(wordId, version, attempts = 5) {
+    const src = `/api/image/${wordId}?v=${version}`;
+    for (let index = 0; index < attempts; index += 1) {
+      const loaded = await new Promise((resolve) => {
+        const image = new window.Image();
+        image.onload = () => resolve(true);
+        image.onerror = () => resolve(false);
+        image.src = src;
+      });
+      if (loaded) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+    return false;
+  }
+
+  async function regenerateWordImage(wordId) {
+    setRegeneratingWordId(wordId);
+    try {
+      const data = await api(`/api/words/${wordId}/image/regenerate`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      const version = `${data.item.updated_at}-${Date.now()}`;
+      await preloadWordImage(wordId, version);
+      setWords((current) => current.map((item) => (item.id === wordId ? data.item : item)));
+      setCardQueue((current) => current.map((item) => (item.id === wordId ? data.item : item)));
+      setWordImageVersions((current) => ({ ...current, [wordId]: version }));
+      setPreviewWordId(wordId);
+      setNotice("Изображение обновлено.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setRegeneratingWordId(null);
+    }
+  }
+
   async function saveSettings(event) {
     event.preventDefault();
     setBusy(true);
@@ -716,18 +917,25 @@ function App() {
 
   function renderToday() {
     const studiedToday = Boolean(auth.progress?.studied_today);
+    const learnedToday = auth.progress?.learned_today ?? 0;
 
     return (
       <div className="screen-stack">
         <section className="glass-card today-hero">
-          <div>
-            <p className="overline">Today</p>
-            <h2>Продолжай учить слова ✨</h2>
-            <p className="lead compact">
-              {studiedToday
-                ? "🔥 Ты уже занимался сегодня. Продолжай в том же духе."
-                : "🌱 Сегодня ты ещё не занимался. Давай начнём."}
-            </p>
+          <div className="today-hero-grid">
+            <div>
+              <p className="overline">Today</p>
+              <h2>Продолжай учить слова ✨</h2>
+              <p className="lead compact">
+                {studiedToday
+                  ? "🔥 Ты уже занимался сегодня. Продолжай в том же духе."
+                  : "🌱 Сегодня ты ещё не занимался. Давай начнём."}
+              </p>
+            </div>
+            <div className="today-side-stat">
+              <span>Сегодня выучено</span>
+              <strong>{learnedToday}</strong>
+            </div>
           </div>
           <button className="primary-button hero-button" type="button" onClick={() => openLearn("practice")}>
             ▶️ Продолжить
@@ -743,7 +951,7 @@ function App() {
           ))}
         </section>
 
-        <section className="glass-card compact-section">
+        <section className="glass-card compact-section today-achievements">
           <div className="section-head">
             <div>
               <p className="overline">Achievements</p>
@@ -819,7 +1027,7 @@ function App() {
                 </>
               ) : (
                 <button className="primary-button" type="button" onClick={() => setCardReveal(true)}>
-                  Показать ответ
+                  Показать перевод
                 </button>
               )}
             </div>
@@ -884,7 +1092,7 @@ function App() {
               </button>
             ) : null}
             {result ? (
-              <div className={result.correct ? "result-box good" : "result-box bad"}>
+              <div className={result.correct ? "result-box practice-result-box good" : "result-box practice-result-box bad"}>
                   <span>
                     {result.skipped
                       ? `Правильный ответ: ${result.correct_answer}`
@@ -946,6 +1154,62 @@ function App() {
     );
   }
 
+  function renderSpeaking() {
+    const statusClass = speakingResult?.status === "correct"
+      ? "result-box good"
+      : speakingResult?.status === "close"
+        ? "result-box"
+        : "result-box bad";
+
+    return (
+      <section className="glass-card learn-card">
+        <div className="section-head section-head-wrap">
+          <div>
+            <p className="overline">Speaking</p>
+            <h3>Говорение 🎙️</h3>
+          </div>
+        </div>
+        {speakingQuestion ? (
+          <div className="quiz-panel">
+            <div className="prompt-card">
+              <strong>{speakingQuestion.item.word}</strong>
+              <span>Прослушай пример и произнеси слово своим голосом.</span>
+            </div>
+            <audio controls src={`/api/audio/${speakingQuestion.item.id}`} className="audio-player" />
+            <div className="button-row">
+              <button
+                className={isRecording ? "secondary-button" : "primary-button"}
+                type="button"
+                onClick={isRecording ? stopSpeakingRecording : startSpeakingRecording}
+                disabled={busy || !canRecordSpeech}
+              >
+                {isRecording ? "⏹️ Остановить запись" : "🎙️ Начать запись"}
+              </button>
+            </div>
+            {speakingResult ? (
+              <div className={statusClass}>
+                <span>
+                  {speakingResult.message} Транскрибация: {speakingResult.transcript || "—"}.
+                </span>
+                <button className="secondary-button" type="button" onClick={loadSpeaking}>
+                  Дальше
+                </button>
+              </div>
+            ) : (
+              <div className="empty-state">
+                {!canRecordSpeech
+                  ? "В этом браузере запись голоса недоступна."
+                  : isRecording
+                    ? "Идёт запись. Нажми «Остановить запись» после произношения."
+                    : "Нажми на запись и произнеси слово."}
+              </div>
+            )}
+          </div>
+        ) : <div className="empty-state">No speaking items.</div>}
+      </section>
+    );
+  }
+
   function renderLearn() {
     return (
       <div className="screen-stack">
@@ -963,6 +1227,7 @@ function App() {
         </div>
         {learnMode === "practice" ? renderPractice(practiceQuestion, practiceResult, practiceMode, setPracticeResult, () => loadPractice(practiceMode), practiceSelection) : null}
         {learnMode === "listening" ? renderListening() : null}
+        {learnMode === "speaking" ? renderSpeaking() : null}
       </div>
     );
   }
@@ -1013,7 +1278,7 @@ function App() {
               <div className="word-item-head">
                 <div>
                   <strong>{item.word}</strong>
-                  <p>{item.example}</p>
+                  <p className="word-item-example">{item.example}</p>
                 </div>
                 <span className={item.is_learned ? "status-tag good" : "status-tag"}>
                   {item.is_learned ? "Выучено" : `${item.correct_count}/${settings?.repeat_threshold || 3}`}
@@ -1023,14 +1288,54 @@ function App() {
                 value={draftTranslation[item.id] ?? item.translation}
                 onChange={(event) => setDraftTranslation((current) => ({ ...current, [item.id]: event.target.value }))}
               />
-              <div className="button-row">
+              <div className="button-row word-item-actions word-item-actions-primary">
                 <button className="secondary-button" type="button" onClick={() => saveTranslation(item.id)}>
                   Сохранить
                 </button>
-                <button className="danger-button" type="button" onClick={() => deleteWord(item.id)}>
-                  Удалить
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setExpandedWordId((current) => current === item.id ? null : item.id);
+                    setPreviewWordId((current) => (current === item.id ? null : current));
+                  }}
+                >
+                  {expandedWordId === item.id ? "Скрыть" : "Ещё"}
                 </button>
               </div>
+              {expandedWordId === item.id ? (
+                <div className="word-item-extra">
+                  <div className="button-row word-item-actions">
+                    <button className="secondary-button" type="button" onClick={() => setPreviewWordId((current) => current === item.id ? null : item.id)}>
+                      {previewWordId === item.id ? "🫥 Скрыть фото" : "🖼 Фото"}
+                    </button>
+                    <button
+                      className={regeneratingWordId === item.id ? "secondary-button is-loading" : "secondary-button"}
+                      type="button"
+                      onClick={() => regenerateWordImage(item.id)}
+                      disabled={regeneratingWordId === item.id}
+                    >
+                      {regeneratingWordId === item.id ? "⏳ Обновляем..." : "♻️ Обновить фото"}
+                    </button>
+                    <button className="danger-button" type="button" onClick={() => deleteWord(item.id)}>
+                      Удалить
+                    </button>
+                  </div>
+                      {previewWordId === item.id ? (
+                    item.has_image ? (
+                      <div className="word-image-preview">
+                        <img
+                          key={wordImageVersions[item.id] || item.updated_at}
+                          src={`/api/image/${item.id}?v=${wordImageVersions[item.id] || item.updated_at}`}
+                          alt={item.word}
+                        />
+                      </div>
+                    ) : (
+                      <div className="empty-card">У этого слова пока нет изображения.</div>
+                    )
+                  ) : null}
+                </div>
+              ) : null}
             </article>
           ))}
           {!words.length ? <div className="glass-card empty-card">No words found.</div> : null}
@@ -1040,16 +1345,27 @@ function App() {
   }
 
   function renderProgress() {
+    const progressTopStats = stats.slice(0, 3);
+    const progressStreakStat = stats[3];
+
     return (
       <div className="screen-stack">
-        <section className="stats-grid">
-          {stats.map((item) => (
+        <section className="stats-grid progress-top-stats">
+          {progressTopStats.map((item) => (
             <article key={item.label} className="glass-card stat-card">
               <span>{item.label}</span>
               <strong>{item.value}</strong>
             </article>
           ))}
         </section>
+        {progressStreakStat ? (
+          <section className="stats-grid progress-secondary-stats">
+            <article className="glass-card stat-card">
+              <span>{progressStreakStat.label}</span>
+              <strong>{progressStreakStat.value}</strong>
+            </article>
+          </section>
+        ) : null}
         <section className="glass-card compact-section">
           <p className="overline">Rank</p>
           <div className="headline-row">
@@ -1073,8 +1389,8 @@ function App() {
             <h3>К чему стремиться ✨</h3>
           </div>
           <div className="simple-list">
-            {(auth.progress?.pending_achievements || []).length ? (
-              auth.progress.pending_achievements.map((item) => (
+            {(auth.progress?.pending_achievement_highlights || []).length ? (
+              auth.progress.pending_achievement_highlights.map((item) => (
                 <div key={item.text} className="simple-row">
                   <strong>{item.text}</strong>
                   <span>{item.current} / {item.target}</span>
@@ -1092,14 +1408,19 @@ function App() {
   function renderAddWords() {
     const isTranslationStep = addDraftStep === "confirm_translation";
     const isImageStep = addDraftStep === "confirm_image";
+    const isBatchReview = addDraftStep === "batch_review";
 
     return (
       <section className="glass-card compact-section add-wizard">
         <div className="section-head">
           <div>
             <p className="overline">Add</p>
-            <h3>Добавить слово ✨</h3>
-            <p className="lead compact">Сначала подтверждаем перевод, затем показываем одну подходящую картинку.</p>
+            <h3>{isBatchReview ? "Проверить слова ✨" : "Добавить слово ✨"}</h3>
+            <p className="lead compact">
+              {isBatchReview
+                ? "Проверь переводы и картинки для всех слов, затем сохрани всё разом."
+                : "Сначала подтверждаем перевод, затем показываем одну подходящую картинку."}
+            </p>
           </div>
           <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>
             Закрыть
@@ -1107,13 +1428,13 @@ function App() {
         </div>
         <div className="wizard-steps">
           <span className={addDraftStep === "input" ? "mode-pill active-pill" : "mode-pill"}>1. Слово</span>
-          <span className={isTranslationStep ? "mode-pill active-pill" : "mode-pill"}>2. Перевод</span>
-          <span className={isImageStep ? "mode-pill active-pill" : "mode-pill"}>3. Картинка</span>
+          <span className={isTranslationStep || isBatchReview ? "mode-pill active-pill" : "mode-pill"}>2. Перевод</span>
+          <span className={isImageStep || isBatchReview ? "mode-pill active-pill" : "mode-pill"}>3. Картинка</span>
         </div>
 
         {addBusyLabel ? <div className="inline-note status-note"><strong>{addBusyLabel}</strong></div> : null}
 
-        {!addDraft ? (
+        {!addDraft && !isBatchReview ? (
           <form className="stack-form" onSubmit={handleAddWords}>
             <textarea
               rows={4}
@@ -1125,6 +1446,50 @@ function App() {
               {addBusy ? "Обрабатываем..." : "Добавить слово"}
             </button>
           </form>
+        ) : null}
+
+        {isBatchReview && addDrafts.length ? (
+          <div className="word-list batch-draft-list">
+            {addDrafts.map((draft) => (
+              <article className="glass-card word-item" key={draft.id}>
+                <div className="word-item-head">
+                  <div>
+                    <strong>{draft.word}</strong>
+                    <p>{draft.example}</p>
+                  </div>
+                  <span className="status-tag">{draft.part_of_speech || "word"}</span>
+                </div>
+                <input
+                  value={batchTranslations[draft.id] ?? draft.translation}
+                  onChange={(event) => setBatchTranslations((current) => ({ ...current, [draft.id]: event.target.value }))}
+                />
+                {draft.has_image ? (
+                  <div className="word-image-preview">
+                    <img src={`/api/draft-image/${draft.id}?v=${draft.updated_at}`} alt={draft.word} />
+                  </div>
+                ) : (
+                  <div className="empty-card">Картинка пока не готова.</div>
+                )}
+                <div className="button-row">
+                  <button
+                    className={batchUseImages[draft.id] !== false ? "secondary-button active-inline" : "secondary-button"}
+                    type="button"
+                    onClick={() => setBatchUseImages((current) => ({ ...current, [draft.id]: current[draft.id] === false }))}
+                  >
+                    {batchUseImages[draft.id] !== false ? "✅ С фото" : "🚫 Без фото"}
+                  </button>
+                  <button className="secondary-button" type="button" onClick={() => regenerateBatchDraftImage(draft.id)} disabled={addBusy}>
+                    ♻️ Другое фото
+                  </button>
+                </div>
+              </article>
+            ))}
+            <div className="button-row batch-save-row">
+              <button className="primary-button" type="button" onClick={saveBatchDrafts} disabled={addBusy}>
+                {addBusy ? "Сохраняем..." : "Сохранить всё"}
+              </button>
+            </div>
+          </div>
         ) : null}
 
         {addDraft && isTranslationStep ? (

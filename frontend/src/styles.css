@@ -416,6 +416,40 @@ h3 {
   gap: 14px;
 }
 
+.today-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 16px;
+  align-items: start;
+}
+
+.today-side-stat {
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
+}
+
+.today-side-stat span {
+  display: block;
+  color: var(--ink-soft);
+}
+
+.today-side-stat strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 2rem;
+  font-family: "Unbounded", sans-serif;
+}
+
+.today-achievements .section-head {
+  align-items: center;
+}
+
+.today-achievements .secondary-button {
+  min-height: 42px;
+}
+
 .stats-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -424,6 +458,14 @@ h3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+.progress-top-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.progress-secondary-stats {
+  grid-template-columns: 1fr;
 }
 
 .stat-card {
@@ -585,6 +627,13 @@ h3 {
   color: var(--danger);
 }
 
+.practice-result-box {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 12px 14px;
+}
+
 .filters {
   display: grid;
   grid-template-columns: 1fr 180px;
@@ -607,6 +656,70 @@ h3 {
 .word-item {
   display: grid;
   gap: 14px;
+}
+
+.word-item-example {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.word-item-extra {
+  display: grid;
+  gap: 12px;
+}
+
+.word-image-preview {
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(11, 115, 200, 0.16);
+  background: rgba(255, 255, 255, 0.78);
+  aspect-ratio: 16 / 9;
+}
+
+.word-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.word-item-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.word-item-actions-primary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.word-item-actions > * {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
+  padding: 12px 14px;
+}
+
+.batch-draft-list {
+  grid-template-columns: 1fr;
+}
+
+.batch-save-row {
+  justify-content: flex-end;
+}
+
+.active-inline {
+  color: white;
+  background: linear-gradient(180deg, #1490ef, #0867c0);
+}
+
+.is-loading {
+  opacity: 0.7;
+  cursor: wait;
 }
 
 .button-row {
@@ -702,6 +815,10 @@ textarea {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .today-hero-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -752,6 +869,17 @@ textarea {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .quiz-panel {
+    padding-bottom: 84px;
+  }
+
+  .practice-result-box {
+    position: sticky;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    z-index: 8;
+    box-shadow: 0 10px 24px rgba(1, 21, 43, 0.16);
   }
 
   .card-nav-row {
@@ -812,6 +940,50 @@ textarea {
 }
 
 @media (max-width: 460px) {
+  .today-hero,
+  .today-achievements {
+    gap: 10px;
+  }
+
+  .today-hero {
+    padding: 14px;
+  }
+
+  .today-hero h2 {
+    font-size: 1.08rem;
+    line-height: 1.05;
+    margin-bottom: 6px;
+  }
+
+  .today-hero .lead.compact {
+    font-size: 0.88rem;
+    line-height: 1.34;
+  }
+
+  .today-hero-grid {
+    gap: 10px;
+  }
+
+  .today-side-stat {
+    padding: 12px 14px;
+    border-radius: 18px;
+  }
+
+  .today-side-stat span {
+    font-size: 0.8rem;
+  }
+
+  .today-side-stat strong {
+    margin-top: 4px;
+    font-size: 1.55rem;
+  }
+
+  .hero-button {
+    min-height: 42px;
+    padding: 0 14px;
+    font-size: 0.9rem;
+  }
+
   .app-title {
     font-size: 0.88rem;
   }
@@ -827,7 +999,8 @@ textarea {
   }
 
   .main-segment {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .more-segment {
@@ -838,9 +1011,139 @@ textarea {
     grid-template-columns: 1fr 1fr;
   }
 
+  .main-segment .segment-button {
+    min-height: 42px;
+    padding: 0 8px;
+    font-size: 0.76rem;
+    line-height: 1.05;
+    text-align: center;
+  }
+
+  .quiz-panel {
+    padding-bottom: 80px;
+  }
+
+  .practice-result-box {
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 12px;
+  }
+
+  .header-action {
+    min-width: 108px;
+    min-height: 42px;
+    padding: 0 10px;
+    font-size: 0.8rem;
+    gap: 6px;
+  }
+
+  .header-action-mark {
+    font-size: 1rem;
+  }
+
+  .learn-card {
+    gap: 12px;
+  }
+
+  .card-nav-row {
+    gap: 8px;
+  }
+
+  .nav-arrow {
+    min-width: 42px;
+    min-height: 42px;
+    font-size: 1rem;
+  }
+
+  .study-layout {
+    gap: 12px;
+  }
+
+  .study-main,
+  .study-side {
+    gap: 10px;
+  }
+
+  .card-visual {
+    border-radius: 20px;
+    aspect-ratio: 16 / 8.4;
+  }
+
+  .study-meta {
+    font-size: 0.8rem;
+  }
+
+  .study-word {
+    font-size: clamp(1.55rem, 7vw, 2.15rem);
+    line-height: 0.98;
+  }
+
+  .transcription,
+  .example {
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+
+  .audio-player {
+    height: 40px;
+  }
+
+  .study-side {
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .study-side strong {
+    font-size: 1rem;
+  }
+
+  .word-item {
+    gap: 12px;
+  }
+
+  .word-item strong {
+    font-size: 1.08rem;
+  }
+
+  .word-item-example {
+    font-size: 0.84rem;
+    line-height: 1.32;
+  }
+
+  .word-item input {
+    padding: 12px 14px;
+  }
+
+  .word-item-actions > * {
+    min-height: 42px;
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+
+  .study-hint {
+    font-size: 0.8rem;
+    line-height: 1.3;
+  }
+
   .today-stats-row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .progress-top-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .progress-top-stats .stat-card {
+    padding: 12px 10px;
+  }
+
+  .progress-top-stats .stat-card strong {
+    font-size: 1.24rem;
+  }
+
+  .progress-top-stats .stat-card span {
+    font-size: 0.78rem;
   }
 
   .today-stats-row .stat-card {
@@ -853,6 +1156,32 @@ textarea {
 
   .today-stats-row .stat-card span {
     font-size: 0.68rem;
+  }
+
+  .today-achievements {
+    padding: 14px;
+  }
+
+  .today-achievements .section-head h3 {
+    font-size: 1.04rem;
+  }
+
+  .today-achievements .secondary-button {
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 0.78rem;
+  }
+
+  .today-achievements .achievement-grid {
+    gap: 9px;
+    margin-top: 4px;
+  }
+
+  .today-achievements .achievement-pill {
+    min-height: 40px;
+    padding: 10px 12px;
+    font-size: 0.84rem;
+    line-height: 1.15;
   }
 
   .nav-label {
@@ -892,5 +1221,112 @@ textarea {
 
   .nav-label {
     font-size: 0.58rem;
+  }
+
+  .today-hero {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .today-hero h2 {
+    font-size: 1.02rem;
+  }
+
+  .today-hero .lead.compact {
+    font-size: 0.84rem;
+    line-height: 1.28;
+  }
+
+  .today-side-stat {
+    padding: 10px 12px;
+  }
+
+  .today-side-stat strong {
+    font-size: 1.4rem;
+  }
+
+  .hero-button {
+    min-height: 38px;
+    font-size: 0.84rem;
+  }
+
+  .today-achievements {
+    padding: 12px;
+  }
+
+  .today-achievements .section-head h3 {
+    font-size: 1rem;
+  }
+
+  .today-achievements .achievement-grid {
+    gap: 7px;
+    margin-top: 4px;
+  }
+
+  .today-achievements .achievement-pill {
+    min-height: 36px;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+  }
+
+  .header-action {
+    min-height: 38px;
+    min-width: 98px;
+    font-size: 0.76rem;
+  }
+
+  .learn-card {
+    gap: 10px;
+  }
+
+  .card-visual {
+    aspect-ratio: 16 / 8;
+  }
+
+  .study-main,
+  .study-side {
+    gap: 8px;
+  }
+
+  .study-word {
+    font-size: clamp(1.45rem, 6vw, 1.95rem);
+  }
+
+  .transcription,
+  .example {
+    font-size: 0.8rem;
+    line-height: 1.28;
+  }
+
+  .audio-player {
+    height: 36px;
+  }
+
+  .study-side {
+    padding: 12px;
+  }
+
+  .nav-arrow {
+    min-width: 38px;
+    min-height: 38px;
+  }
+
+  .word-item {
+    gap: 10px;
+  }
+
+  .word-item-example {
+    font-size: 0.8rem;
+    line-height: 1.25;
+  }
+
+  .word-item input {
+    padding: 10px 12px;
+  }
+
+  .word-item-actions > * {
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: 0.84rem;
   }
 }

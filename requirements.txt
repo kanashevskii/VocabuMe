@@ -6,4 +6,5 @@ openai
 edge-tts
 deep-translator
 gtts
+Pillow
 tzdata

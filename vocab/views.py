@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import tempfile
 from datetime import time as dt_time
 
 from decouple import config
@@ -11,12 +13,13 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .models import AddWordDraft, TelegramUser, VocabularyItem
-from .openai_utils import generate_word_data
+from .openai_utils import generate_word_data, transcribe_speech_file
 from .services import (
     build_user_progress,
     build_choice_question,
     build_irregular_question,
     build_listening_question,
+    build_speaking_question,
     consume_web_login_token,
     create_word_draft,
     create_web_login_token,
@@ -30,12 +33,14 @@ from .services import (
     list_irregular_page,
     parse_word_batch,
     refresh_draft_language_data,
+    regenerate_word_image,
     resolve_shared_image_path,
     serialize_user,
     serialize_draft,
     serialize_word,
     submit_choice_answer,
     submit_listening_answer,
+    evaluate_speaking_answer,
     update_learning_streak,
     update_irregular_progress,
     update_word_progress,
@@ -290,7 +295,46 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
     if not entries:
         return _json_error("Add one word or phrase.", status=400)
     if len(entries) > 1:
-        return _json_error("Add one word at a time in the app.", status=400)
+        missing_translation = [entry.word for entry in entries if not entry.translation_hint]
+        if missing_translation:
+            return _json_error(
+                "For multiple lines, provide a translation on every line. Add these one by one: "
+                + ", ".join(missing_translation[:5]),
+                status=400,
+            )
+
+        drafts = []
+        skipped = []
+        failed = []
+
+        for entry in entries:
+            if word_already_exists(user, entry.word):
+                skipped.append({"word": entry.word, "reason": "duplicate"})
+                continue
+
+            generated = generate_word_data(entry.word, translation_hint=entry.translation_hint)
+            if not generated:
+                failed.append({"word": entry.word, "reason": "generation_failed"})
+                continue
+
+            try:
+                draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
+                if draft.translation_confirmed:
+                    draft = ensure_draft_image(draft)
+                drafts.append(serialize_draft(draft))
+            except Exception:
+                failed.append({"word": entry.word, "reason": "save_failed"})
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "batch_review": True,
+                "drafts": drafts,
+                "skipped": skipped,
+                "failed": failed,
+                "progress": build_user_progress(user),
+            }
+        )
 
     entry = entries[0]
     if word_already_exists(user, entry.word):
@@ -427,6 +471,21 @@ def word_detail(request: HttpRequest, word_id: int) -> JsonResponse:
     return JsonResponse({"ok": True, "item": serialize_word(item)})
 
 
+@require_POST
+def word_image_regenerate(request: HttpRequest, word_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    try:
+        item = VocabularyItem.objects.get(id=word_id, user=user)
+    except VocabularyItem.DoesNotExist:
+        return _json_error("Word not found.", status=404)
+
+    item = regenerate_word_image(item)
+    return JsonResponse({"ok": True, "item": serialize_word(item)})
+
+
 @require_http_methods(["GET", "POST"])
 def settings_view(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
@@ -532,6 +591,53 @@ def listening_answer(request: HttpRequest) -> JsonResponse:
         return _json_error("Invalid listening answer payload.")
 
     return JsonResponse({"ok": True, **submit_listening_answer(user, word_id, answer, mode)})
+
+
+@require_GET
+def speaking_question(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    question = build_speaking_question(user)
+    if question is None:
+        return JsonResponse({"ok": True, "empty": True})
+    return JsonResponse({"ok": True, "question": question})
+
+
+@require_POST
+def speaking_answer(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    try:
+        word_id = int(request.POST.get("word_id"))
+    except (TypeError, ValueError):
+        return _json_error("Invalid speaking payload.")
+
+    audio_file = request.FILES.get("audio")
+    if audio_file is None:
+        return _json_error("Audio file is required.")
+
+    suffix = os.path.splitext(audio_file.name or "")[1] or ".webm"
+    temp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            for chunk in audio_file.chunks():
+                temp_file.write(chunk)
+            temp_path = temp_file.name
+
+        transcript = transcribe_speech_file(temp_path)
+        return JsonResponse({"ok": True, **evaluate_speaking_answer(user, word_id, transcript)})
+    except Exception as exc:
+        return _json_error(f"Speech recognition failed: {exc}", status=400)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 @require_GET

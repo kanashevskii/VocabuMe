@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DRAFT_IMAGE_DIR = PROJECT_ROOT / "media" / "draft_images"
 TEXT_MODEL = "gpt-5-mini"
 IMAGE_MODEL = "gpt-image-1.5"
+TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
 
 
 def detect_language(text):
@@ -136,7 +137,6 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
         translation_resp = client.chat.completions.create(
             model=TEXT_MODEL,
             messages=[{"role": "user", "content": prompt_translate}],
-            temperature=0.2,
         )
         word = _strip_code_fences(translation_resp.choices[0].message.content)
 
@@ -152,7 +152,6 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
                 messages=[
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.15,
             )
             content = response.choices[0].message.content.strip()
             parsed = _parse_model_json(content)
@@ -206,7 +205,6 @@ Rules:
         response = client.chat.completions.create(
             model=TEXT_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
         )
         content = response.choices[0].message.content.strip()
         parsed = _parse_model_json(content)
@@ -230,3 +228,14 @@ def generate_card_image(prompt: str, slug: str) -> str:
     image_b64 = response.data[0].b64_json
     destination.write_bytes(base64.b64decode(image_b64))
     return str(destination.relative_to(PROJECT_ROOT))
+
+
+def transcribe_speech_file(audio_path: str) -> str:
+    with open(audio_path, "rb") as audio_file:
+        response = client.audio.transcriptions.create(
+            model=TRANSCRIBE_MODEL,
+            file=audio_file,
+            language="en",
+        )
+    text = getattr(response, "text", "") or ""
+    return text.strip()

@@ -25,6 +25,10 @@ class TelegramUser(models.Model):
     consecutive_days = models.PositiveIntegerField(default=0)
     last_study_date = models.DateField(null=True, blank=True)
     irregular_correct = models.PositiveIntegerField(default=0)
+    practice_correct = models.PositiveIntegerField(default=0)
+    listening_correct = models.PositiveIntegerField(default=0)
+    speaking_correct = models.PositiveIntegerField(default=0)
+    review_correct = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return f"{self.username or 'User'} ({self.chat_id})"
@@ -40,6 +44,7 @@ class VocabularyItem(models.Model):
     example_translation = models.TextField(blank=True, default="")
     correct_count = models.IntegerField(default=0)
     is_learned = models.BooleanField(default=False)
+    learned_at = models.DateTimeField(null=True, blank=True)
     part_of_speech = models.CharField(max_length=50, default="unknown")
     image_path = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
