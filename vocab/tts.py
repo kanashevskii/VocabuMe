@@ -14,30 +14,51 @@ except ImportError:  # pragma: no cover - depends on runtime env
 AUDIO_DIR = "media/audio"
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
+VOICE_BY_LANGUAGE = {
+    "en": ["en-US-AriaNeural", "en-US-JennyNeural", "en-GB-RyanNeural"],
+    "ka": ["ka-GE-EkaNeural", "ka-GE-GiorgiNeural"],
+}
+
+
+def normalize_tts_language(text: str, language_code: str | None = None) -> str:
+    value = (language_code or "").strip().lower()
+    if value in VOICE_BY_LANGUAGE:
+        return value
+    if re.search(r"[\u10A0-\u10FF]", text):
+        return "ka"
+    return "en"
+
+
 def sanitize_filename(text: str) -> str:
     """Sanitize a string so it's safe for filenames."""
-    return re.sub(r"[^a-zA-Z0-9_]", "_", text.strip())[:80]
+    normalized = re.sub(r"\s+", "_", text.strip(), flags=re.UNICODE)
+    normalized = re.sub(r"[^\w]", "_", normalized, flags=re.UNICODE)
+    normalized = normalized.strip("_")[:40] or "audio"
+    return normalized
 
-def get_plain_path(text: str) -> str:
+def get_plain_path(text: str, language_code: str | None = None) -> str:
     """Return path for a TTS file named after the text."""
-    filename = sanitize_filename(text) + ".mp3"
+    lang = normalize_tts_language(text, language_code)
+    suffix = hashlib.sha1(f"{lang}:{text}".encode("utf-8")).hexdigest()[:10]
+    filename = f"{lang}_{sanitize_filename(text)}_{suffix}.mp3"
     return os.path.join(AUDIO_DIR, filename)
 
 
-def get_hashed_path(text: str) -> str:
+def get_hashed_path(text: str, language_code: str | None = None) -> str:
     """Return hashed path for a temporary TTS file."""
-    hashed = hashlib.sha1(text.encode("utf-8")).hexdigest()
+    lang = normalize_tts_language(text, language_code)
+    hashed = hashlib.sha1(f"{lang}:{text}".encode("utf-8")).hexdigest()
     filename = f"{hashed}.mp3"
     return os.path.join(AUDIO_DIR, filename)
 
-def get_audio_path(text: str) -> str:
+def get_audio_path(text: str, language_code: str | None = None) -> str:
     """
     Return path for a TTS file.
     - Primary: sanitized word-based filename to enable reuse.
     - Fallback: hashed filename for legacy files; we check both.
     """
-    plain_path = get_plain_path(text)
-    hashed_path = get_hashed_path(text)
+    plain_path = get_plain_path(text, language_code=language_code)
+    hashed_path = get_hashed_path(text, language_code=language_code)
     if os.path.exists(plain_path):
         return plain_path
     if os.path.exists(hashed_path):
@@ -51,7 +72,7 @@ def _is_valid_audio(path: str) -> bool:
         return False
 
 
-async def generate_tts_audio(text: str) -> str:
+async def generate_tts_audio(text: str, language_code: str | None = None) -> str:
     """
     Generate or return the path of a TTS file named after the text.
     gTTS — основной, edge-tts — резерв.
@@ -59,8 +80,9 @@ async def generate_tts_audio(text: str) -> str:
     if not text or not text.strip():
         raise ValueError("Empty text for TTS")
 
-    plain_path = get_plain_path(text)
-    hashed_path = get_hashed_path(text)
+    lang = normalize_tts_language(text, language_code)
+    plain_path = get_plain_path(text, language_code=lang)
+    hashed_path = get_hashed_path(text, language_code=lang)
     if not os.path.exists(plain_path) and os.path.exists(hashed_path):
         os.rename(hashed_path, plain_path)
 
@@ -72,7 +94,7 @@ async def generate_tts_audio(text: str) -> str:
     last_err = None
     if gTTS is not None:
         try:
-            tts = gTTS(text)
+            tts = gTTS(text, lang=lang)
             tts.save(plain_path)
             if _is_valid_audio(plain_path):
                 logging.info("gTTS generated audio for %s", text)
@@ -85,7 +107,7 @@ async def generate_tts_audio(text: str) -> str:
 
     # Fallback: edge-tts с несколькими голосами
     attempts = 2
-    voices = ["en-US-AriaNeural", "en-US-JennyNeural", "en-GB-RyanNeural"]
+    voices = VOICE_BY_LANGUAGE.get(lang, VOICE_BY_LANGUAGE["en"])
     for voice in voices:
         for _ in range(attempts):
             try:
@@ -114,9 +136,9 @@ async def generate_tts_audio(text: str) -> str:
     raise ValueError(f"Failed to generate audio for {text}")
 
 
-async def generate_temp_audio(text: str) -> str:
+async def generate_temp_audio(text: str, language_code: str | None = None) -> str:
     """Return a temporary hashed copy of the TTS file for sending."""
-    base_path = await generate_tts_audio(text)
-    hashed_path = get_hashed_path(text)
+    base_path = await generate_tts_audio(text, language_code=language_code)
+    hashed_path = get_hashed_path(text, language_code=language_code)
     shutil.copy(base_path, hashed_path)
     return hashed_path

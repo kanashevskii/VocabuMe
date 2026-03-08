@@ -67,6 +67,14 @@ function formatLearnResultLabel(learnQuestion, learnResult) {
   return `Правильный ответ: ${correctAnswer}`;
 }
 
+function mergeItemsById(current, incoming) {
+  if (!incoming?.length) {
+    return current;
+  }
+  const seen = new Set(incoming.map((item) => item.id));
+  return [...incoming, ...current.filter((item) => !seen.has(item.id))];
+}
+
 function App() {
   const [config, setConfig] = useState({ bot_username: "", webapp_url: "" });
   const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null, progress: null });
@@ -833,6 +841,8 @@ function App() {
           selected_words: selected,
         }),
       });
+      setWords((current) => mergeItemsById(current, data.created || []));
+      setCardQueue((current) => mergeItemsById(current, data.created || []));
       setPacks(data.packs || []);
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       setShowLibraryAdd(false);
@@ -1792,8 +1802,8 @@ function App() {
         : "stare\nfigure out\ntravel - путешествие";
     const addWordHint =
       activeStudiedLanguage === "ka"
-        ? `Вставляй по одному слову или фразе на грузинском на строку. Если нужно, можно сразу подсказать перевод через дефис. За один раз можно добавить до ${MAX_ADD_BATCH_WORDS} слов или фраз.`
-        : `Вставляй по одному слову или фразе на английском на строку. Если нужно, можно сразу подсказать перевод через дефис. За один раз можно добавить до ${MAX_ADD_BATCH_WORDS} слов или фраз.`;
+        ? "По одному грузинскому слову или фразе на строку. Перевод можно сразу указать через дефис."
+        : "По одному английскому слову или фразе на строку. Перевод можно сразу указать через дефис.";
     const selectedPack = packs.find((pack) => pack.id === selectedPackId) || packs[0] || null;
     const selectedLevel = selectedPack?.levels.find((level) => level.id === selectedPackLevelId) || selectedPack?.levels?.[0] || null;
     const selectedWordCount = selectedLevel
@@ -1809,7 +1819,7 @@ function App() {
             <p className="lead compact">
               {isBatchReview
                 ? "Проверь переводы. Фото загружаются автоматически и не тормозят добавление."
-                : `Можно вставить до ${MAX_ADD_BATCH_WORDS} слов или фраз на текущем языке обучения. Подтверждаем перевод, а фото загружается автоматически в фоне.`}
+                : `До ${MAX_ADD_BATCH_WORDS} слов или фраз за раз. Перевод подтвердим, фото загрузится автоматически.`}
             </p>
           </div>
           <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>

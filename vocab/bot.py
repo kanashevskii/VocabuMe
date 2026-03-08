@@ -790,7 +790,9 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # отправляем аудио (не генерируем повторно, если уже есть)
     try:
-        audio_path = await generate_tts_audio(word_obj.word)
+        audio_path = await generate_tts_audio(
+            word_obj.word, language_code=getattr(word_obj, "course_code", None)
+        )
         with open(audio_path, "rb") as audio:
             if update.message:
                 await update.message.reply_audio(audio)
@@ -1176,7 +1178,9 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     example_text = word_obj.example or ""
 
     try:
-        audio_path = await generate_tts_audio(word_obj.word)
+        audio_path = await generate_tts_audio(
+            word_obj.word, language_code=getattr(word_obj, "course_code", None)
+        )
         with open(audio_path, "rb") as audio:
             if update.message:
                 await update.message.reply_audio(audio)
@@ -1372,7 +1376,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 🗣️ Озвучка пропущенного
         try:
-            audio_path = await generate_tts_audio(item.word)
+            audio_path = await generate_tts_audio(
+                item.word, language_code=getattr(item, "course_code", None)
+            )
             with open(audio_path, "rb") as audio:
                 await query.message.reply_audio(audio)
         except Exception as e:
@@ -1417,7 +1423,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 🗣️ Озвучка после ответа
         try:
-            audio_path = await generate_tts_audio(item.word)
+            audio_path = await generate_tts_audio(
+                item.word, language_code=getattr(item, "course_code", None)
+            )
             with open(audio_path, "rb") as audio:
                 await query.message.reply_audio(audio)
         except Exception as e:
@@ -2431,7 +2439,9 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
         word_obj.word,
         word_obj.id,
     )
-    audio_path = await generate_temp_audio(word_obj.word)
+    audio_path = await generate_temp_audio(
+        word_obj.word, language_code=getattr(word_obj, "course_code", None)
+    )
     with open(audio_path, "rb") as audio:
         await safe_reply(update, "🔊 Слушай внимательно:")
         if update.message:

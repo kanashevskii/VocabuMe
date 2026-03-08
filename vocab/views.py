@@ -35,6 +35,7 @@ from .services import (
     finalize_word_draft,
     get_draft_image_file,
     get_telegram_user_by_id,
+    get_active_course_code,
     get_user_draft,
     get_user_settings_payload,
     get_user_word,
@@ -643,9 +644,12 @@ def packs_prepare(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
-    for pack in list_word_packs():
+    active_course = get_active_course_code(user)
+    for pack in list_word_packs(user):
         for level in pack["levels"]:
-            ensure_pack_preparation(pack["id"], level["id"])
+            ensure_pack_preparation(
+                pack["id"], level["id"], course_code=active_course
+            )
     return JsonResponse({"ok": True})
 
 
@@ -878,9 +882,11 @@ def word_audio(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
     from .tts import get_audio_path, generate_tts_audio
 
     try:
-        audio_path = get_audio_path(item.word)
+        audio_path = get_audio_path(item.word, language_code=item.course_code)
         if not audio_path or not os.path.exists(audio_path):
-            audio_path = asyncio.run(generate_tts_audio(item.word))
+            audio_path = asyncio.run(
+                generate_tts_audio(item.word, language_code=item.course_code)
+            )
     except Exception:
         logger.exception(
             "Audio generation failed for user=%s word_id=%s", user.id, word_id
