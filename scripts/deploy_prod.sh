@@ -61,4 +61,4 @@ rsync -az --delete \
   "$ROOT_DIR/" "${SSH_USER}@${SSH_HOST}:${REMOTE_PATH}/"
 
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" \
-  "sudo chown -R eduard:eduard '${REMOTE_PATH}' && cd '${REMOTE_PATH}' && if command -v python3 >/dev/null 2>&1; then python3 manage.py migrate --noinput; elif command -v python >/dev/null 2>&1; then python manage.py migrate --noinput; else echo 'Python interpreter not found on remote host' >&2; exit 127; fi && sudo systemctl restart '${SYSTEMD_SERVICE}' && sudo systemctl is-active '${SYSTEMD_SERVICE}'"
+  "sudo chown -R eduard:eduard '${REMOTE_PATH}' && cd '${REMOTE_PATH}' && if [ -x .venv/bin/python ]; then .venv/bin/python manage.py migrate --noinput; elif [ -x venv/bin/python ]; then venv/bin/python manage.py migrate --noinput; elif command -v python3 >/dev/null 2>&1; then python3 manage.py migrate --noinput; elif command -v python >/dev/null 2>&1; then python manage.py migrate --noinput; else echo 'Python interpreter not found on remote host' >&2; exit 127; fi && sudo systemctl restart '${SYSTEMD_SERVICE}' && sudo systemctl is-active '${SYSTEMD_SERVICE}'"
