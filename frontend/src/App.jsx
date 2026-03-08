@@ -2161,13 +2161,13 @@ function App() {
                       {previewWordId === item.id ? "🫥 Скрыть фото" : "🖼 Фото"}
                     </button>
                     <button
-                      className={regeneratingWordId === item.id ? "secondary-button is-loading" : "secondary-button"}
+                      className={regeneratingWordId === item.id || item.image_generation_in_progress ? "secondary-button is-loading" : "secondary-button"}
                       type="button"
                       onClick={() => regenerateWordImage(item.id)}
-                      disabled={regeneratingWordId === item.id || (item.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
+                      disabled={regeneratingWordId === item.id || item.image_generation_in_progress || (item.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
                     >
-                      {regeneratingWordId === item.id
-                        ? "⏳ Обновляем..."
+                      {regeneratingWordId === item.id || item.image_generation_in_progress
+                        ? "⏳ Генерируем..."
                         : (item.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS
                           ? "Лимит фото"
                           : "♻️ Обновить фото"}
