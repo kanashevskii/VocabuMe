@@ -66,13 +66,52 @@ TRAVEL_PACKS = [
     }
 ]
 
+GEORGIAN_TEST_PACKS = [
+    {
+        "id": "georgian_starter",
+        "title": "Базовый грузинский",
+        "emoji": "🇬🇪",
+        "description": "Тестовый набор из самых базовых слов и фраз для первых дней.",
+        "levels": [
+            {
+                "id": "starter",
+                "title": "Первые 10",
+                "description": "Приветствие, вежливость и простые бытовые фразы.",
+                "items": [
+                    {"word": "გამარჯობა", "translation": "привет"},
+                    {"word": "ნახვამდის", "translation": "пока"},
+                    {"word": "როგორ ხარ?", "translation": "как дела?"},
+                    {"word": "მადლობა", "translation": "спасибо"},
+                    {"word": "გთხოვ", "translation": "пожалуйста"},
+                    {"word": "დიახ", "translation": "да"},
+                    {"word": "არა", "translation": "нет"},
+                    {"word": "ბოდიში", "translation": "извините"},
+                    {"word": "არ მესმის", "translation": "я не понимаю"},
+                    {"word": "რა ღირს?", "translation": "сколько стоит?"},
+                ],
+            }
+        ],
+    }
+]
 
-def get_pack_definitions() -> list[dict]:
-    return TRAVEL_PACKS
+COURSE_PACKS = {
+    "en": TRAVEL_PACKS,
+    "ka": GEORGIAN_TEST_PACKS,
+}
+
+
+def get_pack_definitions(course_code: str | None = None) -> list[dict]:
+    if course_code:
+        return COURSE_PACKS.get(course_code, [])
+
+    all_packs: list[dict] = []
+    for packs in COURSE_PACKS.values():
+        all_packs.extend(packs)
+    return all_packs
 
 
 def get_pack(pack_id: str) -> dict | None:
-    for pack in TRAVEL_PACKS:
+    for pack in get_pack_definitions():
         if pack["id"] == pack_id:
             return pack
     return None

@@ -162,7 +162,7 @@ def get_or_create_user_course_progress(
 
 def get_course_pack_definitions(course_code: str | None = None) -> list[dict]:
     active_course = normalize_course_code(course_code)
-    return get_pack_definitions() if active_course == "en" else []
+    return get_pack_definitions(active_course)
 
 
 def get_course_progress_stats(user: TelegramUser, course_code: str | None = None) -> dict:

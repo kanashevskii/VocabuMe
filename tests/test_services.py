@@ -23,6 +23,7 @@ from vocab.services import (
     get_completed_exercise_types,
     get_exercise_goal,
     get_or_create_user_course_progress,
+    list_word_packs,
     get_pending_exercise_types,
     get_required_exercise_types,
     get_session_question_limit,
@@ -695,3 +696,17 @@ def test_build_user_progress_is_isolated_per_course():
     assert payload_en["total"] == 1
     assert payload_en["learned"] == 1
     assert payload_en["practice_correct"] == 2
+
+
+@pytest.mark.django_db
+def test_list_word_packs_returns_georgian_starter_for_ka_course():
+    user = TelegramUser.objects.create(
+        chat_id=1032, username="tester", active_studied_language="ka"
+    )
+
+    packs = list_word_packs(user)
+
+    assert len(packs) == 1
+    assert packs[0]["id"] == "georgian_starter"
+    assert packs[0]["levels"][0]["id"] == "starter"
+    assert len(packs[0]["levels"][0]["items"]) == 10
