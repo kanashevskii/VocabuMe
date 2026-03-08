@@ -310,6 +310,7 @@ function App() {
   const [previewWordId, setPreviewWordId] = useState(null);
   const [expandedWordId, setExpandedWordId] = useState(null);
   const [wordImageVersions, setWordImageVersions] = useState({});
+  const [wordImageErrors, setWordImageErrors] = useState({});
   const [regeneratingWordId, setRegeneratingWordId] = useState(null);
   const [addText, setAddText] = useState("");
   const [packs, setPacks] = useState([]);
@@ -1582,6 +1583,7 @@ function App() {
 
   async function regenerateWordImage(wordId) {
     setRegeneratingWordId(wordId);
+    setWordImageErrors((current) => ({ ...current, [wordId]: false }));
     try {
       const data = await api(`/api/words/${wordId}/image/regenerate`, {
         method: "POST",
@@ -2182,16 +2184,22 @@ function App() {
                     </div>
                   ) : null}
                   {previewWordId === item.id ? (
-                    item.has_image ? (
+                    item.has_image && !wordImageErrors[item.id] ? (
                       <div className="word-image-preview">
                         <img
                           key={wordImageVersions[item.id] || item.updated_at}
                           src={`/api/image/${item.id}?v=${wordImageVersions[item.id] || item.updated_at}`}
                           alt={item.word}
+                          onLoad={() => setWordImageErrors((current) => ({ ...current, [item.id]: false }))}
+                          onError={() => setWordImageErrors((current) => ({ ...current, [item.id]: true }))}
                         />
                       </div>
                     ) : (
-                      <div className="empty-card">У этого слова пока нет изображения.</div>
+                      <div className="empty-card">
+                        {item.image_generation_in_progress
+                          ? "Новое изображение ещё готовится."
+                          : "Изображение недоступно. Попробуй обновить фото ещё раз."}
+                      </div>
                     )
                   ) : null}
                 </div>
