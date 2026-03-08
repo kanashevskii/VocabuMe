@@ -138,6 +138,8 @@ function App() {
   const deferredSearch = useDeferredValue(search);
 
   const webApp = window.Telegram?.WebApp;
+  const needsStudiedLanguageSelection =
+    auth.authenticated && auth.user && !auth.user.has_selected_studied_language;
   const isMiniApp = Boolean(webApp?.initData);
   const canRecordSpeech = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 
@@ -1291,6 +1293,28 @@ function App() {
     }
   }
 
+  async function selectStudiedLanguage(courseCode) {
+    setBusy(true);
+    try {
+      await api("/api/settings", {
+        method: "POST",
+        body: JSON.stringify({ active_studied_language: courseCode }),
+      });
+      setPrimaryTab("today");
+      await Promise.all([
+        loadDashboard(),
+        loadLearningData(),
+        loadPacks(),
+        loadIrregularQuestion(),
+      ]);
+      setNotice("Язык обучения сохранен.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openLearn() {
     if (showLibraryAdd) {
       void closeAddWords();
@@ -2179,6 +2203,37 @@ function App() {
             onWebEmailChange={setWebEmail}
             onWebPasswordChange={setWebPassword}
           />
+        </main>
+      </div>
+    );
+  }
+
+  if (needsStudiedLanguageSelection) {
+    return (
+      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
+        <main className="auth-stage">
+          {notice ? <div className="notice">{notice.message}</div> : null}
+          <section className="glass-card compact-section">
+            <p className="overline">Первый запуск</p>
+            <h3>Какой язык ты хочешь учить? ✨</h3>
+            <p className="lead compact">
+              Сначала выбери язык обучения. Прогресс, слова и готовые наборы будут
+              храниться отдельно для каждого языка.
+            </p>
+            <div className="pack-list">
+              {(auth.user?.available_studied_languages || []).map((item) => (
+                <button
+                  key={item.code}
+                  className="segment-button active"
+                  type="button"
+                  onClick={() => selectStudiedLanguage(item.code)}
+                  disabled={busy}
+                >
+                  {busy ? "Сохраняем..." : item.label}
+                </button>
+              ))}
+            </div>
+          </section>
         </main>
       </div>
     );

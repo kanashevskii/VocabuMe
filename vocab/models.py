@@ -19,6 +19,7 @@ class TelegramUser(models.Model):
     email = models.EmailField(unique=True, null=True, blank=True)
     password_hash = models.CharField(max_length=255, blank=True, default="")
     auth_provider = models.CharField(max_length=20, default="telegram")
+    has_selected_studied_language = models.BooleanField(default=False)
     active_studied_language = models.CharField(
         max_length=10,
         choices=STUDIED_LANGUAGE_CHOICES,

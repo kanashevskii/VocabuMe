@@ -579,6 +579,7 @@ def serialize_user(user: TelegramUser) -> dict:
         "username": user.username,
         "email": user.email,
         "auth_provider": user.auth_provider,
+        "has_selected_studied_language": user.has_selected_studied_language,
         "active_studied_language": get_active_course_code(user),
         "available_studied_languages": AVAILABLE_STUDIED_LANGUAGES,
         "display_name": user.username or user.email or f"user{user.chat_id}",
@@ -964,6 +965,7 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
 def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     previous_goal = user.repeat_threshold
     previous_course = get_active_course_code(user)
+    selected_language_in_payload = "active_studied_language" in payload
     exercise_goal = payload.get(
         "exercise_goal", payload.get("repeat_threshold", user.repeat_threshold)
     )
@@ -995,6 +997,8 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     user.active_studied_language = normalize_course_code(
         payload.get("active_studied_language", user.active_studied_language)
     )
+    if selected_language_in_payload:
+        user.has_selected_studied_language = True
     user.save()
     get_or_create_user_course_progress(user, user.active_studied_language)
     if user.repeat_threshold != previous_goal:

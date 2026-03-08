@@ -48,6 +48,7 @@ def test_create_web_user_normalizes_email_and_hashes_password():
 
     assert user.email == "user@example.com"
     assert user.auth_provider == "web"
+    assert user.has_selected_studied_language is False
     assert user.chat_id < 0
     assert user.password_hash
     assert user.password_hash != "supersecret"
@@ -647,6 +648,7 @@ def test_apply_user_settings_switches_active_studied_language():
     user.refresh_from_db()
 
     assert get_active_course_code(user) == "ka"
+    assert user.has_selected_studied_language is True
     assert UserCourseProgress.objects.filter(user=user, course_code="ka").exists()
 
 
