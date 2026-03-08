@@ -87,7 +87,6 @@ a {
 }
 
 .app-stage {
-  grid-row: 4;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -114,7 +113,6 @@ a {
 }
 
 .notice {
-  grid-row: 3;
   padding: 12px 16px;
   border-radius: 18px;
   color: white;
@@ -135,7 +133,6 @@ a {
 }
 
 .topbar {
-  grid-row: 2;
   justify-content: space-between;
   padding: 14px 18px;
 }
