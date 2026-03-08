@@ -1,10 +1,11 @@
 from django.utils.timezone import now
 from telegram import Bot
-from decouple import config
 from .models import TelegramUser
 import logging
 
-TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
+from core.env import get_telegram_token
+
+TELEGRAM_TOKEN = get_telegram_token()
 bot = Bot(token=TELEGRAM_TOKEN)
 
 def send_reminders():

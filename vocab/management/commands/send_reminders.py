@@ -4,8 +4,9 @@ from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 from vocab.models import TelegramUser
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from decouple import config
 from vocab.utils import timezone_from_name
+
+from core.env import get_telegram_token, get_webapp_url
 
 class Command(BaseCommand):
     help = "Send learning reminders to users"
@@ -24,8 +25,8 @@ class Command(BaseCommand):
         user.save(update_fields=["last_reminder_sent_at"])
 
     async def _async_handle(self):
-        bot = Bot(token=config("TELEGRAM_TOKEN"))
-        webapp_url = config("WEBAPP_URL", default="")
+        bot = Bot(token=get_telegram_token())
+        webapp_url = get_webapp_url()
         self.stdout.write(f"⏰ Запуск напоминаний: {now().strftime('%Y-%m-%d %H:%M')}")
 
         users = await self._get_users()

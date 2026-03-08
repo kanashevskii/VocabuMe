@@ -8,16 +8,18 @@ import tempfile
 import traceback
 from datetime import time as dt_time
 
-from decouple import config
 from django.http import FileResponse, HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
 from .openai_utils import generate_word_data, generate_word_data_batch, transcribe_speech_file
 from .services import (
     add_pack_words_to_user,
+    add_words_from_text,
+    apply_user_settings,
     authenticate_web_user,
     build_learning_question,
     build_user_progress,
@@ -30,9 +32,16 @@ from .services import (
     create_word_draft,
     create_web_login_token,
     create_word,
+    create_word_drafts_from_text,
+    delete_word,
+    delete_user_draft,
     ensure_draft_image,
     finalize_word_draft,
     get_draft_image_file,
+    get_telegram_user_by_id,
+    get_user_draft,
+    get_user_settings_payload,
+    get_user_word,
     get_word_image_file,
     get_ordered_unlearned_words,
     list_words,
@@ -40,7 +49,6 @@ from .services import (
     list_word_packs,
     parse_word_batch,
     request_draft_image_generation,
-    request_word_image_generation,
     refresh_draft_language_data,
     recalculate_user_word_progress,
     resolve_shared_image_path,
@@ -55,6 +63,7 @@ from .services import (
     update_learning_streak,
     update_irregular_progress,
     update_word_progress,
+    update_word_translation,
     upsert_telegram_user,
     word_already_exists,
     ensure_pack_preparation,
@@ -123,17 +132,17 @@ def _log_app_error(
 def _current_user(request: HttpRequest) -> TelegramUser | None:
     user_id = request.session.get(SESSION_USER_KEY)
     if user_id:
-        try:
-            return TelegramUser.objects.get(id=user_id)
-        except TelegramUser.DoesNotExist:
-            request.session.pop(SESSION_USER_KEY, None)
+        user = get_telegram_user_by_id(user_id)
+        if user is not None:
+            return user
+        request.session.pop(SESSION_USER_KEY, None)
 
     init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
     if not init_data:
         return None
 
     try:
-        verified = verify_webapp_init_data(init_data, config("TELEGRAM_TOKEN"))
+        verified = verify_webapp_init_data(init_data, get_telegram_token())
     except TelegramAuthError:
         return None
 
@@ -172,8 +181,8 @@ def app_config(request: HttpRequest) -> JsonResponse:
     return JsonResponse(
         {
             "ok": True,
-            "bot_username": config("TELEGRAM_BOT_USERNAME", default=""),
-            "webapp_url": config("WEBAPP_URL", default=""),
+            "bot_username": get_telegram_bot_username(),
+            "webapp_url": get_webapp_url(),
         }
     )
 
@@ -183,7 +192,7 @@ def app_config(request: HttpRequest) -> JsonResponse:
 def auth_telegram_widget(request: HttpRequest) -> JsonResponse:
     try:
         payload = _json_body(request)
-        verified = verify_login_widget(payload, config("TELEGRAM_TOKEN"))
+        verified = verify_login_widget(payload, get_telegram_token())
     except (ValueError, TelegramAuthError) as exc:
         return _json_error(str(exc), status=400)
 
@@ -199,7 +208,7 @@ def auth_telegram_webapp(request: HttpRequest) -> JsonResponse:
     try:
         payload = _json_body(request)
         init_data = payload.get("init_data", "")
-        verified = verify_webapp_init_data(init_data, config("TELEGRAM_TOKEN"))
+        verified = verify_webapp_init_data(init_data, get_telegram_token())
     except (ValueError, TelegramAuthError) as exc:
         return _json_error(str(exc), status=400)
 
@@ -235,7 +244,7 @@ def auth_me(request: HttpRequest) -> JsonResponse:
 @require_POST
 def auth_request_link(request: HttpRequest) -> JsonResponse:
     login_token = create_web_login_token()
-    deep_link = f"https://t.me/{config('TELEGRAM_BOT_USERNAME', default='')}" f"?start=login_{login_token.token}"
+    deep_link = f"https://t.me/{get_telegram_bot_username()}" f"?start=login_{login_token.token}"
     return JsonResponse(
         {
             "ok": True,
@@ -310,10 +319,10 @@ def client_error_log(request: HttpRequest) -> JsonResponse:
 
 
 def _get_draft_for_user(user: TelegramUser, draft_id: int) -> AddWordDraft | JsonResponse:
-    try:
-        return AddWordDraft.objects.get(id=draft_id, user=user)
-    except AddWordDraft.DoesNotExist:
+    draft = get_user_draft(user, draft_id)
+    if draft is None:
         return _json_error("Draft not found.", status=404)
+    return draft
 
 
 @require_GET
@@ -353,38 +362,17 @@ def words(request: HttpRequest) -> JsonResponse:
     except ValueError as exc:
         return _json_error(str(exc))
 
-    entries = parse_word_batch(payload.get("text", ""))
-    if not entries:
-        return _json_error("Add at least one word.", status=400)
-    if len(entries) > MAX_ADD_BATCH_WORDS:
-        return _json_error(f"You can add at most {MAX_ADD_BATCH_WORDS} words at once.", status=400)
-
-    created_items = []
-    skipped = []
-    failed = []
-
-    for entry in entries:
-        if word_already_exists(user, entry.word):
-            skipped.append({"word": entry.word, "reason": "duplicate"})
-            continue
-
-        word_data = generate_word_data(entry.word, translation_hint=entry.translation_hint)
-        if not word_data:
-            failed.append({"word": entry.word, "reason": "generation_failed"})
-            continue
-
-        try:
-            item = create_word(user, word_data)
-            created_items.append(serialize_word(item))
-        except Exception:
-            failed.append({"word": entry.word, "reason": "save_failed"})
+    try:
+        result = add_words_from_text(user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
 
     return JsonResponse(
         {
             "ok": True,
-            "created": created_items,
-            "skipped": skipped,
-            "failed": failed,
+            "created": [serialize_word(item) for item in result["created"]],
+            "skipped": result["skipped"],
+            "failed": result["failed"],
         }
     )
 
@@ -401,87 +389,30 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
         return _json_error(str(exc))
 
     try:
-        entries = parse_word_batch(payload.get("text", ""))
-        if not entries:
-            return _json_error("Add one word or phrase.", status=400)
-        if len(entries) > MAX_ADD_BATCH_WORDS:
-            return _json_error(f"За один раз можно добавить максимум {MAX_ADD_BATCH_WORDS} слов или фраз.", status=400)
-        if len(entries) > 1:
-            missing_translation = [entry.word for entry in entries if not entry.translation_hint]
-            if missing_translation:
-                return _json_error(
-                    "For multiple lines, provide a translation on every line. Add these one by one: "
-                    + ", ".join(missing_translation[:5]),
-                    status=400,
-                )
-
-            drafts = []
-            skipped = []
-            failed = []
-
-            batch_generated = generate_word_data_batch(
-                [{"word": entry.word, "translation_hint": entry.translation_hint} for entry in entries]
-            )
-
-            for entry, generated in zip(entries, batch_generated, strict=False):
-                if word_already_exists(user, entry.word):
-                    skipped.append({"word": entry.word, "reason": "duplicate"})
-                    continue
-
-                if not generated:
-                    failed.append({"word": entry.word, "reason": "generation_failed"})
-                    continue
-
-                try:
-                    draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
-                    shared_image_path = resolve_shared_image_path(draft.word, draft.translation, "")
-                    if shared_image_path:
-                        draft.image_path = shared_image_path
-                        draft.save(update_fields=["image_path", "updated_at"])
-                    else:
-                        draft = request_draft_image_generation(draft)
-                    drafts.append(serialize_draft(draft))
-                except Exception:
-                    logger.exception("Batch draft save failed for %s", entry.word)
-                    failed.append({"word": entry.word, "reason": "save_failed"})
-
+        result = create_word_drafts_from_text(user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS)
+        if result["mode"] == "batch_review":
             return JsonResponse(
                 {
                     "ok": True,
                     "batch_review": True,
-                    "drafts": drafts,
-                    "skipped": skipped,
-                    "failed": failed,
+                    "drafts": [serialize_draft(draft) for draft in result["drafts"]],
+                    "skipped": result["skipped"],
+                    "failed": result["failed"],
                     "progress": build_user_progress(user),
                 }
             )
-
-        entry = entries[0]
-        if word_already_exists(user, entry.word):
-            return _json_error("This word already exists.", status=400)
-
-        generated = generate_word_data(entry.word, translation_hint=entry.translation_hint)
-        if not generated:
-            return _json_error("Could not prepare the word data.", status=400)
-
-        shared_image_path = resolve_shared_image_path(generated["word"], generated.get("translation", ""), "")
-        if generated.get("translation") and shared_image_path:
-            item = create_word(user, {**generated, "image_path": shared_image_path})
+        if result["mode"] == "auto_saved":
             return JsonResponse(
                 {
                     "ok": True,
                     "auto_saved": True,
-                    "item": serialize_word(item),
+                    "item": serialize_word(result["item"]),
                     "progress": build_user_progress(user),
                 }
             )
-
-        draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
-        step = "confirm_translation"
-        if draft.translation_confirmed:
-            draft = request_draft_image_generation(draft)
-            step = "confirm_image"
-        return JsonResponse({"ok": True, "draft": serialize_draft(draft), "step": step})
+        return JsonResponse({"ok": True, "draft": serialize_draft(result["draft"]), "step": result["step"]})
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
     except Exception as exc:
         logger.exception("word_draft_create failed")
         _log_app_error(
@@ -552,7 +483,7 @@ def word_draft_save(request: HttpRequest, draft_id: int) -> JsonResponse:
     if not draft.translation_confirmed:
         return _json_error("Confirm translation first.", status=400)
     if word_already_exists(user, draft.word):
-        draft.delete()
+        delete_user_draft(user, draft.id)
         return _json_error("This word already exists.", status=400)
 
     try:
@@ -576,7 +507,7 @@ def word_draft_delete(request: HttpRequest, draft_id: int) -> JsonResponse:
         return draft
     if request.method == "GET":
         return JsonResponse({"ok": True, "draft": serialize_draft(draft)})
-    draft.delete()
+    delete_user_draft(user, draft.id)
     return JsonResponse({"ok": True})
 
 
@@ -587,12 +518,14 @@ def word_detail(request: HttpRequest, word_id: int) -> JsonResponse:
         return user
 
     try:
-        item = VocabularyItem.objects.get(id=word_id, user=user)
+        item = get_user_word(user, word_id)
+        if item is None:
+            raise VocabularyItem.DoesNotExist
     except VocabularyItem.DoesNotExist:
         return _json_error("Word not found.", status=404)
 
     if request.method == "DELETE":
-        item.delete()
+        delete_word(user, word_id)
         return JsonResponse({"ok": True})
 
     try:
@@ -604,8 +537,7 @@ def word_detail(request: HttpRequest, word_id: int) -> JsonResponse:
     if not translation:
         return _json_error("Translation is required.")
 
-    item.translation = translation
-    item.save(update_fields=["translation", "updated_at"])
+    item = update_word_translation(user, word_id, translation)
     return JsonResponse({"ok": True, "item": serialize_word(item)})
 
 
@@ -615,9 +547,8 @@ def word_image_regenerate(request: HttpRequest, word_id: int) -> JsonResponse:
     if isinstance(user, JsonResponse):
         return user
 
-    try:
-        item = VocabularyItem.objects.get(id=word_id, user=user)
-    except VocabularyItem.DoesNotExist:
+    item = get_user_word(user, word_id)
+    if item is None:
         return _json_error("Word not found.", status=404)
     if item.image_regeneration_count >= MAX_IMAGE_REGENERATIONS:
         return _json_error("Лимит перегенерации фото исчерпан.", status=400)
@@ -633,21 +564,7 @@ def settings_view(request: HttpRequest) -> JsonResponse:
         return user
 
     if request.method == "GET":
-        return JsonResponse(
-            {
-                "ok": True,
-                "settings": {
-                    "exercise_goal": max(2, min(user.repeat_threshold, 5)),
-                    "session_question_limit": max(1, min(user.session_question_limit, 50)),
-                    "enable_review_old_words": user.enable_review_old_words,
-                    "days_before_review": user.days_before_review,
-                    "reminder_enabled": user.reminder_enabled,
-                    "reminder_time": user.reminder_time.strftime("%H:%M"),
-                    "reminder_interval_days": user.reminder_interval_days,
-                    "reminder_timezone": user.reminder_timezone,
-                },
-            }
-        )
+        return JsonResponse({"ok": True, "settings": get_user_settings_payload(user)})
 
     try:
         payload = _json_body(request)
@@ -655,23 +572,9 @@ def settings_view(request: HttpRequest) -> JsonResponse:
         return _json_error(str(exc))
 
     try:
-        previous_goal = user.repeat_threshold
-        exercise_goal = payload.get("exercise_goal", payload.get("repeat_threshold", user.repeat_threshold))
-        user.repeat_threshold = max(2, min(int(exercise_goal), 5))
-        user.session_question_limit = max(1, min(int(payload.get("session_question_limit", user.session_question_limit)), 50))
-        user.enable_review_old_words = bool(payload.get("enable_review_old_words", user.enable_review_old_words))
-        user.days_before_review = max(1, min(int(payload.get("days_before_review", user.days_before_review)), 365))
-        user.reminder_enabled = bool(payload.get("reminder_enabled", user.reminder_enabled))
-        user.reminder_interval_days = max(1, min(int(payload.get("reminder_interval_days", user.reminder_interval_days)), 30))
-        reminder_time = payload.get("reminder_time", user.reminder_time.strftime("%H:%M"))
-        user.reminder_time = dt_time.fromisoformat(reminder_time)
-        user.reminder_timezone = normalize_timezone_value(payload.get("reminder_timezone", user.reminder_timezone))
+        apply_user_settings(user, payload)
     except (TypeError, ValueError) as exc:
         return _json_error(f"Invalid settings payload: {exc}")
-
-    user.save()
-    if user.repeat_threshold != previous_goal:
-        recalculate_user_word_progress(user)
     return JsonResponse({"ok": True})
 
 
@@ -879,9 +782,8 @@ def word_audio(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
     if isinstance(user, JsonResponse):
         return user
 
-    try:
-        item = VocabularyItem.objects.get(id=word_id, user=user)
-    except VocabularyItem.DoesNotExist:
+    item = get_user_word(user, word_id)
+    if item is None:
         return _json_error("Word not found.", status=404)
 
     import asyncio
@@ -903,9 +805,8 @@ def word_image(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
     if isinstance(user, JsonResponse):
         return user
 
-    try:
-        item = VocabularyItem.objects.get(id=word_id, user=user)
-    except VocabularyItem.DoesNotExist:
+    item = get_user_word(user, word_id)
+    if item is None:
         return _json_error("Word not found.", status=404)
 
     image_path = get_word_image_file(item)
@@ -1000,9 +901,8 @@ def study_answer(request: HttpRequest) -> JsonResponse:
     except (TypeError, ValueError):
         return _json_error("Invalid answer payload.")
 
-    try:
-        item = VocabularyItem.objects.get(id=word_id, user=user)
-    except VocabularyItem.DoesNotExist:
+    item = get_user_word(user, word_id)
+    if item is None:
         return _json_error("Word not found.", status=404)
 
     updated = update_word_progress(item.id, correct=correct)

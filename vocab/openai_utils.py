@@ -1,5 +1,4 @@
 from openai import OpenAI, RateLimitError
-from decouple import config
 import logging
 import json
 import ast
@@ -11,14 +10,16 @@ from contextlib import contextmanager
 
 from django.db import close_old_connections, connection
 
-client = OpenAI(api_key=config("OPENAI_API_KEY"))
+from core.env import env, get_openai_api_key
+
+client = OpenAI(api_key=get_openai_api_key())
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DRAFT_IMAGE_DIR = PROJECT_ROOT / "media" / "draft_images"
 TEXT_MODEL = "gpt-5-mini"
 IMAGE_MODEL = "gpt-image-1.5"
 TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
-OPENAI_QUEUE_LOCK_KEY = int(config("OPENAI_QUEUE_LOCK_KEY", default=841725))
-OPENAI_QUEUE_WAIT_SECONDS = int(config("OPENAI_QUEUE_WAIT_SECONDS", default=180))
+OPENAI_QUEUE_LOCK_KEY = env("OPENAI_QUEUE_LOCK_KEY", cast=int, default=841725)
+OPENAI_QUEUE_WAIT_SECONDS = env("OPENAI_QUEUE_WAIT_SECONDS", cast=int, default=180)
 
 
 def detect_language(text):

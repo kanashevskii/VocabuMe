@@ -7,9 +7,10 @@ import hashlib
 from pathlib import Path
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
-from decouple import config
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
+
+from core.env import get_telegram_token, get_webapp_url
 
 # Note: django.setup() is not called here because:
 # 1. When imported from run.py, Django is already set up before the import
@@ -31,7 +32,36 @@ from telegram.ext import (
 )
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
-from .services import bind_web_login_token, resolve_shared_image_path
+from .services import (
+    bind_web_login_token,
+    build_user_progress as build_user_progress_service,
+    create_word as create_word_service,
+    delete_all_words as delete_all_words_service,
+    delete_word as delete_word_service,
+    get_fake_translations as get_fake_translations_service,
+    get_fake_words as get_fake_words_service,
+    get_learned_words as get_learned_words_service,
+    get_available_parts as get_available_parts_service,
+    get_ordered_unlearned_words as get_ordered_unlearned_words_service,
+    get_word_by_id as get_word_by_id_service,
+    get_new_achievements as get_new_achievements_service,
+    get_telegram_user_by_chat_id,
+    get_user_achievements as get_user_achievements_service,
+    get_user_word_list as get_user_word_list_service,
+    get_user_word_page as get_user_word_page_service,
+    get_unlearned_words as get_unlearned_words_service,
+    reset_word_progress as reset_word_progress_service,
+    resolve_shared_image_path,
+    save_user as save_user_service,
+    set_user_repeat_threshold as set_user_repeat_threshold_service,
+    update_user_reminder_time as update_user_reminder_time_service,
+    update_user_timezone as update_user_timezone_service,
+    update_word_translation as update_word_translation_service,
+    update_irregular_progress as update_irregular_progress_service,
+    update_word_progress as update_word_progress_service,
+    upsert_telegram_user,
+    word_already_exists as word_already_exists_service,
+)
 from .openai_utils import generate_word_data, detect_language
 from .utils import (
     clean_word,
@@ -47,8 +77,8 @@ from django.utils.timezone import now
 from datetime import timedelta, datetime
 from types import SimpleNamespace
 
-TELEGRAM_TOKEN = config("TELEGRAM_TOKEN")
-WEBAPP_URL = config("WEBAPP_URL", default="")
+TELEGRAM_TOKEN = get_telegram_token()
+WEBAPP_URL = get_webapp_url()
 ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
 WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
@@ -371,80 +401,28 @@ def esc(text: str) -> str:
 
 @sync_to_async
 def get_or_create_user(chat_id, username):
-    return TelegramUser.objects.get_or_create(chat_id=chat_id, defaults={"username": username})
+    user = upsert_telegram_user(chat_id=chat_id, username=username)
+    return user, False
 
 @sync_to_async
 def word_already_exists(user, word):
-    norm = clean_word(word)
-    return VocabularyItem.objects.filter(user=user, normalized_word=norm).exists()
+    return word_already_exists_service(user, word)
 
 @sync_to_async
 def save_word(user, _original_input, data):
-    word = clean_word(data["word"])  # sanitized
-    normalized = word
-    tr = data["transcription"]
-    if any(c in tr for c in "абвгдеёжзийклмнопрстуфхцчшщыэюя"):
-        tr = ""
-
-    example_trans = data.get("example_translation")
-    if not example_trans:
-        example_trans = translate_to_ru(data["example"])
-
-    image_path = resolve_shared_image_path(word, data["translation"], data.get("image_path", ""))
-
-    return VocabularyItem.objects.create(
-        user=user,
-        word=word,
-        normalized_word=normalized,
-        translation=data["translation"],
-        transcription=tr,
-        example=data["example"],
-        example_translation=example_trans,
-        part_of_speech=data.get("part_of_speech", "unknown"),
-        image_path=image_path,
-    )
+    return create_word_service(user, data)
 
 @sync_to_async
 def get_fake_translations(user, exclude_word, part_of_speech=None, count=3):
-    qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
-    if part_of_speech:
-        qs = qs.filter(part_of_speech=part_of_speech)
-
-    translations = list(
-        qs.values_list("translation", flat=True)
-        .distinct()
-        .order_by("?")[:count]
-    )
-
-    if len(translations) < count:
-        remaining = count - len(translations)
-        extra_qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
-        extras = list(
-            extra_qs.values_list("translation", flat=True)
-            .distinct()
-            .order_by("?")[:remaining]
-        )
-        for t in extras:
-            if t not in translations:
-                translations.append(t)
-                if len(translations) == count:
-                    break
-
-    return translations
+    return get_fake_translations_service(user, exclude_word, part_of_speech=part_of_speech, count=count)
 
 @sync_to_async
 def update_correct_count(item_id, correct: bool):
-    item = VocabularyItem.objects.get(id=item_id)
-    if correct:
-        item.correct_count += 1
-        threshold = item.user.repeat_threshold if hasattr(item.user, "repeat_threshold") else 3
-        if item.correct_count >= threshold:
-            item.is_learned = True
-    item.save()
+    return update_word_progress_service(item_id, correct=correct)
 
 @sync_to_async
 def get_word_by_id(item_id):
-    return VocabularyItem.objects.get(id=item_id)
+    return get_word_by_id_service(item_id)
 
 async def safe_reply(update: Update, text: str, **kwargs):
     target = None
@@ -1535,33 +1513,15 @@ def run_telegram_bot():
 
 @sync_to_async
 def save_user(user):
-    user.save()
+    return save_user_service(user)
 
 @sync_to_async
 def get_user_word_list(user):
-    return list(
-        VocabularyItem.objects
-        .filter(user=user, is_learned=False)
-        .values_list("word", "transcription", "translation")
-        .order_by("word")
-    )
+    return get_user_word_list_service(user)
 
 @sync_to_async
 def update_irregular_progress(user, base: str, correct: bool):
-    from .models import IrregularVerbProgress  # avoid circular import
-
-    progress, _ = IrregularVerbProgress.objects.get_or_create(
-        user=user,
-        verb_base=base,
-    )
-
-    if correct:
-        progress.correct_count += 1
-        if not progress.is_learned and progress.correct_count >= IRREGULAR_MASTERY_THRESHOLD:
-            progress.is_learned = True
-            user.irregular_correct += 1
-            user.save()
-    progress.save()
+    return update_irregular_progress_service(user, base, correct)
 
 async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
@@ -1607,12 +1567,11 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @sync_to_async
 def update_user_repeat_threshold(user, value: int):
-    user.repeat_threshold = value
-    user.save()
+    return set_user_repeat_threshold_service(user, value)
 
 @sync_to_async
 def get_user_by_chat(chat_id):
-    return TelegramUser.objects.get(chat_id=chat_id)
+    return get_telegram_user_by_chat_id(chat_id)
 
 def _main_settings_text(user):
     repeat_text = f"Слово изучается после *{user.repeat_threshold}* правильных ответов"
@@ -1826,28 +1785,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
 
 @sync_to_async
 def get_user_progress(user):
-    total = VocabularyItem.objects.filter(user=user).count()
-    learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
-    learning = total - learned
-    irregular_learned = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
-    start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))['created_at__min']
-
-    user_stats = TelegramUser.objects.annotate(
-        learned_count=Count("vocabularyitem", filter=Q(vocabularyitem__is_learned=True))
-    ).order_by("-learned_count")
-
-    total_users = user_stats.count()
-    better_than = sum(1 for u in user_stats if u.learned_count < learned)
-    rank_percent = round(100 * (1 - better_than / total_users)) if total_users else None
-
-    return {
-        "total": total,
-        "learned": learned,
-        "learning": learning,
-        "start_date": start_date,
-        "rank_percent": rank_percent,
-        "irregular": irregular_learned,
-    }
+    return build_user_progress_service(user)
 
 async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(
@@ -1882,53 +1820,24 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @sync_to_async
 def get_unlearned_words(user, count=10, part_of_speech=None):
-    base_qs = VocabularyItem.objects.filter(user=user, is_learned=False)
-    if part_of_speech:
-        base_qs = base_qs.filter(part_of_speech=part_of_speech)
-    base_ids = base_qs.values_list("id", flat=True)
-
-    review_ids = []
-    if user.enable_review_old_words:
-        threshold = now() - timedelta(days=user.days_before_review)
-        review_qs = VocabularyItem.objects.filter(
-            user=user,
-            is_learned=True,
-            updated_at__lt=threshold
-        )
-        if part_of_speech:
-            review_qs = review_qs.filter(part_of_speech=part_of_speech)
-        review_ids = review_qs.values_list("id", flat=True)
-
-    all_ids = list(base_ids) + list(review_ids)
-    selected_ids = random.sample(all_ids, min(len(all_ids), count))
-
-    return list(VocabularyItem.objects.filter(id__in=selected_ids))
+    return get_unlearned_words_service(user, count=count, part_of_speech=part_of_speech)
 
 @sync_to_async
 def get_learned_words(user):
-    return list(
-        VocabularyItem.objects
-        .filter(user=user, is_learned=True)
-        .order_by("updated_at", "id")
-    )
+    return get_learned_words_service(user)
 
 @sync_to_async
 def mark_word_unlearned(item_id):
-    item = VocabularyItem.objects.get(id=item_id)
-    item.is_learned = False
-    item.correct_count = 0
-    item.save()
+    return reset_word_progress_service(item_id)
 
 
 @sync_to_async
 def update_user_reminder_time(user, time_obj):
-    user.reminder_time = time_obj
-    user.save()
+    return update_user_reminder_time_service(user, time_obj)
 
 @sync_to_async
 def update_user_timezone(user, tz_value: str):
-    user.reminder_timezone = tz_value
-    user.save(update_fields=["reminder_timezone"])
+    return update_user_timezone_service(user, tz_value)
 
 async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
@@ -2002,114 +1911,15 @@ async def set_reminder_timezone(update: Update, context: ContextTypes.DEFAULT_TY
 
 @sync_to_async
 def get_user_achievements(user):
-    learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
-    today = now().date()
-
-    days = user.consecutive_days or 0
-    irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
-
-    achievements = []
-
-    # По словам
-    if learned >= 10:
-        achievements.append("🎉 Выучено 10 слов — Первый шаг!")
-    if learned >= 50:
-        achievements.append("🌿 Выучено 50 слов — Хороший темп!")
-    if learned >= 100:
-        achievements.append("🎯 Выучено 100 слов — Опытный!")
-    if learned >= 200:
-        achievements.append("🚀 Выучено 200+ слов — Гуру слов!")
-
-    # Неправильные глаголы
-    if irregular >= 10:
-        achievements.append("🔤 10 неправильных глаголов — База собрана!")
-    if irregular >= 30:
-        achievements.append("🧩 30 неправильных глаголов — Уже уверенно!")
-    if irregular >= 60:
-        achievements.append("🏆 60 неправильных глаголов — Мастер форм!")
-
-    # По дням подряд
-    if days >= 3:
-        achievements.append("📆 3 дня подряд — Ты в ритме!")
-    if days >= 7:
-        achievements.append("📅 7 дней подряд — Неделя прогресса!")
-    if days >= 14:
-        achievements.append("🧭 14 дней подряд — Курс на успех!")
-    if days >= 30:
-        achievements.append("🔥 30 дней подряд — Мастер привычки!")
-    if days >= 60:
-        achievements.append("🕯️ 60 дней подряд — Упорство без пауз!")
-    if days >= 100:
-        achievements.append("⚔️ 100 дней подряд — Воин знаний!")
-    if days >= 200:
-        achievements.append("🛡️ 200 дней подряд — Гуру дисциплины!")
-    if days >= 365:
-        achievements.append("🌈 365 дней подряд — Год знаний!")
-
-    return achievements
+    return get_user_achievements_service(user)
 
 @sync_to_async
 def get_new_achievements(user):
-    learned_words = VocabularyItem.objects.filter(user=user, is_learned=True).count()
-    days = user.consecutive_days or 0
-    irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
-
-    word_achievements = [
-        (10, "words_10", "🎉 Выучено 10 слов — Первый шаг!"),
-        (50, "words_50", "🌿 Выучено 50 слов — Хороший темп!"),
-        (100, "words_100", "🎯 Выучено 100 слов — Опытный!"),
-        (200, "words_200", "🚀 Выучено 200 слов — Гуру слов!"),
-        (500, "words_500", "👑 500 слов — Мастер словарного запаса!"),
-        (1000, "words_1000", "🧠 1000 слов — Легенда!"),
-        (2000, "words_2000", "🌟 2000 слов — Полиглот уровня бог!"),
-        (5000, "words_5000", "💎 5000 слов — Энциклопедия на ногах!"),
-    ]
-
-    day_achievements = [
-        (3, "days_3", "📆 3 дня подряд — Ты в ритме!"),
-        (7, "days_7", "📅 7 дней подряд — Неделя прогресса!"),
-        (14, "days_14", "🧭 14 дней подряд — Курс на успех!"),
-        (30, "days_30", "🔥 30 дней подряд — Мастер привычки!"),
-        (60, "days_60", "🕯️ 60 дней подряд — Упорство без пауз!"),
-        (100, "days_100", "⚔️ 100 дней подряд — Воин знаний!"),
-        (200, "days_200", "🛡️ 200 дней подряд — Гуру дисциплины!"),
-        (365, "days_365", "🌈 365 дней подряд — Год знаний!"),
-    ]
-
-    irregular_achievements = [
-        (10, "irr_10", "🔤 10 неправильных глаголов — База собрана!"),
-        (30, "irr_30", "🧩 30 неправильных глаголов — Уже уверенно!"),
-        (60, "irr_60", "🏆 60 неправильных глаголов — Мастер форм!"),
-    ]
-
-    earned = Achievement.objects.filter(user=user).values_list("code", flat=True)
-    new_achievements = []
-
-    for threshold, code, text in word_achievements:
-        if learned_words >= threshold and code not in earned:
-            Achievement.objects.create(user=user, code=code)
-            new_achievements.append(text)
-
-    for threshold, code, text in day_achievements:
-        if days >= threshold and code not in earned:
-            Achievement.objects.create(user=user, code=code)
-            new_achievements.append(text)
-
-    for threshold, code, text in irregular_achievements:
-        if irregular >= threshold and code not in earned:
-            Achievement.objects.create(user=user, code=code)
-            new_achievements.append(text)
-
-    return new_achievements
+    return get_new_achievements_service(user)
 
 @sync_to_async
 def get_user_word_page(user, page: int):
-    qs = VocabularyItem.objects.filter(user=user, is_learned=False).order_by("word")
-    total = qs.count()
-    start = page * WORDS_PER_PAGE
-    end = start + WORDS_PER_PAGE
-    words = list(qs[start:end].values_list("id", "word", "transcription", "translation"))
-    return words, total
+    return get_user_word_page_service(user, page, WORDS_PER_PAGE)
 
 
 async def _show_delete_one_menu(query, user, page: int):
@@ -2289,41 +2099,23 @@ async def handle_mywords_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 @sync_to_async
 def delete_single_word(user, word_id):
-    VocabularyItem.objects.filter(user=user, id=word_id).delete()
+    return delete_word_service(user, word_id)
 
 @sync_to_async
 def delete_all_words(user):
-    VocabularyItem.objects.filter(user=user).delete()
+    return delete_all_words_service(user)
 
 @sync_to_async
 def update_word_translation(user, word_id, translation):
-    item = VocabularyItem.objects.get(user=user, id=word_id)
-    item.translation = translation
-    item.save()
-    return item
+    return update_word_translation_service(user, word_id, translation)
 
 @sync_to_async
 def get_available_parts(user):
-    return list(
-        VocabularyItem.objects
-        .filter(user=user, is_learned=False)
-        .values_list("part_of_speech", flat=True)
-        .distinct()
-    )
+    return get_available_parts_service(user)
 
 @sync_to_async
 def get_ordered_unlearned_words(user, count=10, exclude_ids=None):
-    """
-    Возвращает первые N невыученных слов в порядке добавления,
-    чтобы последовательность карточек была стабильной.
-    """
-    exclude_ids = exclude_ids or []
-    return list(
-        VocabularyItem.objects
-        .filter(user=user, is_learned=False)
-        .exclude(id__in=exclude_ids)
-        .order_by("created_at", "id")[:count]
-    )
+    return get_ordered_unlearned_words_service(user, count=count, exclude_ids=exclude_ids)
 
 async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("learning_stopped"):
@@ -2386,31 +2178,7 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @sync_to_async
 def get_fake_words(user, exclude_word, part_of_speech=None, count=3):
-    qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
-    if part_of_speech:
-        qs = qs.filter(part_of_speech=part_of_speech)
-
-    words = list(
-        qs.values_list("word", flat=True)
-        .distinct()
-        .order_by("?")[:count]
-    )
-
-    if len(words) < count:
-        remaining = count - len(words)
-        extra_qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
-        extras = list(
-            extra_qs.values_list("word", flat=True)
-            .distinct()
-            .order_by("?")[:remaining]
-        )
-        for w in extras:
-            if w not in words:
-                words.append(w)
-                if len(words) == count:
-                    break
-
-    return words
+    return get_fake_words_service(exclude_word, part_of_speech=part_of_speech, count=count)
 
 # --- LISTENING ---
 async def listening_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -49,6 +49,7 @@ VocabuMe supports:
 - [vocab/services.py](vocab/services.py) - shared application logic
 - [vocab/telegram_auth.py](vocab/telegram_auth.py) - Telegram auth verification
 - [run.py](run.py) - local combined runner for bot, reminders, and Django server
+- [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) - prioritized execution backlog
 
 ## Environment
 
@@ -75,6 +76,11 @@ Key environment variables:
 - `CSRF_TRUSTED_ORIGINS`
 
 See [.env.example](.env.example).
+
+Configuration rules:
+- `SECRET_KEY`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `TELEGRAM_TOKEN`, and `OPENAI_API_KEY` are required.
+- The app fails fast on startup if any required secret/config value is missing or empty.
+- Generate a strong Django key with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`.
 
 ## Local setup
 
@@ -114,6 +120,22 @@ This starts:
 - Telegram bot
 - reminder loop
 - Django server on `0.0.0.0:8000`
+
+## Testing
+
+Run the backend safety-net suite:
+
+```bash
+python -m pytest -q
+```
+
+Run the focused backend coverage report:
+
+```bash
+python -m pytest --cov=vocab.services --cov=vocab.views --cov=core.env --cov-report=term-missing -q
+```
+
+`pytest` uses [core/test_settings.py](core/test_settings.py), which switches tests to SQLite so the suite can run without PostgreSQL `CREATE DATABASE` privileges.
 
 ## Frontend notes
 

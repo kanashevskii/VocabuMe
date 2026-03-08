@@ -7,10 +7,10 @@ import atexit
 import signal
 from pathlib import Path
 
-from decouple import config
 from django.core.management import call_command, execute_from_command_line
 from telegram import Bot
 
+from core.env import env, get_telegram_token
 from core.logging_config import setup_logging
 
 LOCK_FILE = "/tmp/englishbot.lock"
@@ -93,8 +93,8 @@ from vocab.bot import run_telegram_bot
 
 
 def send_alert(message: str):
-    chat_id = config("ALERT_CHAT_ID", default=None)
-    token = config("TELEGRAM_TOKEN", default=None)
+    chat_id = env("ALERT_CHAT_ID", default=None)
+    token = env("TELEGRAM_TOKEN", default=None)
     if not chat_id or not token:
         return
     try:
@@ -126,6 +126,8 @@ def run_server():
 
 
 def main():
+    get_telegram_token()
+
     bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
     bot_thread.start()
 

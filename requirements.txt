@@ -8,3 +8,6 @@ deep-translator
 gtts
 Pillow
 tzdata
+pytest
+pytest-django
+pytest-cov

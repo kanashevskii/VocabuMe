@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
 from threading import Lock, Thread
@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 from .models import AddWordDraft, IrregularVerbProgress, PackPreparedWord, TelegramUser, VocabularyItem, WebLoginToken
 from .openai_utils import build_visual_prompt, generate_card_image, generate_word_data, generate_word_data_batch
-from .utils import clean_word, translate_to_ru
+from .utils import clean_word, normalize_timezone_value, translate_to_ru
 from .word_packs import get_pack, get_pack_definitions, get_pack_level
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -181,6 +181,14 @@ def upsert_telegram_user(chat_id: int, username: str | None = None) -> TelegramU
     return user
 
 
+def get_telegram_user_by_id(user_id: int) -> TelegramUser | None:
+    return TelegramUser.objects.filter(id=user_id).first()
+
+
+def get_telegram_user_by_chat_id(chat_id: int) -> TelegramUser | None:
+    return TelegramUser.objects.filter(chat_id=chat_id).first()
+
+
 def _next_web_chat_id() -> int:
     last_web_user = TelegramUser.objects.filter(chat_id__lt=0).order_by("chat_id").first()
     if not last_web_user:
@@ -242,6 +250,19 @@ def get_achievement_stats(user: TelegramUser) -> dict:
 def get_user_achievements(user: TelegramUser) -> list[str]:
     stats = get_achievement_stats(user)
     return [item["text"] for item in ACHIEVEMENT_DEFINITIONS if stats[item["kind"]] >= item["threshold"]]
+
+
+def get_new_achievements(user: TelegramUser) -> list[str]:
+    stats = get_achievement_stats(user)
+    earned = set(Achievement.objects.filter(user=user).values_list("code", flat=True))
+    new_achievements: list[str] = []
+
+    for item in ACHIEVEMENT_DEFINITIONS:
+        code = f"{item['kind']}_{item['threshold']}"
+        if stats[item["kind"]] >= item["threshold"] and code not in earned:
+            Achievement.objects.create(user=user, code=code)
+            new_achievements.append(item["text"])
+    return new_achievements
 
 
 def get_pending_achievements(user: TelegramUser) -> list[dict]:
@@ -457,6 +478,40 @@ def list_words(user: TelegramUser, search: str = "", status: str = "all", limit:
     return list(qs[:limit])
 
 
+def get_user_word_page(user: TelegramUser, page: int, page_size: int) -> tuple[list[tuple[int, str, str, str]], int]:
+    qs = VocabularyItem.objects.filter(user=user, is_learned=False).order_by("word")
+    total = qs.count()
+    start = page * page_size
+    end = start + page_size
+    words = list(qs[start:end].values_list("id", "word", "transcription", "translation"))
+    return words, total
+
+
+def get_user_word_list(user: TelegramUser) -> list[tuple[str, str, str]]:
+    return list(
+        VocabularyItem.objects.filter(user=user, is_learned=False)
+        .values_list("word", "transcription", "translation")
+        .order_by("word")
+    )
+
+
+def get_user_word(user: TelegramUser, word_id: int) -> VocabularyItem | None:
+    return VocabularyItem.objects.filter(id=word_id, user=user).first()
+
+
+def get_word_by_id(word_id: int) -> VocabularyItem | None:
+    return VocabularyItem.objects.filter(id=word_id).first()
+
+
+def get_user_draft(user: TelegramUser, draft_id: int) -> AddWordDraft | None:
+    return AddWordDraft.objects.filter(id=draft_id, user=user).first()
+
+
+def delete_user_draft(user: TelegramUser, draft_id: int) -> bool:
+    deleted, _ = AddWordDraft.objects.filter(id=draft_id, user=user).delete()
+    return deleted > 0
+
+
 def word_already_exists(user: TelegramUser, word: str) -> bool:
     return VocabularyItem.objects.filter(user=user, normalized_word=clean_word(word)).exists()
 
@@ -514,6 +569,211 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
         image_regeneration_count=data.get("image_regeneration_count", 0) or 0,
         image_path=image_path,
     )
+
+
+def add_words_from_text(user: TelegramUser, text: str, max_batch_words: int = 10) -> dict:
+    entries = parse_word_batch(text)
+    if not entries:
+        raise ValueError("Add at least one word.")
+    if len(entries) > max_batch_words:
+        raise ValueError(f"You can add at most {max_batch_words} words at once.")
+
+    created_items = []
+    skipped = []
+    failed = []
+
+    for entry in entries:
+        if word_already_exists(user, entry.word):
+            skipped.append({"word": entry.word, "reason": "duplicate"})
+            continue
+
+        word_data = generate_word_data(entry.word, translation_hint=entry.translation_hint)
+        if not word_data:
+            failed.append({"word": entry.word, "reason": "generation_failed"})
+            continue
+
+        try:
+            item = create_word(user, word_data)
+            created_items.append(item)
+        except Exception:
+            logger.exception("Failed to save word %s for user %s", entry.word, user.id)
+            failed.append({"word": entry.word, "reason": "save_failed"})
+
+    return {"created": created_items, "skipped": skipped, "failed": failed}
+
+
+def create_word_drafts_from_text(user: TelegramUser, text: str, max_batch_words: int = 10) -> dict:
+    entries = parse_word_batch(text)
+    if not entries:
+        raise ValueError("Add one word or phrase.")
+    if len(entries) > max_batch_words:
+        raise ValueError(f"За один раз можно добавить максимум {max_batch_words} слов или фраз.")
+
+    if len(entries) > 1:
+        missing_translation = [entry.word for entry in entries if not entry.translation_hint]
+        if missing_translation:
+            raise ValueError(
+                "For multiple lines, provide a translation on every line. Add these one by one: "
+                + ", ".join(missing_translation[:5])
+            )
+
+        drafts: list[AddWordDraft] = []
+        skipped = []
+        failed = []
+
+        batch_generated = generate_word_data_batch(
+            [{"word": entry.word, "translation_hint": entry.translation_hint} for entry in entries]
+        )
+
+        for entry, generated in zip(entries, batch_generated, strict=False):
+            if word_already_exists(user, entry.word):
+                skipped.append({"word": entry.word, "reason": "duplicate"})
+                continue
+
+            if not generated:
+                failed.append({"word": entry.word, "reason": "generation_failed"})
+                continue
+
+            try:
+                draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
+                shared_image_path = resolve_shared_image_path(draft.word, draft.translation, "")
+                if shared_image_path:
+                    draft.image_path = shared_image_path
+                    draft.save(update_fields=["image_path", "updated_at"])
+                else:
+                    draft = request_draft_image_generation(draft)
+                drafts.append(draft)
+            except Exception:
+                logger.exception("Batch draft save failed for %s", entry.word)
+                failed.append({"word": entry.word, "reason": "save_failed"})
+
+        return {
+            "mode": "batch_review",
+            "drafts": drafts,
+            "skipped": skipped,
+            "failed": failed,
+        }
+
+    entry = entries[0]
+    if word_already_exists(user, entry.word):
+        raise ValueError("This word already exists.")
+
+    generated = generate_word_data(entry.word, translation_hint=entry.translation_hint)
+    if not generated:
+        raise ValueError("Could not prepare the word data.")
+
+    shared_image_path = resolve_shared_image_path(generated["word"], generated.get("translation", ""), "")
+    if generated.get("translation") and shared_image_path:
+        item = create_word(user, {**generated, "image_path": shared_image_path})
+        return {"mode": "auto_saved", "item": item}
+
+    draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
+    step = "confirm_translation"
+    if draft.translation_confirmed:
+        draft = request_draft_image_generation(draft)
+        step = "confirm_image"
+    return {"mode": "draft", "draft": draft, "step": step}
+
+
+def update_word_translation(user: TelegramUser, word_id: int, translation: str) -> VocabularyItem:
+    item = VocabularyItem.objects.get(id=word_id, user=user)
+    item.translation = translation.strip()
+    item.save(update_fields=["translation", "updated_at"])
+    return item
+
+
+def delete_word(user: TelegramUser, word_id: int) -> bool:
+    deleted, _ = VocabularyItem.objects.filter(id=word_id, user=user).delete()
+    return deleted > 0
+
+
+def delete_all_words(user: TelegramUser) -> int:
+    deleted, _ = VocabularyItem.objects.filter(user=user).delete()
+    return deleted
+
+
+def get_available_parts(user: TelegramUser) -> list[str]:
+    return list(
+        VocabularyItem.objects.filter(user=user, is_learned=False)
+        .values_list("part_of_speech", flat=True)
+        .distinct()
+    )
+
+
+def get_fake_words(exclude_word: str, part_of_speech: str | None = None, count: int = 3) -> list[str]:
+    qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
+    if part_of_speech:
+        qs = qs.filter(part_of_speech=part_of_speech)
+
+    words = list(qs.values_list("word", flat=True).distinct().order_by("?")[:count])
+    if len(words) < count:
+        extras = list(
+            VocabularyItem.objects.exclude(word__iexact=exclude_word)
+            .values_list("word", flat=True)
+            .distinct()
+            .order_by("?")[: count - len(words)]
+        )
+        for candidate in extras:
+            if candidate not in words:
+                words.append(candidate)
+            if len(words) == count:
+                break
+    return words
+
+
+def get_user_settings_payload(user: TelegramUser) -> dict:
+    return {
+        "exercise_goal": get_exercise_goal(user),
+        "session_question_limit": get_session_question_limit(user),
+        "enable_review_old_words": user.enable_review_old_words,
+        "days_before_review": user.days_before_review,
+        "reminder_enabled": user.reminder_enabled,
+        "reminder_time": user.reminder_time.strftime("%H:%M"),
+        "reminder_interval_days": user.reminder_interval_days,
+        "reminder_timezone": user.reminder_timezone,
+    }
+
+
+def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
+    previous_goal = user.repeat_threshold
+    exercise_goal = payload.get("exercise_goal", payload.get("repeat_threshold", user.repeat_threshold))
+    user.repeat_threshold = max(2, min(int(exercise_goal), 5))
+    user.session_question_limit = max(1, min(int(payload.get("session_question_limit", user.session_question_limit)), 50))
+    user.enable_review_old_words = bool(payload.get("enable_review_old_words", user.enable_review_old_words))
+    user.days_before_review = max(1, min(int(payload.get("days_before_review", user.days_before_review)), 365))
+    user.reminder_enabled = bool(payload.get("reminder_enabled", user.reminder_enabled))
+    user.reminder_interval_days = max(1, min(int(payload.get("reminder_interval_days", user.reminder_interval_days)), 30))
+    reminder_time = payload.get("reminder_time", user.reminder_time.strftime("%H:%M"))
+    user.reminder_time = datetime.strptime(reminder_time, "%H:%M").time()
+    user.reminder_timezone = normalize_timezone_value(payload.get("reminder_timezone", user.reminder_timezone))
+    user.save()
+    if user.repeat_threshold != previous_goal:
+        recalculate_user_word_progress(user)
+    return user
+
+
+def set_user_repeat_threshold(user: TelegramUser, value: int) -> TelegramUser:
+    user.repeat_threshold = max(2, min(int(value), 5))
+    user.save(update_fields=["repeat_threshold"])
+    recalculate_user_word_progress(user)
+    return user
+
+
+def save_user(user: TelegramUser) -> TelegramUser:
+    user.save()
+    return user
+
+
+def update_user_reminder_time(user: TelegramUser, time_obj) -> TelegramUser:
+    user.reminder_time = time_obj
+    user.save(update_fields=["reminder_time"])
+    return user
+
+
+def update_user_timezone(user: TelegramUser, tz_value: str) -> TelegramUser:
+    user.reminder_timezone = tz_value
+    user.save(update_fields=["reminder_timezone"])
+    return user
 
 
 def get_exercise_goal(user: TelegramUser) -> int:

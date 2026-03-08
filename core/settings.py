@@ -11,9 +11,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-from decouple import config
-from decouple import Csv
 from django.core.exceptions import ImproperlyConfigured
+
+from core.env import env, env_csv, get_secret_key
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,11 +23,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY')
+SECRET_KEY = get_secret_key()
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-DEBUG = config('DEBUG', cast=bool, default=False)
+DEBUG = env("DEBUG", cast=bool, default=False)
 
 if not DEBUG:
     if SECRET_KEY.startswith("django-insecure-") or len(SECRET_KEY) < 50:
@@ -43,20 +43,16 @@ ALLOWED_HOSTS = [
     'vocabume.k1prod.com',
 ]
 
-CSRF_TRUSTED_ORIGINS = config(
-    "CSRF_TRUSTED_ORIGINS",
-    cast=Csv(),
-    default="https://vocabume.k1prod.com",
-)
+CSRF_TRUSTED_ORIGINS = env_csv("CSRF_TRUSTED_ORIGINS", default="https://vocabume.k1prod.com")
 
 if not DEBUG:
-    SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", cast=bool, default=True)
-    SESSION_COOKIE_SECURE = config("SESSION_COOKIE_SECURE", cast=bool, default=True)
-    CSRF_COOKIE_SECURE = config("CSRF_COOKIE_SECURE", cast=bool, default=True)
+    SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT", cast=bool, default=True)
+    SESSION_COOKIE_SECURE = env("SESSION_COOKIE_SECURE", cast=bool, default=True)
+    CSRF_COOKIE_SECURE = env("CSRF_COOKIE_SECURE", cast=bool, default=True)
 
-    SECURE_HSTS_SECONDS = config("SECURE_HSTS_SECONDS", cast=int, default=31536000)
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = config("SECURE_HSTS_INCLUDE_SUBDOMAINS", cast=bool, default=True)
-    SECURE_HSTS_PRELOAD = config("SECURE_HSTS_PRELOAD", cast=bool, default=True)
+    SECURE_HSTS_SECONDS = env("SECURE_HSTS_SECONDS", cast=int, default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env("SECURE_HSTS_INCLUDE_SUBDOMAINS", cast=bool, default=True)
+    SECURE_HSTS_PRELOAD = env("SECURE_HSTS_PRELOAD", cast=bool, default=True)
 
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -111,11 +107,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST'),
-        'PORT': config('DB_PORT'),
+        'NAME': env('DB_NAME', required=True),
+        'USER': env('DB_USER', required=True),
+        'PASSWORD': env('DB_PASSWORD', required=True),
+        'HOST': env('DB_HOST', required=True),
+        'PORT': env('DB_PORT', required=True),
     }
 }
 
