@@ -273,10 +273,12 @@ function App() {
 
   const todayStats = useMemo(() => stats.slice(0, 3), [stats]);
   const todayAchievements = useMemo(() => {
-    const list = auth.progress?.achievements || [];
+    const list = dashboard?.progress?.achievements || auth.progress?.achievements || [];
     return list.slice(-3);
-  }, [auth.progress]);
-  const hasMoreAchievements = (auth.progress?.achievements?.length || 0) > todayAchievements.length;
+  }, [auth.progress, dashboard]);
+  const hasMoreAchievements =
+    (dashboard?.progress?.achievements || auth.progress?.achievements || []).length >
+    todayAchievements.length;
 
   const currentTitle = useMemo(() => {
     if (primaryTab === "today") return "Сегодня";
@@ -433,6 +435,11 @@ function App() {
       api(`/api/irregular/list?page=${irregularPage}`)
     ]);
     setDashboard(dashboardData);
+    setAuth((current) => ({
+      ...current,
+      user: dashboardData.user || current.user,
+      progress: dashboardData.progress || current.progress,
+    }));
     setSettings(settingsData.settings);
     setWords(wordsData.items);
     setIrregularList(irregularData);
