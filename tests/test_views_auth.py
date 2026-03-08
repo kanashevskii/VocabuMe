@@ -259,6 +259,109 @@ def test_learn_question_returns_empty_when_service_has_no_question(client, monke
 
 
 @pytest.mark.django_db
+def test_alphabet_list_returns_course_scoped_letters(client):
+    user = TelegramUser.objects.create(
+        chat_id=2006, username="tester", active_studied_language="ka"
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.get("/api/alphabet/list?page=0")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["course_code"] == "ka"
+    assert payload["items"][0]["symbol"] == "ა"
+    assert payload["items"][0]["transcription"] == "ɑ"
+
+
+@pytest.mark.django_db
+def test_alphabet_question_returns_current_course_payload(client, monkeypatch):
+    user = TelegramUser.objects.create(chat_id=2007, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+    monkeypatch.setattr(
+        "vocab.views.build_alphabet_question",
+        lambda current_user: {
+            "course_code": "en",
+            "letter": {
+                "symbol": "B",
+                "name": "B",
+                "transcription": "biː",
+                "hint": "би",
+            },
+            "correct_symbol": "B",
+            "options": ["A", "B", "C", "D"],
+        },
+    )
+
+    response = client.get("/api/alphabet/question")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["question"]["letter"]["symbol"] == "B"
+    assert payload["question"]["options"] == ["A", "B", "C", "D"]
+
+
+@pytest.mark.django_db
+def test_alphabet_answer_returns_validation_error_for_bad_payload(client):
+    user = TelegramUser.objects.create(chat_id=2008, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.post(
+        "/api/alphabet/answer",
+        data="{bad json",
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "Invalid alphabet payload."
+
+
+@pytest.mark.django_db
+def test_alphabet_answer_returns_result_payload(client, monkeypatch):
+    user = TelegramUser.objects.create(
+        chat_id=2009, username="tester", active_studied_language="ka"
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+    monkeypatch.setattr(
+        "vocab.views.submit_alphabet_answer",
+        lambda current_user, symbol, answer: {
+            "correct": True,
+            "correct_answer": symbol,
+            "letter": {
+                "symbol": symbol,
+                "name": "განი",
+                "transcription": "ɡ",
+                "hint": "г",
+            },
+            "progress": {"course_code": "ka", "practice_correct": 1},
+        },
+    )
+
+    response = client.post(
+        "/api/alphabet/answer",
+        data=json.dumps({"symbol": "გ", "answer": "გ"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["correct"] is True
+    assert payload["letter"]["transcription"] == "ɡ"
+    assert payload["progress"]["course_code"] == "ka"
+
+
+@pytest.mark.django_db
 def test_learn_answer_rejects_unknown_exercise_type(client):
     user = TelegramUser.objects.create(chat_id=2006, username="tester")
     session = client.session

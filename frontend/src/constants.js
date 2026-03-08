@@ -16,6 +16,11 @@ export const IRREGULAR_MODES = [
   { id: "test", label: "Тест" },
 ];
 
+export const ALPHABET_MODES = [
+  { id: "review", label: "Материал" },
+  { id: "test", label: "Тест" },
+];
+
 export const TIMEZONE_OPTIONS = [
   { value: "UTC", label: "UTC" },
   { value: "UTC+03:00", label: "UTC+03:00" },

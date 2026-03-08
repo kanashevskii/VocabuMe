@@ -24,6 +24,7 @@ from .services import (
     build_user_progress,
     build_choice_question,
     build_irregular_question,
+    build_alphabet_question,
     build_listening_question,
     build_speaking_question,
     consume_web_login_token,
@@ -43,6 +44,7 @@ from .services import (
     get_ordered_unlearned_words,
     list_words,
     list_irregular_page,
+    list_alphabet_page,
     list_word_packs,
     request_draft_image_generation,
     refresh_draft_language_data,
@@ -53,6 +55,7 @@ from .services import (
     submit_learning_text_answer,
     submit_choice_answer,
     submit_listening_answer,
+    submit_alphabet_answer,
     evaluate_speaking_answer,
     update_learning_streak,
     update_irregular_progress,
@@ -1002,6 +1005,45 @@ def irregular_answer(request: HttpRequest) -> JsonResponse:
             "progress": build_user_progress(user),
         }
     )
+
+
+@require_GET
+def alphabet_list(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    page = max(0, int(request.GET.get("page", 0)))
+    return JsonResponse({"ok": True, **list_alphabet_page(user, page)})
+
+
+@require_GET
+def alphabet_question(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    return JsonResponse({"ok": True, "question": build_alphabet_question(user)})
+
+
+@require_POST
+def alphabet_answer(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    try:
+        payload = _json_body(request)
+        symbol = str(payload.get("symbol", ""))
+        answer = str(payload.get("answer", ""))
+    except (TypeError, ValueError):
+        return _json_error("Invalid alphabet payload.")
+
+    try:
+        result = submit_alphabet_answer(user, symbol, answer)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    return JsonResponse({"ok": True, **result})
 
 
 @require_GET

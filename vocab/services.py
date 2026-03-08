@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     Image = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
+from .alphabets import get_alphabet, get_random_alphabet_options
 from .models import (
     AddWordDraft,
     Achievement,
@@ -2368,6 +2369,62 @@ def list_irregular_page(page: int, per_page: int = 20) -> dict:
         "has_prev": page > 0,
         "has_next": end < len(IRREGULAR_VERBS),
         "total": len(IRREGULAR_VERBS),
+    }
+
+
+def list_alphabet_page(
+    user: TelegramUser, page: int, per_page: int = 12
+) -> dict:
+    active_course = get_active_course_code(user)
+    items = get_alphabet(active_course)
+    start = page * per_page
+    end = start + per_page
+    return {
+        "course_code": active_course,
+        "items": items[start:end],
+        "page": page,
+        "has_prev": page > 0,
+        "has_next": end < len(items),
+        "total": len(items),
+    }
+
+
+def build_alphabet_question(user: TelegramUser) -> dict:
+    active_course = get_active_course_code(user)
+    letter = random.choice(get_alphabet(active_course))
+    options = [letter["symbol"], *get_random_alphabet_options(active_course, letter["symbol"], count=3)]
+    unique_options: list[str] = []
+    for option in options:
+        if option not in unique_options:
+            unique_options.append(option)
+    random.shuffle(unique_options)
+    return {
+        "course_code": active_course,
+        "letter": letter,
+        "correct_symbol": letter["symbol"],
+        "options": unique_options[:4],
+    }
+
+
+def submit_alphabet_answer(
+    user: TelegramUser, symbol: str, answer: str
+) -> dict:
+    active_course = get_active_course_code(user)
+    entries = {item["symbol"]: item for item in get_alphabet(active_course)}
+    letter = entries.get(symbol)
+    if letter is None:
+        raise ValueError("Alphabet letter not found.")
+
+    correct = answer == letter["symbol"]
+    if correct:
+        increment_user_metric(user, "practice_correct")
+        update_learning_streak(user)
+
+    return {
+        "correct": correct,
+        "correct_answer": letter["symbol"],
+        "letter": letter,
+        "progress": build_user_progress(user),
     }
 
 

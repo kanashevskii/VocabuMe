@@ -44,4 +44,7 @@ urlpatterns = [
     path("api/irregular/list", views.irregular_list, name="irregular-list"),
     path("api/irregular/question", views.irregular_question, name="irregular-question"),
     path("api/irregular/answer", views.irregular_answer, name="irregular-answer"),
+    path("api/alphabet/list", views.alphabet_list, name="alphabet-list"),
+    path("api/alphabet/question", views.alphabet_question, name="alphabet-question"),
+    path("api/alphabet/answer", views.alphabet_answer, name="alphabet-answer"),
 ]

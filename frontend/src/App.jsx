@@ -12,6 +12,7 @@ import AuthPanel from "./components/AuthPanel";
 import AppTopbar from "./components/AppTopbar";
 import BottomNav from "./components/BottomNav";
 import {
+  ALPHABET_MODES,
   IRREGULAR_MODES,
   LIBRARY_MODES,
   MAX_ADD_BATCH_WORDS,
@@ -131,6 +132,15 @@ function App() {
   const [irregularCorrectCount, setIrregularCorrectCount] = useState(0);
   const [irregularSessionLimit, setIrregularSessionLimit] = useState(12);
   const [irregularSessionDone, setIrregularSessionDone] = useState(false);
+  const [alphabetPage, setAlphabetPage] = useState(0);
+  const [alphabetList, setAlphabetList] = useState(null);
+  const [alphabetQuestion, setAlphabetQuestion] = useState(null);
+  const [alphabetResult, setAlphabetResult] = useState(null);
+  const [alphabetMode, setAlphabetMode] = useState("review");
+  const [alphabetQuestionCount, setAlphabetQuestionCount] = useState(0);
+  const [alphabetCorrectCount, setAlphabetCorrectCount] = useState(0);
+  const [alphabetSessionLimit, setAlphabetSessionLimit] = useState(12);
+  const [alphabetSessionDone, setAlphabetSessionDone] = useState(false);
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
@@ -311,9 +321,15 @@ function App() {
       addDraftStep,
     ].join(":");
   }, [auth.authenticated, primaryTab, libraryMode, learnPanel, showLibraryAdd, addDraftStep]);
-  const showHeaderBack = primaryTab === "learn" && learnPanel === "irregular" && irregularMode === "review";
+  const showHeaderBack =
+    primaryTab === "learn"
+    && (
+      (learnPanel === "irregular" && irregularMode === "review")
+      || (learnPanel === "alphabet" && alphabetMode === "review")
+    );
   const showHeaderClose = (primaryTab === "learn" && Boolean(learnQuestion))
-    || (primaryTab === "learn" && learnPanel === "irregular" && irregularMode === "test");
+    || (primaryTab === "learn" && learnPanel === "irregular" && irregularMode === "test")
+    || (primaryTab === "learn" && learnPanel === "alphabet" && alphabetMode === "test");
 
   useEffect(() => {
     setNoticeState((current) => {
@@ -438,11 +454,12 @@ function App() {
   }
 
   async function loadDashboard() {
-    const [dashboardData, settingsData, wordsData, irregularData] = await Promise.all([
+    const [dashboardData, settingsData, wordsData, irregularData, alphabetData] = await Promise.all([
       api("/api/dashboard"),
       api("/api/settings"),
       api(`/api/words?status=${statusFilter}&search=${encodeURIComponent(deferredSearch)}`),
-      api(`/api/irregular/list?page=${irregularPage}`)
+      api(`/api/irregular/list?page=${irregularPage}`),
+      api(`/api/alphabet/list?page=${alphabetPage}`)
     ]);
     setDashboard(dashboardData);
     setAuth((current) => ({
@@ -453,6 +470,7 @@ function App() {
     setSettings(settingsData.settings);
     setWords(wordsData.items);
     setIrregularList(irregularData);
+    setAlphabetList(alphabetData);
   }
 
   async function loadCards(options = {}) {
@@ -532,6 +550,13 @@ function App() {
     setIrregularSessionLimit(settings?.session_question_limit || 12);
   }
 
+  async function loadAlphabetQuestion() {
+    const data = await api("/api/alphabet/question");
+    setAlphabetQuestion(data.question);
+    setAlphabetResult(null);
+    setAlphabetSessionLimit(settings?.session_question_limit || 12);
+  }
+
   function stopPolling() {
     if (pollRef.current) {
       window.clearInterval(pollRef.current);
@@ -582,7 +607,7 @@ function App() {
     }
     Promise.all([loadDashboard(), loadLearningData(), loadIrregularQuestion()])
       .catch((error) => setNotice(error.message));
-  }, [auth.authenticated, deferredSearch, statusFilter, irregularPage]);
+  }, [auth.authenticated, deferredSearch, statusFilter, irregularPage, alphabetPage]);
 
   useEffect(() => {
     if (!auth.authenticated) {
@@ -1207,6 +1232,43 @@ function App() {
     }
   }
 
+  async function handleAlphabetAnswer(answer) {
+    if (!alphabetQuestion) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const data = await api("/api/alphabet/answer", {
+        method: "POST",
+        body: JSON.stringify({
+          symbol: alphabetQuestion.letter.symbol,
+          answer,
+        })
+      });
+      setAlphabetResult(data);
+      if (data.correct) {
+        setAlphabetCorrectCount((current) => current + 1);
+      }
+      setAuth((previous) => ({ ...previous, progress: data.progress }));
+      await loadDashboard();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function skipAlphabetQuestion() {
+    if (!alphabetQuestion || alphabetResult) {
+      return;
+    }
+    setAlphabetResult({
+      correct: false,
+      skipped: true,
+      correct_answer: alphabetQuestion.letter.symbol,
+    });
+  }
+
   function skipIrregularQuestion() {
     if (!irregularQuestion || irregularResult) {
       return;
@@ -1371,6 +1433,11 @@ function App() {
     setIrregularMode("review");
   }
 
+  function backFromAlphabetReview() {
+    setLearnPanel("mixed");
+    setAlphabetMode("review");
+  }
+
   function closeIrregularTest() {
     const hasProgress = Boolean(irregularQuestion || irregularResult);
     if (hasProgress && !window.confirm("Закрыть тест по глаголам? Текущий прогресс в этом экране сбросится.")) {
@@ -1385,12 +1452,35 @@ function App() {
     setIrregularMode("test");
   }
 
+  function closeAlphabetTest() {
+    const hasProgress = Boolean(alphabetQuestion || alphabetResult);
+    if (!hasProgress) {
+      backFromAlphabetReview();
+      return;
+    }
+    setAlphabetQuestion(null);
+    setAlphabetResult(null);
+    setAlphabetQuestionCount(0);
+    setAlphabetCorrectCount(0);
+    setAlphabetSessionDone(false);
+    setLearnPanel("alphabet");
+    setAlphabetMode("test");
+  }
+
   async function startIrregularTest() {
     setIrregularQuestionCount(0);
     setIrregularCorrectCount(0);
     setIrregularSessionDone(false);
     setIrregularSessionLimit(settings?.session_question_limit || 12);
     await loadIrregularQuestion();
+  }
+
+  async function startAlphabetTest() {
+    setAlphabetQuestionCount(0);
+    setAlphabetCorrectCount(0);
+    setAlphabetSessionDone(false);
+    setAlphabetSessionLimit(settings?.session_question_limit || 12);
+    await loadAlphabetQuestion();
   }
 
   async function advanceIrregularTest() {
@@ -1404,6 +1494,19 @@ function App() {
     }
     setIrregularQuestionCount(nextCount);
     await loadIrregularQuestion();
+  }
+
+  async function advanceAlphabetTest() {
+    const nextCount = alphabetQuestionCount + 1;
+    if (nextCount >= alphabetSessionLimit) {
+      setAlphabetQuestion(null);
+      setAlphabetResult(null);
+      setAlphabetQuestionCount(nextCount);
+      setAlphabetSessionDone(true);
+      return;
+    }
+    setAlphabetQuestionCount(nextCount);
+    await loadAlphabetQuestion();
   }
 
   function renderCards() {
@@ -1478,7 +1581,8 @@ function App() {
   function renderLearn() {
     const hasWordsToLearn = (auth.progress?.learning ?? 0) > 0;
     const hasActiveIrregularTest = learnPanel === "irregular" && irregularMode === "test";
-    const showLearnOverview = learnPanel !== "irregular" && !learnQuestion && !hasActiveIrregularTest;
+    const hasActiveAlphabetTest = learnPanel === "alphabet" && alphabetMode === "test";
+    const showLearnOverview = !["irregular", "alphabet"].includes(learnPanel) && !learnQuestion && !hasActiveIrregularTest && !hasActiveAlphabetTest;
 
     if (showLearnOverview) {
       return (
@@ -1541,6 +1645,34 @@ function App() {
               ))}
             </div>
           </section>
+
+          <section className="glass-card compact-section practice-overview-card">
+            <div className="section-head">
+              <div>
+                <p className="overline">Alphabet</p>
+                <h3>Алфавит 🔤</h3>
+                <p className="lead compact">Буквы, названия и транскрипция для текущего языка обучения.</p>
+              </div>
+            </div>
+            <div className="segment-wrap main-segment">
+              {ALPHABET_MODES.map((item) => (
+                <button
+                  key={item.id}
+                  className={alphabetMode === item.id ? "segment-button active" : "segment-button"}
+                  type="button"
+                  onClick={() => {
+                    setLearnPanel("alphabet");
+                    setAlphabetMode(item.id);
+                    if (item.id === "test" && !alphabetQuestion) {
+                      void startAlphabetTest();
+                    }
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
       );
     }
@@ -1549,6 +1681,14 @@ function App() {
       return (
         <div className="screen-stack">
           {renderIrregular()}
+        </div>
+      );
+    }
+
+    if (learnPanel === "alphabet") {
+      return (
+        <div className="screen-stack">
+          {renderAlphabet()}
         </div>
       );
     }
@@ -2155,6 +2295,93 @@ function App() {
     );
   }
 
+  function renderAlphabet() {
+    return (
+      <div className="screen-stack">
+        {alphabetMode === "review" ? (
+          <section className="glass-card compact-section">
+            <div className="section-head">
+              <div>
+                <p className="overline">Alphabet</p>
+                <h3>Повторять алфавит 🔤</h3>
+              </div>
+            </div>
+            <div className="simple-list">
+              {(alphabetList?.items || []).map((item) => (
+                <div key={item.symbol} className="simple-row four-cols">
+                  <strong>{item.symbol}</strong>
+                  <span>{item.name}</span>
+                  <span>/{item.transcription}/</span>
+                  <span>{item.hint}</span>
+                </div>
+              ))}
+            </div>
+            <div className="button-row card-nav-row">
+              <button className="secondary-button nav-arrow" type="button" onClick={() => setAlphabetPage((value) => Math.max(0, value - 1))} disabled={!alphabetList?.has_prev} aria-label="Предыдущая страница">
+                ←
+              </button>
+              <button className="secondary-button nav-arrow" type="button" onClick={() => setAlphabetPage((value) => value + 1)} disabled={!alphabetList?.has_next} aria-label="Следующая страница">
+                →
+              </button>
+            </div>
+          </section>
+        ) : null}
+        {alphabetMode === "test" ? (
+          <section className="glass-card compact-section">
+            <div className="section-head">
+              <div>
+                <p className="overline">Alphabet</p>
+                <h3>Тест по алфавиту 🧠</h3>
+              </div>
+              <span className="status-tag">{Math.min(alphabetQuestionCount + 1, alphabetSessionLimit)} / {alphabetSessionLimit}</span>
+            </div>
+            {alphabetQuestion ? (
+              <div className="quiz-panel">
+                <div className="prompt-card">
+                  <strong>/{alphabetQuestion.letter.transcription}/</strong>
+                  <span>{alphabetQuestion.letter.hint}</span>
+                </div>
+                <div className="option-grid">
+                  {alphabetQuestion.options.map((option) => (
+                    <button key={option} className="option-button" type="button" onClick={() => handleAlphabetAnswer(option)}>
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                {!alphabetResult ? (
+                  <button className="secondary-button" type="button" onClick={skipAlphabetQuestion}>
+                    Пропустить
+                  </button>
+                ) : null}
+                {alphabetResult ? (
+                  <div className={alphabetResult.correct ? "result-box good" : "result-box bad"}>
+                    <span>{alphabetResult.correct ? "Верно" : `Правильный ответ: ${alphabetResult.correct_answer}`}</span>
+                    <button className="secondary-button" type="button" onClick={() => void advanceAlphabetTest()}>
+                      Дальше
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="stack-form">
+                <div className="empty-state">
+                  {alphabetSessionDone
+                    ? `Тест завершён. Верно ${alphabetCorrectCount} из ${alphabetQuestionCount || alphabetSessionLimit}. ${getSessionPraise(alphabetCorrectCount, alphabetQuestionCount || alphabetSessionLimit)}`
+                    : "Сейчас нет вопроса по алфавиту."}
+                </div>
+                {alphabetSessionDone ? (
+                  <button className="primary-button" type="button" onClick={() => void startAlphabetTest()}>
+                    Начать новый тест
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </section>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderMore() {
     return (
       <SettingsScreen
@@ -2255,10 +2482,12 @@ function App() {
         busy={busy}
         currentTitle={currentTitle}
         isMiniApp={isMiniApp}
-        onBack={backFromIrregularReview}
+        onBack={learnPanel === "alphabet" ? backFromAlphabetReview : backFromIrregularReview}
         onClose={
           learnPanel === "irregular" && irregularMode === "test"
             ? closeIrregularTest
+            : learnPanel === "alphabet" && alphabetMode === "test"
+              ? closeAlphabetTest
             : closeLearnSession
         }
         onLogout={logoutWeb}
@@ -2283,10 +2512,12 @@ function App() {
           currentTitle={currentTitle}
           extraClass="desktop-scroll-topbar"
           isMiniApp={isMiniApp}
-          onBack={backFromIrregularReview}
+          onBack={learnPanel === "alphabet" ? backFromAlphabetReview : backFromIrregularReview}
           onClose={
             learnPanel === "irregular" && irregularMode === "test"
               ? closeIrregularTest
+              : learnPanel === "alphabet" && alphabetMode === "test"
+                ? closeAlphabetTest
               : closeLearnSession
           }
           onLogout={logoutWeb}

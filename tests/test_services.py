@@ -12,6 +12,7 @@ from vocab.services import (
     authenticate_web_user,
     add_pack_words_to_user,
     apply_user_settings,
+    build_alphabet_question,
     build_choice_question,
     build_learning_question,
     build_listening_question,
@@ -31,6 +32,7 @@ from vocab.services import (
     get_exercise_goal,
     get_or_create_user_course_progress,
     list_word_packs,
+    list_alphabet_page,
     is_prepared_pack_item_ready,
     get_pending_exercise_types,
     get_required_exercise_types,
@@ -43,6 +45,7 @@ from vocab.services import (
     request_draft_image_generation,
     request_word_image_generation,
     submit_choice_answer,
+    submit_alphabet_answer,
     submit_learning_text_answer,
     submit_listening_answer,
     split_translation_variants,
@@ -768,3 +771,77 @@ def test_list_word_packs_returns_georgian_starter_for_ka_course():
     assert packs[0]["id"] == "georgian_starter"
     assert packs[0]["levels"][0]["id"] == "starter"
     assert len(packs[0]["levels"][0]["items"]) == 10
+
+
+@pytest.mark.django_db
+def test_list_alphabet_page_returns_english_letters_by_default():
+    user = TelegramUser.objects.create(chat_id=1033, username="tester")
+
+    payload = list_alphabet_page(user, page=0, per_page=5)
+
+    assert payload["course_code"] == "en"
+    assert payload["total"] == 26
+    assert [item["symbol"] for item in payload["items"]] == ["A", "B", "C", "D", "E"]
+
+
+@pytest.mark.django_db
+def test_list_alphabet_page_returns_georgian_letters_for_georgian_course():
+    user = TelegramUser.objects.create(
+        chat_id=1034, username="tester", active_studied_language="ka"
+    )
+
+    payload = list_alphabet_page(user, page=0, per_page=4)
+
+    assert payload["course_code"] == "ka"
+    assert payload["total"] == 33
+    assert [item["symbol"] for item in payload["items"]] == ["ა", "ბ", "გ", "დ"]
+
+
+@pytest.mark.django_db
+def test_build_alphabet_question_uses_active_course(monkeypatch):
+    user = TelegramUser.objects.create(
+        chat_id=1035, username="tester", active_studied_language="ka"
+    )
+    monkeypatch.setattr(
+        "vocab.services.random.choice",
+        lambda values: next(item for item in values if item["symbol"] == "გ"),
+    )
+    monkeypatch.setattr("vocab.services.random.shuffle", lambda values: None)
+
+    question = build_alphabet_question(user)
+
+    assert question["course_code"] == "ka"
+    assert question["letter"]["symbol"] == "გ"
+    assert question["letter"]["transcription"] == "ɡ"
+    assert question["correct_symbol"] == "გ"
+    assert "გ" in question["options"]
+    assert len(question["options"]) == 4
+
+
+@pytest.mark.django_db
+def test_submit_alphabet_answer_marks_correct_progress_for_active_course():
+    user = TelegramUser.objects.create(chat_id=1036, username="tester")
+    progress = get_or_create_user_course_progress(user, "en")
+
+    result = submit_alphabet_answer(user, "A", "A")
+
+    progress.refresh_from_db()
+    assert result["correct"] is True
+    assert result["correct_answer"] == "A"
+    assert result["letter"]["transcription"] == "eɪ"
+    assert progress.practice_correct == 1
+
+
+@pytest.mark.django_db
+def test_submit_alphabet_answer_keeps_wrong_answer_without_progress_increment():
+    user = TelegramUser.objects.create(
+        chat_id=1037, username="tester", active_studied_language="ka"
+    )
+    progress = get_or_create_user_course_progress(user, "ka")
+
+    result = submit_alphabet_answer(user, "ა", "ბ")
+
+    progress.refresh_from_db()
+    assert result["correct"] is False
+    assert result["correct_answer"] == "ა"
+    assert progress.practice_correct == 0
