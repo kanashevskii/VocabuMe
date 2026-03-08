@@ -22,13 +22,13 @@ export default function SettingsScreen({
       ];
   const studiedLanguageOptions =
     settings.available_studied_languages || [
-      { code: "en", label: "English" },
-      { code: "ka", label: "Georgian" },
+      { code: "en", label: "Английский" },
+      { code: "ka", label: "Грузинский" },
     ];
 
   return (
     <section className="glass-card compact-section">
-      <p className="overline">Settings</p>
+      <p className="overline">Настройки</p>
       <h3>Настройки ⚙️</h3>
       <form className="settings-grid" onSubmit={onSave}>
         <label>

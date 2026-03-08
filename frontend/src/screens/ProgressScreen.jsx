@@ -21,14 +21,14 @@ export default function ProgressScreen({ progress, stats }) {
         </section>
       ) : null}
       <section className="glass-card compact-section">
-        <p className="overline">Rank</p>
+        <p className="overline">Рейтинг</p>
         <div className="headline-row">
           <h3>{progress?.rank_percent ? `${progress.rank_percent}%` : "—"}</h3>
-          <span>🏅 Top range</span>
+          <span>🏅 Позиция среди пользователей</span>
         </div>
       </section>
       <section className="glass-card compact-section">
-        <p className="overline">Achievements</p>
+        <p className="overline">Награды</p>
         <div className="achievement-grid">
           {(progress?.achievements || []).length ? (
             progress.achievements.map((item) => (
@@ -37,12 +37,12 @@ export default function ProgressScreen({ progress, stats }) {
               </span>
             ))
           ) : (
-            <div className="empty-state">No achievements yet.</div>
+            <div className="empty-state">Пока без наград.</div>
           )}
         </div>
       </section>
       <section className="glass-card compact-section">
-        <p className="overline">Next</p>
+        <p className="overline">Следующее</p>
         <div className="section-head">
           <h3>К чему стремиться ✨</h3>
         </div>

@@ -124,8 +124,13 @@ ACHIEVEMENT_DEFINITIONS = [
     {"kind": "days", "threshold": 200, "text": "🛡️ 200 дней подряд — Гуру дисциплины!"},
     {"kind": "days", "threshold": 365, "text": "🌈 365 дней подряд — Год знаний!"},
 ]
+STUDIED_LANGUAGE_LABELS_RU = {
+    "en": "Английский",
+    "ka": "Грузинский",
+}
 AVAILABLE_STUDIED_LANGUAGES = [
-    {"code": code, "label": label} for code, label in STUDIED_LANGUAGE_CHOICES
+    {"code": code, "label": STUDIED_LANGUAGE_LABELS_RU.get(code, label)}
+    for code, label in STUDIED_LANGUAGE_CHOICES
 ]
 
 

@@ -1761,6 +1761,15 @@ function App() {
     const isTranslationStep = addDraftStep === "confirm_translation";
     const isImageStep = addDraftStep === "confirm_image";
     const isBatchReview = addDraftStep === "batch_review";
+    const activeStudiedLanguage = settings?.active_studied_language || "en";
+    const addWordPlaceholder =
+      activeStudiedLanguage === "ka"
+        ? "გამარჯობა\nმადლობა\nგზა - дорога"
+        : "stare\nfigure out\ntravel - путешествие";
+    const addWordHint =
+      activeStudiedLanguage === "ka"
+        ? `Вставляй по одному слову или фразе на грузинском на строку. Если нужно, можно сразу подсказать перевод через дефис. За один раз можно добавить до ${MAX_ADD_BATCH_WORDS} слов или фраз.`
+        : `Вставляй по одному слову или фразе на английском на строку. Если нужно, можно сразу подсказать перевод через дефис. За один раз можно добавить до ${MAX_ADD_BATCH_WORDS} слов или фраз.`;
     const selectedPack = packs.find((pack) => pack.id === selectedPackId) || packs[0] || null;
     const selectedLevel = selectedPack?.levels.find((level) => level.id === selectedPackLevelId) || selectedPack?.levels?.[0] || null;
     const selectedWordCount = selectedLevel
@@ -1771,12 +1780,12 @@ function App() {
       <section className="glass-card compact-section add-wizard">
         <div className="section-head">
           <div>
-            <p className="overline">Add</p>
+            <p className="overline">Добавление</p>
             <h3>{isBatchReview ? "Проверить слова ✨" : "Добавить слово ✨"}</h3>
             <p className="lead compact">
               {isBatchReview
                 ? "Проверь переводы. Фото загружаются автоматически и не тормозят добавление."
-                : `Можно вставить до ${MAX_ADD_BATCH_WORDS} слов или фраз за раз. Подтверждаем перевод, а фото загружается автоматически в фоне.`}
+                : `Можно вставить до ${MAX_ADD_BATCH_WORDS} слов или фраз на текущем языке обучения. Подтверждаем перевод, а фото загружается автоматически в фоне.`}
             </p>
           </div>
           <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>
@@ -1795,13 +1804,13 @@ function App() {
           <div className="stack-form">
             <form className="stack-form" onSubmit={handleAddWords}>
               <div className="inline-note">
-                Вставляй по одному слову на строку. За один раз можно добавить до {MAX_ADD_BATCH_WORDS} слов или фраз.
+                {addWordHint}
               </div>
               <textarea
                 rows={5}
                 value={addText}
                 onChange={(event) => setAddText(event.target.value)}
-                placeholder={"stare\nfigure out\ntravel - путешествие"}
+                placeholder={addWordPlaceholder}
               />
               <button className="primary-button" type="submit" disabled={addBusy}>
                 {addBusy ? "Обрабатываем..." : "Добавить слово"}
@@ -1810,7 +1819,7 @@ function App() {
             <section className="glass-card compact-section pack-section">
               <div className="section-head">
                 <div>
-                  <p className="overline">Packs</p>
+                  <p className="overline">Наборы</p>
                   <h3>Готовые наборы ✈️</h3>
                   <p className="lead compact">Выбери набор и уровень. Остальное можно раскрыть ниже.</p>
                 </div>

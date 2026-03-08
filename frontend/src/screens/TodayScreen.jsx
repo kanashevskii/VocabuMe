@@ -16,7 +16,7 @@ export default function TodayScreen({
       <section className="glass-card today-hero">
         <div className="today-hero-grid">
           <div>
-            <p className="overline">Today</p>
+            <p className="overline">Сегодня</p>
             <h2>Продолжай учить слова ✨</h2>
             <p className="lead compact">
               {studiedToday
@@ -50,7 +50,7 @@ export default function TodayScreen({
       <section className="glass-card compact-section today-achievements">
         <div className="section-head">
           <div>
-            <p className="overline">Achievements</p>
+            <p className="overline">Награды</p>
             <h3>Последние награды 🏆</h3>
           </div>
           {hasMoreAchievements ? (
