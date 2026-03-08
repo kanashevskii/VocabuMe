@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import pytest
-from vocab.models import AddWordDraft, TelegramUser, UserCourseProgress, VocabularyItem
+from vocab.models import (
+    AddWordDraft,
+    PackPreparedWord,
+    TelegramUser,
+    UserCourseProgress,
+    VocabularyItem,
+)
 from vocab.services import (
     authenticate_web_user,
     add_pack_words_to_user,
@@ -15,6 +21,7 @@ from vocab.services import (
     create_web_login_token,
     create_web_user,
     create_word_draft,
+    create_word_drafts_from_text,
     create_word,
     finalize_word_draft,
     evaluate_speaking_answer,
@@ -24,6 +31,7 @@ from vocab.services import (
     get_exercise_goal,
     get_or_create_user_course_progress,
     list_word_packs,
+    is_prepared_pack_item_ready,
     get_pending_exercise_types,
     get_required_exercise_types,
     get_session_question_limit,
@@ -160,6 +168,54 @@ def test_create_word_reuses_shared_image_path(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_create_word_drafts_uses_active_course_for_georgian(monkeypatch):
+    user = TelegramUser.objects.create(
+        chat_id=1010, username="tester", active_studied_language="ka"
+    )
+
+    captured: dict[str, str] = {}
+
+    def fake_generate(word, part_hint=None, translation_hint=None, course_code="en"):
+        captured["course_code"] = course_code
+        return {
+            "word": word,
+            "translation": translation_hint or "перевод",
+            "transcription": "t",
+            "example": "ეს მაგალითია.",
+            "example_translation": "Это пример.",
+            "part_of_speech": "phrase",
+            "course_code": course_code,
+        }
+
+    monkeypatch.setattr("vocab.services.generate_word_data", fake_generate)
+    monkeypatch.setattr("vocab.services.request_draft_image_generation", lambda draft: draft)
+
+    result = create_word_drafts_from_text(user, "არ მესმის - я не понимаю")
+
+    assert result["draft"].course_code == "ka"
+    assert result["draft"].example == "ეს მაგალითია."
+    assert captured["course_code"] == "ka"
+
+
+@pytest.mark.django_db
+def test_georgian_prepared_pack_item_with_english_example_is_not_ready():
+    item = PackPreparedWord.objects.create(
+        course_code="ka",
+        pack_id="georgian_starter",
+        level_id="starter",
+        normalized_word="ar_mesmis",
+        word="არ მესმის",
+        translation="я не понимаю",
+        transcription="ɑr mɛsˈmis",
+        example="I don't understand the question.",
+        example_translation="Я не понимаю вопрос.",
+        image_path="media/card_images/example.jpg",
+    )
+
+    assert is_prepared_pack_item_ready(item, "ka") is False
+
+
+@pytest.mark.django_db
 def test_word_progress_helpers_normalize_completed_types_and_learning_state():
     user = TelegramUser.objects.create(
         chat_id=1005, username="tester", repeat_threshold=3, session_question_limit=99
@@ -260,7 +316,7 @@ def test_refresh_draft_language_data_updates_generated_fields(monkeypatch):
     )
     monkeypatch.setattr(
         "vocab.services.generate_word_data",
-        lambda word, part_hint=None, translation_hint=None: {
+        lambda word, part_hint=None, translation_hint=None, course_code="en": {
             "transcription": "/apple/",
             "example": "An apple a day.",
             "example_translation": "Яблоко в день.",

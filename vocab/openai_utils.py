@@ -138,10 +138,28 @@ def _is_valid_example(word: str, expected_part: str | None, example: str) -> boo
     return True
 
 
+def _example_matches_course(course_code: str, example: str) -> bool:
+    text = (example or "").strip()
+    if not text:
+        return False
+    if course_code == "ka":
+        return bool(re.search(r"[\u10A0-\u10FF]", text))
+    return bool(re.search(r"[A-Za-z]", text))
+
+
+def _is_valid_example_for_course(
+    course_code: str, word: str, expected_part: str | None, example: str
+) -> bool:
+    return _example_matches_course(course_code, example) and _is_valid_example(
+        word, expected_part, example
+    )
+
+
 def _build_prompt(
     word: str,
     effective_part: str | None,
     translation_hint: str | None,
+    course_code: str = "en",
     extra_note: str = "",
 ) -> str:
     hint_text = ""
@@ -172,7 +190,28 @@ def _build_prompt(
     if extra_note:
         hint_text += extra_note + "\n"
 
-    prompt = f"""
+    if course_code == "ka":
+        prompt = f"""
+You are a Georgian language assistant.
+
+{hint_text}For the Georgian word or phrase "{word}", return the following in JSON format:
+1. "translation": most common Russian translation (matching the same sense and part of speech)
+2. "transcription": IPA transcription of the Georgian word
+3. "example": short sentence in Georgian that uses the same sense and part of speech
+4. "part_of_speech": word type — one of: noun, verb, adjective, adverb, pronoun, preposition, conjunction, interjection, phrase
+
+Example format:
+{{
+  "translation": "перевод",
+  "transcription": "madlɔba",
+  "example": "დიდი მადლობა დახმარებისთვის.",
+  "part_of_speech": "interjection"
+}}
+
+Only return the JSON object. No extra text.
+"""
+    else:
+        prompt = f"""
 You are an English language assistant.
 
 {hint_text}For the English word or phrase "{word}", return the following in JSON format:
@@ -195,10 +234,13 @@ Only return the JSON object. No extra text.
 
 
 def generate_word_data(
-    word: str, part_hint: str | None = None, translation_hint: str | None = None
+    word: str,
+    part_hint: str | None = None,
+    translation_hint: str | None = None,
+    course_code: str = "en",
 ) -> dict:
     lang = detect_language(word)
-    if lang == "ru":
+    if course_code == "en" and lang == "ru":
         prompt_translate = f'Translate the Russian word or phrase "{word}" to English. Just give the main English equivalent.'
         with openai_request_slot("translate-ru-to-en"):
             translation_resp = client.chat.completions.create(
@@ -212,7 +254,9 @@ def generate_word_data(
     prompt_note = ""
     last_error = None
     for _ in range(3):
-        prompt = _build_prompt(word, effective_part, translation_hint, prompt_note)
+        prompt = _build_prompt(
+            word, effective_part, translation_hint, course_code=course_code, extra_note=prompt_note
+        )
         try:
             with openai_request_slot("generate-word-data"):
                 response = client.chat.completions.create(
@@ -224,15 +268,15 @@ def generate_word_data(
             if effective_part:
                 parsed["part_of_speech"] = effective_part
 
-            example_ok = _is_valid_example(
-                word, effective_part, parsed.get("example", "")
+            example_ok = _is_valid_example_for_course(
+                course_code, word, effective_part, parsed.get("example", "")
             )
             pos_ok = (
                 not effective_part
                 or parsed.get("part_of_speech", "").lower() == effective_part
             )
             if example_ok and pos_ok:
-                return parsed | {"word": word}
+                return parsed | {"word": word, "course_code": course_code}
 
             reason = (
                 "example doesn't match expected part"
@@ -257,6 +301,8 @@ def generate_word_data_batch(entries: list[dict]) -> list[dict | None]:
     if not entries:
         return []
 
+    course_code = (entries[0].get("course_code") or "en").strip().lower() or "en"
+
     payload = [
         {
             "word": entry["word"],
@@ -265,8 +311,30 @@ def generate_word_data_batch(entries: list[dict]) -> list[dict | None]:
         }
         for entry in entries
     ]
+    if course_code == "ka":
+        prompt = f"""
+You are a Georgian language assistant.
 
-    prompt = f"""
+For each entry in the JSON array below, return one object in the same order.
+Each result object must contain:
+1. "word": original Georgian word or phrase
+2. "translation": the matching Russian translation for the intended sense
+3. "transcription": IPA transcription
+4. "example": short Georgian sentence using the same sense
+5. "part_of_speech": one of noun, verb, adjective, adverb, pronoun, preposition, conjunction, interjection, phrase
+
+Important:
+- Respect the provided translation_hint if present.
+- Respect the provided part_hint if present.
+- Keep phrase meanings intact.
+- Return Georgian examples, not English examples.
+- Return JSON array only, no prose.
+
+Input:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+    else:
+        prompt = f"""
 You are an English language assistant.
 
 For each entry in the JSON array below, return one object in the same order.
@@ -308,8 +376,8 @@ Input:
             if effective_part:
                 item["part_of_speech"] = effective_part
 
-            example_ok = _is_valid_example(
-                source["word"], effective_part, item.get("example", "")
+            example_ok = _is_valid_example_for_course(
+                course_code, source["word"], effective_part, item.get("example", "")
             )
             pos_ok = (
                 not effective_part
@@ -318,7 +386,9 @@ Input:
             if not example_ok or not pos_ok:
                 normalized_results.append(None)
                 continue
-            normalized_results.append(item | {"word": source["word"]})
+            normalized_results.append(
+                item | {"word": source["word"], "course_code": course_code}
+            )
         return normalized_results
     except Exception as exc:
         logging.exception("Batch OpenAI generation failed: %s", exc)
@@ -327,6 +397,7 @@ Input:
                 entry["word"],
                 part_hint=entry.get("part_hint"),
                 translation_hint=entry.get("translation_hint"),
+                course_code=entry.get("course_code", course_code),
             )
             for entry in entries
         ]

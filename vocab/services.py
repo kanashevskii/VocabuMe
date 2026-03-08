@@ -134,6 +134,24 @@ AVAILABLE_STUDIED_LANGUAGES = [
 ]
 
 
+def example_matches_course(course_code: str, example: str) -> bool:
+    text = (example or "").strip()
+    if not text:
+        return False
+    if normalize_course_code(course_code) == "ka":
+        return bool(re.search(r"[\u10A0-\u10FF]", text))
+    return bool(re.search(r"[A-Za-z]", text))
+
+
+def is_prepared_pack_item_ready(item: PackPreparedWord, course_code: str) -> bool:
+    return bool(
+        item.example
+        and item.transcription
+        and item.image_path
+        and example_matches_course(course_code, item.example)
+    )
+
+
 @dataclass
 class ParsedWordEntry:
     word: str
@@ -779,7 +797,9 @@ def add_words_from_text(
             continue
 
         word_data = generate_word_data(
-            entry.word, translation_hint=entry.translation_hint
+            entry.word,
+            translation_hint=entry.translation_hint,
+            course_code=get_active_course_code(user),
         )
         if not word_data:
             failed.append({"word": entry.word, "reason": "generation_failed"})
@@ -822,7 +842,11 @@ def create_word_drafts_from_text(
 
         batch_generated = generate_word_data_batch(
             [
-                {"word": entry.word, "translation_hint": entry.translation_hint}
+                {
+                    "word": entry.word,
+                    "translation_hint": entry.translation_hint,
+                    "course_code": get_active_course_code(user),
+                }
                 for entry in entries
             ]
         )
@@ -864,7 +888,11 @@ def create_word_drafts_from_text(
     if word_already_exists(user, entry.word):
         raise ValueError("This word already exists.")
 
-    generated = generate_word_data(entry.word, translation_hint=entry.translation_hint)
+    generated = generate_word_data(
+        entry.word,
+        translation_hint=entry.translation_hint,
+        course_code=get_active_course_code(user),
+    )
     if not generated:
         raise ValueError("Could not prepare the word data.")
 
@@ -1232,10 +1260,11 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
     candidate.save(update_fields=["image_generation_in_progress", "prepared_at"])
 
     try:
-        if not candidate.example or not candidate.transcription:
+        if not is_prepared_pack_item_ready(candidate, "en"):
             generated = generate_word_data(
                 candidate.word,
                 translation_hint=candidate.translation,
+                course_code="en",
             )
             if generated:
                 candidate.word = generated["word"]
@@ -1301,12 +1330,13 @@ def _prepare_pack_level_sync(
     for entry in level["items"]:
         normalized = clean_word(entry["word"])
         cached = existing.get(normalized)
-        if cached and cached.example and cached.transcription and cached.image_path:
+        if cached and is_prepared_pack_item_ready(cached, active_course):
             continue
         pending_entries.append(
             {
                 "word": entry["word"],
                 "translation_hint": entry["translation"],
+                "course_code": active_course,
             }
         )
 
@@ -1432,7 +1462,7 @@ def add_pack_words_to_user(
             skipped.append({"word": entry["word"], "reason": "duplicate"})
             continue
         prepared = prepared_map.get(normalized)
-        if prepared and prepared.example and prepared.transcription:
+        if prepared and is_prepared_pack_item_ready(prepared, active_course):
             item = create_word(
                 user,
                 {
@@ -1450,7 +1480,11 @@ def add_pack_words_to_user(
             created.append(serialize_word(item))
         else:
             fallback_entries.append(
-                {"word": entry["word"], "translation_hint": entry["translation"]}
+                {
+                    "word": entry["word"],
+                    "translation_hint": entry["translation"],
+                    "course_code": active_course,
+                }
             )
 
     if fallback_entries:
@@ -1563,7 +1597,10 @@ def create_word_draft(
 
 def refresh_draft_language_data(draft: AddWordDraft, translation: str) -> AddWordDraft:
     generated = generate_word_data(
-        draft.word, part_hint=draft.part_of_speech, translation_hint=translation
+        draft.word,
+        part_hint=draft.part_of_speech,
+        translation_hint=translation,
+        course_code=draft.course_code,
     )
     if generated:
         draft.translation = translation
