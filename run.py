@@ -87,6 +87,7 @@ setup_logging()
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 
 import django
+
 django.setup()
 
 from vocab.bot import run_telegram_bot
@@ -117,12 +118,14 @@ def reminder_loop():
 
 def run_server():
     # Disable Django's autoreloader to avoid starting duplicate bot instances
-    execute_from_command_line([
-        'manage.py',
-        'runserver',
-        '--noreload',
-        '0.0.0.0:8000',
-    ])
+    execute_from_command_line(
+        [
+            "manage.py",
+            "runserver",
+            "--noreload",
+            "0.0.0.0:8000",
+        ]
+    )
 
 
 def main():
@@ -146,5 +149,5 @@ def main():
         time.sleep(0.5)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

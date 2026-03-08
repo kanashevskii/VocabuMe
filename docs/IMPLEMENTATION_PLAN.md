@@ -14,11 +14,11 @@ Working rule:
 | --- | --- | --- | --- | --- |
 | P0 | `done` | Secure secrets and config loading | Unsafe configuration blocks every other production-quality step. | No hardcoded secrets remain, required env vars are documented, startup fails fast on missing required config, `.env.example` is aligned. |
 | P1 | `done` | Refactor business logic from handlers/views into services | Shared logic must be centralized before test coverage and further cleanup make sense. | Telegram handlers and API flows delegate to service-layer functions, with no raw ORM or business rules embedded in handlers where avoidable. |
-| P2 | `next` | Add logging and structured error handling | Refactors without observability are risky. | Console logging is configured, critical service and external-call paths log failures, user-facing fallbacks exist for expected failure modes. |
+| P2 | `done` | Add logging and structured error handling | Refactors without observability are risky. | Console logging is configured, critical service and external-call paths log failures, user-facing fallbacks exist for expected failure modes. |
 | P3 | `done` | Add backend test coverage for critical flows | Core behavior needs a safety net before broader frontend and CI changes. | Unit tests cover services and validation, integration tests cover major bot/API flows, and the critical path coverage is measurable. |
-| P4 | `queued` | Enforce backend and frontend code quality tooling | Tooling should stabilize code after the first architectural cleanup. | Formatting, linting, and type-checking commands exist and run cleanly in local development. |
-| P5 | `queued` | Refactor React app shell and shared frontend logic | Frontend cleanup should follow stabilized backend contracts and test coverage. | Large components are split, mobile navigation/layout rules hold on Telegram-sized viewports, and loading/error states are consistent. |
-| P6 | `queued` | Add frontend tests and mobile E2E validation | UI changes must be protected with realistic viewport coverage. | Critical tabs and navigation work in mobile-sized Playwright runs, and component-level tests cover validation and failure states. |
+| P4 | `done` | Enforce backend and frontend code quality tooling | Tooling should stabilize code after the first architectural cleanup. | Formatting, linting, and type-checking commands exist and run cleanly in local development. |
+| P5 | `done` | Refactor React app shell and shared frontend logic | Frontend cleanup should follow stabilized backend contracts and test coverage. | Large components are split, mobile navigation/layout rules hold on Telegram-sized viewports, and loading/error states are consistent. |
+| P6 | `next` | Add frontend tests and mobile E2E validation | UI changes must be protected with realistic viewport coverage. | Critical tabs and navigation work in mobile-sized Playwright runs, and component-level tests cover validation and failure states. |
 | P7 | `queued` | Add CI pipeline | CI is only valuable once the project has stable checks worth enforcing. | CI runs backend/frontend install, lint, tests, and frontend build on every push/PR. |
 | P8 | `queued` | Docker and local developer workflow improvements | Packaging should reflect the actual verified app structure. | Docker and local run instructions are consistent with the current stack and can boot the app predictably. |
 | P9 | `queued` | Performance review and query/render cleanup | Optimization should follow structural correctness and test protection. | No obvious N+1 queries or avoidable render churn remain in critical user flows. |
@@ -65,6 +65,10 @@ Scope:
 - Add safe exception handling around external integrations, DB mutations, and user-triggered flows.
 - Preserve usable fallbacks in bot and web responses.
 
+Notes:
+- Completed. Logging now goes to stdout in a consistent format and avoids duplicate handler buildup.
+- Critical speaking/audio/image/reminder failure paths now log exceptions and return safe fallback responses instead of failing silently.
+
 ### P3. Backend tests
 
 Scope:
@@ -75,6 +79,17 @@ Scope:
 ### P4-P11
 
 These remain queued until the earlier work is completed and verified. The order above is intentional, except where we explicitly pull tests forward to establish a deployment safety net earlier.
+
+P4 notes:
+- Completed with a pragmatic active-code scope for backend quality commands: `core/env.py`, `core/logging_config.py`, `core/settings.py`, `core/test_settings.py`, `run.py`, `vocab/services.py`, `vocab/views.py`, `vocab/openai_utils.py`, `vocab/reminders.py`, `vocab/management/commands/send_reminders.py`, and `tests/`.
+- `make quality` now runs backend linting, focused mypy, frontend lint, frontend build, and backend tests.
+- Frontend lint is non-blocking on existing `App.jsx` warnings for now; those warnings are deferred into P5 while the command itself stays green.
+
+P5 notes:
+- Started by extracting shared frontend constants, API client/reporting helpers, and the auth shell component out of `frontend/src/App.jsx`.
+- Completed by extracting topbar, bottom navigation, today/progress/settings screens, and pruning unused review-only UI code from `frontend/src/App.jsx`.
+- Verified locally with `make quality` and a Playwright mobile pass against the local Django server on `390x844` plus shorter-height checks on `390x700`.
+- Mobile tab validation covered `Today`, `Learn`, `Words`, `Progress`, and `More`; bottom navigation remained visible and reachable in the checked states.
 
 ## Definition of done for each task
 

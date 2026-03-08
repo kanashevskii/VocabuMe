@@ -1,42 +1,26 @@
-import { startTransition, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-const PRIMARY_TABS = [
-  { id: "today", label: "Сегодня" },
-  { id: "learn", label: "Практика" },
-  { id: "words", label: "Слова" },
-  { id: "progress", label: "Прогресс" },
-  { id: "more", label: "⚙️", compact: true }
-];
-
-const LIBRARY_MODES = [
-  { id: "cards", label: "Карточки" },
-  { id: "words", label: "Все слова" }
-];
-
-const LEARN_PANELS = [
-  { id: "mixed", label: "Учить слова" },
-  { id: "irregular", label: "Глаголы" }
-];
-
-const IRREGULAR_MODES = [
-  { id: "review", label: "Повторять" },
-  { id: "test", label: "Тест" }
-];
-
-const TIMEZONE_OPTIONS = [
-  { value: "UTC", label: "UTC" },
-  { value: "UTC+03:00", label: "UTC+03:00" },
-  { value: "Europe/Moscow", label: "Москва (Europe/Moscow)" },
-  { value: "Europe/Berlin", label: "Берлин (Europe/Berlin)" },
-  { value: "Europe/London", label: "Лондон (Europe/London)" },
-  { value: "Asia/Tbilisi", label: "Тбилиси (Asia/Tbilisi)" },
-  { value: "Asia/Yerevan", label: "Ереван (Asia/Yerevan)" },
-  { value: "Asia/Almaty", label: "Алматы (Asia/Almaty)" },
-  { value: "Asia/Dubai", label: "Дубай (Asia/Dubai)" },
-  { value: "America/New_York", label: "Нью-Йорк (America/New_York)" },
-  { value: "America/Los_Angeles", label: "Лос-Анджелес (America/Los_Angeles)" },
-];
-const MAX_ADD_BATCH_WORDS = 10;
+import AuthPanel from "./components/AuthPanel";
+import AppTopbar from "./components/AppTopbar";
+import BottomNav from "./components/BottomNav";
+import {
+  IRREGULAR_MODES,
+  LIBRARY_MODES,
+  MAX_ADD_BATCH_WORDS,
+  MAX_IMAGE_REGENERATIONS,
+} from "./constants";
+import { api, reportClientError } from "./lib/api";
+import ProgressScreen from "./screens/ProgressScreen";
+import SettingsScreen from "./screens/SettingsScreen";
+import TodayScreen from "./screens/TodayScreen";
 
 function getSessionPraise(correct, total) {
   if (!total) {
@@ -83,215 +67,6 @@ function formatLearnResultLabel(learnQuestion, learnResult) {
   return `Правильный ответ: ${correctAnswer}`;
 }
 
-function getCookie(name) {
-  const match = document.cookie.match(new RegExp(`(^| )${name}=([^;]+)`));
-  return match ? decodeURIComponent(match[2]) : "";
-}
-
-async function reportClientError(payload) {
-  try {
-    const telegramInitData = window.Telegram?.WebApp?.initData || "";
-    const headers = { "Content-Type": "application/json" };
-    if (telegramInitData) {
-      headers["X-Telegram-Init-Data"] = telegramInitData;
-    }
-    const csrf = getCookie("csrftoken");
-    if (csrf) {
-      headers["X-CSRFToken"] = csrf;
-    }
-    await fetch("/api/client-error", {
-      method: "POST",
-      credentials: "include",
-      headers,
-      body: JSON.stringify(payload)
-    });
-  } catch {
-    // best-effort logging only
-  }
-}
-
-async function api(url, options = {}) {
-  const telegramInitData = window.Telegram?.WebApp?.initData || "";
-  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
-  const headers = {
-    ...(isFormData ? {} : { "Content-Type": "application/json" }),
-    ...(options.headers || {})
-  };
-  if (telegramInitData) {
-    headers["X-Telegram-Init-Data"] = telegramInitData;
-  }
-  const method = (options.method || "GET").toUpperCase();
-  if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
-    headers["X-CSRFToken"] = getCookie("csrftoken");
-  }
-
-  let response;
-  try {
-    response = await fetch(url, { credentials: "include", ...options, headers });
-  } catch (error) {
-    await reportClientError({
-      category: "network",
-      message: error?.message || "Network request failed",
-      url,
-      detail: String(error),
-      meta: { method }
-    });
-    throw error;
-  }
-  const rawText = await response.text();
-  let data = {};
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    data = {};
-  }
-  if (!response.ok) {
-    let errorMessage = data.error || rawText || `Request failed (${response.status})`;
-    if (response.status === 504) {
-      errorMessage = "Сервер отвечал слишком долго. Попробуй ещё раз.";
-    } else if (typeof errorMessage === "string" && errorMessage.includes("<html")) {
-      errorMessage = `Ошибка сервера (${response.status}).`;
-    }
-    await reportClientError({
-      category: "api",
-      status_code: response.status,
-      message: errorMessage.slice(0, 4000),
-      url,
-      detail: rawText.slice(0, 4000),
-      meta: { method }
-    });
-    throw new Error(errorMessage);
-  }
-  return data;
-}
-
-function LogoMark() {
-  return (
-    <div className="logo-mark" aria-hidden="true">
-      <img src="/static/old_logo.jpg" alt="" />
-    </div>
-  );
-}
-
-const MAX_IMAGE_REGENERATIONS = 3;
-
-function AuthPanel({
-  config,
-  onOpenLogin,
-  loginLink,
-  loginPending,
-  webAuthMode,
-  onChangeWebAuthMode,
-  onSubmitWebAuth,
-  webAuthPending,
-  webEmail,
-  webPassword,
-  onWebEmailChange,
-  onWebPasswordChange,
-}) {
-  const webSubmitLabel = webAuthMode === "register" ? "Создать web-аккаунт" : "Войти по email";
-  const telegramBotLink = `https://t.me/${config.bot_username || "VocabuMe_bot"}`;
-
-  return (
-    <section className="auth-shell">
-      <div className="glass-card auth-copy">
-        <div className="brand-lockup">
-          <LogoMark />
-          <div>
-            <p className="overline">VocabuMe</p>
-            <h1>Один вход. Один словарь. Один общий прогресс.</h1>
-          </div>
-        </div>
-        <p className="lead">Выбери способ входа. Для локальной веб-версии можно использовать email и пароль, а Telegram остаётся основным способом синхронизации.</p>
-        <div className="glass-card compact-section auth-method-panel">
-          <div className="section-head section-head-wrap">
-            <div>
-              <p className="overline">Telegram</p>
-              <h3>Вход через бота</h3>
-            </div>
-          </div>
-          <p className="lead compact">Подходит для обычного Telegram flow и Mini App. Если тестируешь локальный веб, используй блок ниже.</p>
-          <div className="auth-actions">
-            <button className="primary-button" type="button" onClick={onOpenLogin} disabled={loginPending}>
-              {loginPending ? "Готовим ссылку..." : "Войти через Telegram"}
-            </button>
-            <a className="secondary-button" href={telegramBotLink} target="_blank" rel="noreferrer">
-              Открыть бота
-            </a>
-          </div>
-        </div>
-        <div className="glass-card compact-section auth-web-panel">
-          <div className="section-head section-head-wrap">
-            <div>
-              <p className="overline">Web</p>
-              <h3>{webAuthMode === "register" ? "Создать веб-аккаунт" : "Вход в веб-версию"}</h3>
-            </div>
-            <div className="segment-wrap auth-mode-switch">
-              <button
-                className={webAuthMode === "login" ? "segment-button active" : "segment-button"}
-                type="button"
-                onClick={() => onChangeWebAuthMode("login")}
-              >
-                Вход
-              </button>
-              <button
-                className={webAuthMode === "register" ? "segment-button active" : "segment-button"}
-                type="button"
-                onClick={() => onChangeWebAuthMode("register")}
-              >
-                Регистрация
-              </button>
-            </div>
-          </div>
-          <form className="stack-form auth-web-form" onSubmit={onSubmitWebAuth}>
-            <label className="stack-label">
-              <span>Email</span>
-              <input type="email" value={webEmail} onChange={(event) => onWebEmailChange(event.target.value)} placeholder="you@example.com" autoComplete="email" />
-            </label>
-            <label className="stack-label">
-              <span>Пароль</span>
-              <input
-                type="password"
-                value={webPassword}
-                onChange={(event) => onWebPasswordChange(event.target.value)}
-                placeholder="Минимум 8 символов"
-                autoComplete={webAuthMode === "register" ? "new-password" : "current-password"}
-              />
-            </label>
-            <button className="secondary-button" type="submit" disabled={webAuthPending}>
-              {webAuthPending ? "Секунду..." : webSubmitLabel}
-            </button>
-          </form>
-        </div>
-        {loginLink ? (
-          <div className="inline-note">
-            <span>Открой бота и нажми Start, чтобы подтвердить Telegram-вход.</span>
-            <a className="primary-link" href={loginLink} target="_blank" rel="noreferrer">
-              🤖 Открыть бота
-            </a>
-          </div>
-        ) : null}
-      </div>
-      <div className="glass-card auth-preview">
-        <div className="auth-preview-grid">
-          <article className="mini-pane">
-            <span>Учить</span>
-            <strong>🧠 Карточки, практика, аудирование</strong>
-          </article>
-          <article className="mini-pane">
-            <span>Словарь</span>
-            <strong>📚 Быстрый поиск и редактирование</strong>
-          </article>
-          <article className="mini-pane">
-            <span>Синхронизация</span>
-            <strong>🔄 Telegram и web используют один профиль</strong>
-          </article>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function App() {
   const [config, setConfig] = useState({ bot_username: "", webapp_url: "" });
   const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null, progress: null });
@@ -309,7 +84,7 @@ function App() {
   const [draftTranslation, setDraftTranslation] = useState({});
   const [previewWordId, setPreviewWordId] = useState(null);
   const [expandedWordId, setExpandedWordId] = useState(null);
-  const [wordImageVersions, setWordImageVersions] = useState({});
+  const [wordImageVersions] = useState({});
   const [wordImageErrors, setWordImageErrors] = useState({});
   const [regeneratingWordId, setRegeneratingWordId] = useState(null);
   const [addText, setAddText] = useState("");
@@ -339,9 +114,6 @@ function App() {
   const [learnSessionLimit, setLearnSessionLimit] = useState(12);
   const [learnSessionDone, setLearnSessionDone] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [reviewQuestion, setReviewQuestion] = useState(null);
-  const [reviewResult, setReviewResult] = useState(null);
-  const [reviewSelection, setReviewSelection] = useState("");
   const [irregularPage, setIrregularPage] = useState(0);
   const [irregularList, setIrregularList] = useState(null);
   const [irregularQuestion, setIrregularQuestion] = useState(null);
@@ -514,8 +286,6 @@ function App() {
     return primaryTab === "more" ? "Настройки" : "Практика";
   }, [primaryTab, libraryMode, showLibraryAdd]);
 
-  const filteredRecentWords = dashboard?.recent_words || [];
-  const nextCards = dashboard?.next_cards || [];
   const currentCard = cardQueue[cardIndex];
   const noticeScope = useMemo(() => {
     if (!auth.authenticated) {
@@ -703,7 +473,6 @@ function App() {
     await Promise.all([
       loadCards({ reset: resetCards }),
       resetLearn ? loadLearnQuestion([], 0) : Promise.resolve(),
-      loadReview(),
     ]);
   }
 
@@ -715,13 +484,6 @@ function App() {
   function showNextCard() {
     setCardIndex((value) => Math.min(cardQueue.length - 1, value + 1));
     setCardReveal(false);
-  }
-
-  async function loadReview() {
-    const data = await api("/api/practice/question?mode=review");
-    setReviewQuestion(data.empty ? null : data.question);
-    setReviewResult(null);
-    setReviewSelection("");
   }
 
   async function loadLearnQuestion(excludeIds = [], questionCount = 0) {
@@ -903,7 +665,6 @@ function App() {
       setSettings(null);
       setWords([]);
       setCardQueue([]);
-      setReviewQuestion(null);
       setLearnQuestion(null);
       setIrregularQuestion(null);
       setShowLibraryAdd(false);
@@ -1226,83 +987,6 @@ function App() {
     }
   }
 
-  async function handleCardAnswer(correct) {
-    const current = cardQueue[cardIndex];
-    if (!current) {
-      return;
-    }
-    setBusy(true);
-    try {
-      const data = await api("/api/study/answer", {
-        method: "POST",
-        body: JSON.stringify({ word_id: current.id, correct })
-      });
-      setAuth((previous) => ({ ...previous, progress: data.progress }));
-      setDashboard((previous) => (previous ? { ...previous, progress: data.progress } : previous));
-      setCardQueue((previous) => previous.map((item) => (item.id === current.id ? { ...item, ...data.item } : item)));
-      if (cardIndex + 1 < cardQueue.length) {
-        setCardIndex((value) => value + 1);
-      }
-      setCardReveal(false);
-    } catch (error) {
-      setNotice(error.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handlePracticeAnswer(answer, mode, question, setter) {
-    if (!question) {
-      return;
-    }
-    setBusy(true);
-    try {
-      if (mode === "review") {
-        setReviewSelection(answer);
-      } else {
-        setPracticeSelection(answer);
-      }
-      const data = await api("/api/practice/answer", {
-        method: "POST",
-        body: JSON.stringify({
-          word_id: question.item.id,
-          answer,
-          mode: question.mode
-        })
-      });
-      setter(data);
-      setAuth((previous) => ({ ...previous, progress: data.progress }));
-      await loadDashboard();
-    } catch (error) {
-      setNotice(error.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function getPracticeExpectedAnswer(question) {
-    if (!question) {
-      return "";
-    }
-    if (question.mode === "reverse") {
-      return question.item.word;
-    }
-    return question.item.translation;
-  }
-
-  function revealPracticeAnswer(question, mode, resultSetter) {
-    const correctAnswer = getPracticeExpectedAnswer(question);
-    if (!correctAnswer) {
-      return;
-    }
-    if (mode === "review") {
-      setReviewSelection("");
-    } else {
-      setPracticeSelection("");
-    }
-    resultSetter({ correct: false, correct_answer: correctAnswer, skipped: true });
-  }
-
   function getOptionState(option, result, selectedAnswer) {
     if (!result) {
       return "";
@@ -1547,23 +1231,6 @@ function App() {
     }
   }
 
-  async function preloadWordImage(wordId, version, attempts = 5) {
-    const src = `/api/image/${wordId}?v=${version}`;
-    for (let index = 0; index < attempts; index += 1) {
-      const loaded = await new Promise((resolve) => {
-        const image = new window.Image();
-        image.onload = () => resolve(true);
-        image.onerror = () => resolve(false);
-        image.src = src;
-      });
-      if (loaded) {
-        return true;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    }
-    return false;
-  }
-
   async function preloadDraftImage(draftId, version, attempts = 5) {
     const src = `/api/draft-image/${draftId}?v=${version}`;
     for (let index = 0; index < attempts; index += 1) {
@@ -1617,7 +1284,7 @@ function App() {
     }
   }
 
-  function openLearn(mode) {
+  function openLearn() {
     if (showLibraryAdd) {
       void closeAddWords();
     }
@@ -1628,16 +1295,6 @@ function App() {
     if (learnSessionDone || !learnQuestion) {
       void loadLearningData();
     }
-  }
-
-  function openMore() {
-    if (showLibraryAdd) {
-      void closeAddWords();
-    }
-    startTransition(() => {
-      setPrimaryTab("more");
-      setShowLibraryAdd(false);
-    });
   }
 
   function openAddWords() {
@@ -1708,67 +1365,6 @@ function App() {
     await loadIrregularQuestion();
   }
 
-  function renderToday() {
-    const studiedToday = Boolean(auth.progress?.studied_today);
-    const learnedToday = auth.progress?.learned_today ?? 0;
-    const hasWordsToLearn = (auth.progress?.learning ?? 0) > 0;
-
-    return (
-      <div className="screen-stack">
-        <section className="glass-card today-hero">
-          <div className="today-hero-grid">
-            <div>
-              <p className="overline">Today</p>
-              <h2>Продолжай учить слова ✨</h2>
-              <p className="lead compact">
-                {studiedToday
-                  ? "🔥 Ты уже занимался сегодня. Продолжай в том же духе."
-                  : "🌱 Сегодня ты ещё не занимался. Давай начнём."}
-              </p>
-            </div>
-            <div className="today-side-stat">
-              <span>Сегодня выучено</span>
-              <strong>{learnedToday}</strong>
-            </div>
-          </div>
-          <button className="primary-button hero-button" type="button" onClick={() => (hasWordsToLearn ? openLearn("practice") : openAddWords())}>
-            {hasWordsToLearn ? "▶️ Продолжить" : "＋ Добавить слова"}
-          </button>
-        </section>
-
-        <section className="today-stats-row">
-          {todayStats.map((item) => (
-            <article key={item.label} className="glass-card stat-card">
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </article>
-          ))}
-        </section>
-
-        <section className="glass-card compact-section today-achievements">
-          <div className="section-head">
-            <div>
-              <p className="overline">Achievements</p>
-              <h3>Последние награды 🏆</h3>
-            </div>
-            {hasMoreAchievements ? (
-              <button className="secondary-button" type="button" onClick={() => setPrimaryTab("progress")}>
-                В прогресс →
-              </button>
-            ) : null}
-          </div>
-          <div className="achievement-grid">
-            {todayAchievements.length ? (
-              todayAchievements.map((item) => <span key={item} className="achievement-pill">{item}</span>)
-            ) : (
-              <div className="empty-state">Пока без наград.</div>
-            )}
-          </div>
-        </section>
-      </div>
-    );
-  }
-
   function renderCards() {
     return (
       <section className="glass-card learn-card">
@@ -1834,64 +1430,6 @@ function App() {
             </button>
           </div>
         )}
-      </section>
-    );
-  }
-
-  function renderPractice(question, result, mode, resultSetter, reload, selectedAnswer) {
-    return (
-      <section className="glass-card learn-card">
-        <div className="section-head section-head-wrap">
-          <div>
-            <p className="overline">{mode === "review" ? "Review" : "Practice"}</p>
-            <h3>{mode === "review" ? "Повтор старых слов 🔁" : "Тест 🎯"}</h3>
-          </div>
-          {mode === "review" ? (
-            <button className="secondary-button" type="button" onClick={reload}>
-              Обновить
-            </button>
-          ) : null}
-        </div>
-        {question ? (
-          <div className="quiz-panel">
-            <div className="prompt-card">
-              <strong>{question.mode === "reverse" ? question.item.translation : question.item.word}</strong>
-              <span>{question.prompt}</span>
-            </div>
-            <div className="option-grid">
-              {question.options.map((option) => (
-                <button
-                  key={option}
-                  className={`option-button ${getOptionState(option, result, selectedAnswer)}`.trim()}
-                  type="button"
-                  disabled={Boolean(result)}
-                  onClick={() => handlePracticeAnswer(option, mode, question, resultSetter)}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-            {mode !== "review" ? (
-              <button className="secondary-button" type="button" onClick={() => revealPracticeAnswer(question, mode, resultSetter)} disabled={Boolean(result)}>
-                Пропустить
-              </button>
-            ) : null}
-            {result ? (
-              <div className={result.correct ? "result-box practice-result-box good" : "result-box practice-result-box bad"}>
-                  <span>
-                    {result.skipped
-                      ? `Правильный ответ: ${result.correct_answer}`
-                      : result.correct
-                        ? "Верно"
-                        : `Правильный ответ: ${result.correct_answer}`}
-                  </span>
-                <button className="secondary-button" type="button" onClick={reload}>
-                  Дальше
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : <div className="empty-state">No items for this mode.</div>}
       </section>
     );
   }
@@ -2209,67 +1747,6 @@ function App() {
           {!words.length ? <div className="glass-card empty-card">No words found.</div> : null}
         </div>
       </>
-    );
-  }
-
-  function renderProgress() {
-    const progressTopStats = stats.slice(0, 3);
-    const progressStreakStat = stats[3];
-
-    return (
-      <div className="screen-stack">
-        <section className="stats-grid progress-top-stats">
-          {progressTopStats.map((item) => (
-            <article key={item.label} className="glass-card stat-card">
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </article>
-          ))}
-        </section>
-        {progressStreakStat ? (
-          <section className="stats-grid progress-secondary-stats">
-            <article className="glass-card stat-card">
-              <span>{progressStreakStat.label}</span>
-              <strong>{progressStreakStat.value}</strong>
-            </article>
-          </section>
-        ) : null}
-        <section className="glass-card compact-section">
-          <p className="overline">Rank</p>
-          <div className="headline-row">
-            <h3>{auth.progress?.rank_percent ? `${auth.progress.rank_percent}%` : "—"}</h3>
-            <span>🏅 Top range</span>
-          </div>
-        </section>
-        <section className="glass-card compact-section">
-          <p className="overline">Achievements</p>
-          <div className="achievement-grid">
-            {(auth.progress?.achievements || []).length ? (
-              auth.progress.achievements.map((item) => <span key={item} className="achievement-pill">{item}</span>)
-            ) : (
-              <div className="empty-state">No achievements yet.</div>
-            )}
-          </div>
-        </section>
-        <section className="glass-card compact-section">
-          <p className="overline">Next</p>
-          <div className="section-head">
-            <h3>К чему стремиться ✨</h3>
-          </div>
-          <div className="simple-list">
-            {(auth.progress?.pending_achievement_highlights || []).length ? (
-              auth.progress.pending_achievement_highlights.map((item) => (
-                <div key={item.text} className="simple-row">
-                  <strong>{item.text}</strong>
-                  <span>{item.current} / {item.target}</span>
-                </div>
-              ))
-            ) : (
-              <div className="empty-state">Все текущие ачивки уже получены.</div>
-            )}
-          </div>
-        </section>
-      </div>
     );
   }
 
@@ -2628,72 +2105,38 @@ function App() {
     );
   }
 
-  function renderSettings() {
-    if (!settings) {
-      return null;
-    }
-    const timezoneOptions = TIMEZONE_OPTIONS.some((item) => item.value === settings.reminder_timezone)
-      ? TIMEZONE_OPTIONS
-      : [...TIMEZONE_OPTIONS, { value: settings.reminder_timezone, label: settings.reminder_timezone }];
+  function renderMore() {
     return (
-      <section className="glass-card compact-section">
-        <p className="overline">Settings</p>
-        <h3>Настройки ⚙️</h3>
-        <form className="settings-grid" onSubmit={saveSettings}>
-          <label>
-            <span>Exercises to learn</span>
-            <small>Сколько разных упражнений нужно выполнить, чтобы слово стало выученным.</small>
-            <select value={settings.exercise_goal} onChange={(event) => setSettings((current) => ({ ...current, exercise_goal: Number(event.target.value) }))}>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
-            </select>
-          </label>
-          <label>
-            <span>Questions per run</span>
-            <small>Максимум заданий за один прогон практики без повторов слов.</small>
-            <input type="number" min="1" max="50" value={settings.session_question_limit} onChange={(event) => setSettings((current) => ({ ...current, session_question_limit: Number(event.target.value) }))} />
-          </label>
-          <label>
-            <span>Days before review</span>
-            <input type="number" min="1" max="365" value={settings.days_before_review} onChange={(event) => setSettings((current) => ({ ...current, days_before_review: Number(event.target.value) }))} />
-          </label>
-          <label>
-            <span>Reminder interval</span>
-            <input type="number" min="1" max="30" value={settings.reminder_interval_days} onChange={(event) => setSettings((current) => ({ ...current, reminder_interval_days: Number(event.target.value) }))} />
-          </label>
-          <label>
-            <span>Reminder time</span>
-            <input type="time" value={settings.reminder_time} onChange={(event) => setSettings((current) => ({ ...current, reminder_time: event.target.value }))} />
-          </label>
-          <label>
-            <span>Time zone</span>
-            <select value={settings.reminder_timezone} onChange={(event) => setSettings((current) => ({ ...current, reminder_timezone: event.target.value }))}>
-              {timezoneOptions.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="toggle-row">
-            <input type="checkbox" checked={settings.reminder_enabled} onChange={(event) => setSettings((current) => ({ ...current, reminder_enabled: event.target.checked }))} />
-            <span>Enable reminders</span>
-          </label>
-          <button className="primary-button" type="submit">Сохранить настройки</button>
-        </form>
-      </section>
+      <SettingsScreen
+        settings={settings}
+        onSave={saveSettings}
+        onChange={(field, value) =>
+          setSettings((current) => ({ ...current, [field]: value }))
+        }
+      />
     );
   }
 
-  function renderMore() {
-    return renderSettings();
-  }
-
   function renderScreen() {
-    if (primaryTab === "today") return renderToday();
+    if (primaryTab === "today") {
+      return (
+        <TodayScreen
+          progress={auth.progress}
+          todayStats={todayStats}
+          todayAchievements={todayAchievements}
+          hasMoreAchievements={hasMoreAchievements}
+          hasWordsToLearn={(auth.progress?.learning ?? 0) > 0}
+          onOpenAddWords={openAddWords}
+          onOpenLearn={() => openLearn("practice")}
+          onOpenProgress={() => setPrimaryTab("progress")}
+        />
+      );
+    }
     if (primaryTab === "learn") return renderLearn();
     if (primaryTab === "words") return renderLibrary();
-    if (primaryTab === "progress") return renderProgress();
+    if (primaryTab === "progress") {
+      return <ProgressScreen progress={auth.progress} stats={stats} />;
+    }
     return renderMore();
   }
 
@@ -2725,89 +2168,77 @@ function App() {
     );
   }
 
-  function renderTopbar(extraClass = "") {
-    return (
-      <header className={`glass-card topbar ${extraClass}`.trim()}>
-        <div className="topbar-brand">
-          <LogoMark />
-          <div>
-            <p className="overline">VocabuMe</p>
-            <strong className="app-title">{currentTitle}</strong>
-          </div>
-        </div>
-        {showHeaderBack ? (
-          <button className="secondary-button header-action" type="button" onClick={backFromIrregularReview}>
-            <span>← Назад</span>
-          </button>
-        ) : showHeaderClose ? (
-          <button
-            className="secondary-button header-action"
-            type="button"
-            onClick={learnPanel === "irregular" && irregularMode === "test" ? closeIrregularTest : closeLearnSession}
-          >
-            <span>Закрыть</span>
-          </button>
-        ) : primaryTab === "words" ? (
-          <button
-            className={showLibraryAdd ? "secondary-button header-action active" : "secondary-button header-action"}
-            type="button"
-            onClick={() => {
-              if (showLibraryAdd) {
-                closeAddWords();
-                return;
-              }
-              openAddWords();
-            }}
-            aria-label="Добавить слова"
-          >
-            <span className="header-action-mark">＋</span>
-            <span>Добавить</span>
-          </button>
-        ) : !isMiniApp ? (
-          <button className="secondary-button header-action" type="button" onClick={logoutWeb} disabled={busy}>
-            <span>Выйти</span>
-          </button>
-        ) : (
-          <span className="mode-pill">Telegram</span>
-        )}
-      </header>
-    );
-  }
-
   return (
     <div className={`app-shell${isKeyboardOpen ? " keyboard-open" : ""}`}>
-      {renderTopbar()}
+      <AppTopbar
+        busy={busy}
+        currentTitle={currentTitle}
+        isMiniApp={isMiniApp}
+        onBack={backFromIrregularReview}
+        onClose={
+          learnPanel === "irregular" && irregularMode === "test"
+            ? closeIrregularTest
+            : closeLearnSession
+        }
+        onLogout={logoutWeb}
+        onToggleAddWords={() => {
+          if (showLibraryAdd) {
+            void closeAddWords();
+            return;
+          }
+          openAddWords();
+        }}
+        primaryTab={primaryTab}
+        showHeaderBack={showHeaderBack}
+        showHeaderClose={showHeaderClose}
+        showLibraryAdd={showLibraryAdd}
+      />
 
       {notice ? <div className="notice">{notice.message}</div> : null}
 
       <main className="app-stage" ref={stageRef}>
-        {renderTopbar("desktop-scroll-topbar")}
+        <AppTopbar
+          busy={busy}
+          currentTitle={currentTitle}
+          extraClass="desktop-scroll-topbar"
+          isMiniApp={isMiniApp}
+          onBack={backFromIrregularReview}
+          onClose={
+            learnPanel === "irregular" && irregularMode === "test"
+              ? closeIrregularTest
+              : closeLearnSession
+          }
+          onLogout={logoutWeb}
+          onToggleAddWords={() => {
+            if (showLibraryAdd) {
+              void closeAddWords();
+              return;
+            }
+            openAddWords();
+          }}
+          primaryTab={primaryTab}
+          showHeaderBack={showHeaderBack}
+          showHeaderClose={showHeaderClose}
+          showLibraryAdd={showLibraryAdd}
+        />
         {renderScreen()}
       </main>
 
-      <nav className={`nav-grid-bottom${isKeyboardOpen ? " is-hidden" : ""}`}>
-        {PRIMARY_TABS.map((item) => (
-          <button
-            key={item.id}
-            className={`${item.id === primaryTab ? "nav-pill active" : "nav-pill"}${item.compact ? " compact-nav" : ""}`}
-            type="button"
-            onClick={() => startTransition(() => {
-              if (item.id !== "words" && showLibraryAdd) {
-                void closeAddWords();
-              }
-              setPrimaryTab(item.id);
-              if (item.id === "more") {
-                setMorePanel("settings");
-              }
-              if (item.id !== "words") {
-                setShowLibraryAdd(false);
-              }
-            })}
-          >
-            <span className="nav-label">{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      <BottomNav
+        isKeyboardOpen={isKeyboardOpen}
+        primaryTab={primaryTab}
+        onSelectTab={(tabId) =>
+          startTransition(() => {
+            if (tabId !== "words" && showLibraryAdd) {
+              void closeAddWords();
+            }
+            setPrimaryTab(tabId);
+            if (tabId !== "words") {
+              setShowLibraryAdd(false);
+            }
+          })
+        }
+      />
     </div>
   );
 }

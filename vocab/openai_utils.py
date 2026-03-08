@@ -50,12 +50,16 @@ def openai_request_slot(label: str):
     try:
         with connection.cursor() as cursor:
             while True:
-                cursor.execute("SELECT pg_try_advisory_lock(%s)", [OPENAI_QUEUE_LOCK_KEY])
+                cursor.execute(
+                    "SELECT pg_try_advisory_lock(%s)", [OPENAI_QUEUE_LOCK_KEY]
+                )
                 acquired = bool(cursor.fetchone()[0])
                 if acquired:
                     waited = time.monotonic() - started_at
                     if waited >= 0.25:
-                        logging.info("OpenAI queue acquired for %s after %.2fs", label, waited)
+                        logging.info(
+                            "OpenAI queue acquired for %s after %.2fs", label, waited
+                        )
                     break
                 if time.monotonic() - started_at >= OPENAI_QUEUE_WAIT_SECONDS:
                     raise TimeoutError(f"OpenAI queue wait timed out for {label}")
@@ -66,9 +70,13 @@ def openai_request_slot(label: str):
         if acquired:
             try:
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT pg_advisory_unlock(%s)", [OPENAI_QUEUE_LOCK_KEY])
+                    cursor.execute(
+                        "SELECT pg_advisory_unlock(%s)", [OPENAI_QUEUE_LOCK_KEY]
+                    )
             except Exception:
-                logging.exception("Failed to release OpenAI advisory lock for %s", label)
+                logging.exception(
+                    "Failed to release OpenAI advisory lock for %s", label
+                )
         close_old_connections()
 
 
@@ -123,11 +131,19 @@ def _is_valid_example(word: str, expected_part: str | None, example: str) -> boo
     if part == "noun":
         return not _looks_like_verb_usage(word, example)
     if part == "verb":
-        return _looks_like_verb_usage(word, example) or f"{word.lower()} " in example.lower()
+        return (
+            _looks_like_verb_usage(word, example)
+            or f"{word.lower()} " in example.lower()
+        )
     return True
 
 
-def _build_prompt(word: str, effective_part: str | None, translation_hint: str | None, extra_note: str = "") -> str:
+def _build_prompt(
+    word: str,
+    effective_part: str | None,
+    translation_hint: str | None,
+    extra_note: str = "",
+) -> str:
     hint_text = ""
     if effective_part:
         sense_rules = {
@@ -141,10 +157,12 @@ def _build_prompt(word: str, effective_part: str | None, translation_hint: str |
             ),
             "adjective": "Use it strictly as an adjective; avoid noun or verb usages.",
         }
-        rule = sense_rules.get(effective_part, f"Use it strictly as a {effective_part}. Avoid other parts of speech.")
+        rule = sense_rules.get(
+            effective_part,
+            f"Use it strictly as a {effective_part}. Avoid other parts of speech.",
+        )
         hint_text += (
-            f"The user expects the {word!r} sense as a {effective_part}. "
-            f"{rule}\n"
+            f"The user expects the {word!r} sense as a {effective_part}. " f"{rule}\n"
         )
     if translation_hint:
         hint_text += (
@@ -176,10 +194,12 @@ Only return the JSON object. No extra text.
     return prompt
 
 
-def generate_word_data(word: str, part_hint: str | None = None, translation_hint: str | None = None) -> dict:
+def generate_word_data(
+    word: str, part_hint: str | None = None, translation_hint: str | None = None
+) -> dict:
     lang = detect_language(word)
     if lang == "ru":
-        prompt_translate = f"Translate the Russian word or phrase \"{word}\" to English. Just give the main English equivalent."
+        prompt_translate = f'Translate the Russian word or phrase "{word}" to English. Just give the main English equivalent.'
         with openai_request_slot("translate-ru-to-en"):
             translation_resp = client.chat.completions.create(
                 model=TEXT_MODEL,
@@ -197,21 +217,28 @@ def generate_word_data(word: str, part_hint: str | None = None, translation_hint
             with openai_request_slot("generate-word-data"):
                 response = client.chat.completions.create(
                     model=TEXT_MODEL,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=[{"role": "user", "content": prompt}],
                 )
             content = response.choices[0].message.content.strip()
             parsed = _parse_model_json(content)
             if effective_part:
                 parsed["part_of_speech"] = effective_part
 
-            example_ok = _is_valid_example(word, effective_part, parsed.get("example", ""))
-            pos_ok = not effective_part or parsed.get("part_of_speech", "").lower() == effective_part
+            example_ok = _is_valid_example(
+                word, effective_part, parsed.get("example", "")
+            )
+            pos_ok = (
+                not effective_part
+                or parsed.get("part_of_speech", "").lower() == effective_part
+            )
             if example_ok and pos_ok:
                 return parsed | {"word": word}
 
-            reason = "example doesn't match expected part" if not example_ok else "part_of_speech mismatch"
+            reason = (
+                "example doesn't match expected part"
+                if not example_ok
+                else "part_of_speech mismatch"
+            )
             last_error = reason
             prompt_note = (
                 f"Previous attempt invalid ({reason}). Rewrite strictly as a {effective_part or 'given'} sense; "
@@ -275,12 +302,19 @@ Input:
             if not isinstance(item, dict):
                 normalized_results.append(None)
                 continue
-            effective_part = source.get("part_hint") or _infer_part_from_translation(source.get("translation_hint"))
+            effective_part = source.get("part_hint") or _infer_part_from_translation(
+                source.get("translation_hint")
+            )
             if effective_part:
                 item["part_of_speech"] = effective_part
 
-            example_ok = _is_valid_example(source["word"], effective_part, item.get("example", ""))
-            pos_ok = not effective_part or item.get("part_of_speech", "").lower() == effective_part
+            example_ok = _is_valid_example(
+                source["word"], effective_part, item.get("example", "")
+            )
+            pos_ok = (
+                not effective_part
+                or item.get("part_of_speech", "").lower() == effective_part
+            )
             if not example_ok or not pos_ok:
                 normalized_results.append(None)
                 continue
@@ -298,7 +332,9 @@ Input:
         ]
 
 
-def build_visual_prompt(word: str, translation: str, part_of_speech: str, example: str = "") -> str | None:
+def build_visual_prompt(
+    word: str, translation: str, part_of_speech: str, example: str = ""
+) -> str | None:
     prompt = f"""
 You create short visual briefs for vocabulary learning images.
 

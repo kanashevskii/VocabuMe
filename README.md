@@ -137,6 +137,30 @@ python -m pytest --cov=vocab.services --cov=vocab.views --cov=core.env --cov-rep
 
 `pytest` uses [core/test_settings.py](core/test_settings.py), which switches tests to SQLite so the suite can run without PostgreSQL `CREATE DATABASE` privileges.
 
+## Code Quality
+
+Backend:
+
+```bash
+python -m black --check core/env.py core/logging_config.py core/settings.py core/test_settings.py run.py vocab/services.py vocab/views.py vocab/openai_utils.py vocab/reminders.py vocab/management/commands/send_reminders.py tests
+python -m flake8 core/env.py core/logging_config.py core/settings.py core/test_settings.py run.py vocab/services.py vocab/views.py vocab/openai_utils.py vocab/reminders.py vocab/management/commands/send_reminders.py tests
+python -m mypy core/env.py core/settings.py core/test_settings.py run.py
+```
+
+Frontend:
+
+```bash
+cd frontend && npm run lint
+cd frontend && npm run build
+```
+
+Shortcut commands:
+
+```bash
+make format-backend
+make quality
+```
+
 ## Frontend notes
 
 The frontend is a mobile-first app shell intended for Telegram WebView first, but it also works as a normal website.

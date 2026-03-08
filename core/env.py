@@ -7,11 +7,15 @@ from decouple import Csv, UndefinedValueError, config as decouple_config
 from django.core.exceptions import ImproperlyConfigured
 
 
-def env(name: str, *, default: Any = None, cast: Any = str, required: bool = False) -> Any:
+def env(
+    name: str, *, default: Any = None, cast: Any = str, required: bool = False
+) -> Any:
     try:
         value = decouple_config(name, default=default, cast=cast)
     except UndefinedValueError as exc:
-        raise ImproperlyConfigured(f"Missing required environment variable: {name}") from exc
+        raise ImproperlyConfigured(
+            f"Missing required environment variable: {name}"
+        ) from exc
 
     if cast is str and isinstance(value, str):
         value = value.strip()

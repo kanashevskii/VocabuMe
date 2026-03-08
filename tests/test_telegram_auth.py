@@ -8,21 +8,35 @@ from urllib.parse import urlencode
 
 import pytest
 
-from vocab.telegram_auth import TelegramAuthError, verify_login_widget, verify_webapp_init_data
+from vocab.telegram_auth import (
+    TelegramAuthError,
+    verify_login_widget,
+    verify_webapp_init_data,
+)
 
 
 def _widget_hash(payload: dict, bot_token: str) -> str:
-    data = {key: value for key, value in payload.items() if key != "hash" and value not in (None, "")}
+    data = {
+        key: value
+        for key, value in payload.items()
+        if key != "hash" and value not in (None, "")
+    }
     check_string = "\n".join(f"{key}={value}" for key, value in sorted(data.items()))
     secret_key = hashlib.sha256(bot_token.encode("utf-8")).digest()
-    return hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(
+        secret_key, check_string.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
 
 
 def _webapp_hash(payload: dict, bot_token: str) -> str:
     data = {key: value for key, value in payload.items() if key != "hash"}
     check_string = "\n".join(f"{key}={value}" for key, value in sorted(data.items()))
-    secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
-    return hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    secret_key = hmac.new(
+        b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256
+    ).digest()
+    return hmac.new(
+        secret_key, check_string.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
 
 
 def test_verify_login_widget_accepts_valid_payload():

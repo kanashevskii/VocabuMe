@@ -7,6 +7,8 @@ from core.env import get_telegram_token
 
 TELEGRAM_TOKEN = get_telegram_token()
 bot = Bot(token=TELEGRAM_TOKEN)
+logger = logging.getLogger(__name__)
+
 
 def send_reminders():
     current_time = now()
@@ -18,8 +20,8 @@ def send_reminders():
 
         # Проверка по времени
         should_remind = (
-            current_time.hour == user.notification_time.hour and
-            current_time.minute == user.notification_time.minute
+            current_time.hour == user.notification_time.hour
+            and current_time.minute == user.notification_time.minute
         )
 
         if not should_remind:
@@ -34,9 +36,9 @@ def send_reminders():
         try:
             bot.send_message(
                 chat_id=user.chat_id,
-                text="👋 Пора повторить слова! Запусти /learn и продолжим!"
+                text="👋 Пора повторить слова! Запусти /learn и продолжим!",
             )
             user.last_notified_at = current_time
             user.save()
-        except Exception as e:
-            logging.exception("Ошибка отправки %s: %s", user.chat_id, e)
+        except Exception:
+            logger.exception("Reminder send failed for chat_id=%s", user.chat_id)

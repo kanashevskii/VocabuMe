@@ -87,7 +87,12 @@ def test_parse_word_batch_supports_translation_hints_and_bullets():
 
 
 def test_translation_helpers_handle_variants_and_typos():
-    assert split_translation_variants("дом, жилище / домик") == ["дом, жилище / домик", "дом", "жилище", "домик"]
+    assert split_translation_variants("дом, жилище / домик") == [
+        "дом, жилище / домик",
+        "дом",
+        "жилище",
+        "домик",
+    ]
     assert is_translation_answer_correct("жилище", "дом, жилище / домик") is True
     assert is_translation_answer_correct("квартира", "дом, жилище / домик") is False
     assert is_single_typo_match("aplpe", "apple") is False
@@ -98,7 +103,9 @@ def test_translation_helpers_handle_variants_and_typos():
 @pytest.mark.django_db
 def test_create_word_normalizes_fields_and_generates_example_translation(monkeypatch):
     user = TelegramUser.objects.create(chat_id=1002, username="tester")
-    monkeypatch.setattr("vocab.services.translate_to_ru", lambda text: "пример перевода")
+    monkeypatch.setattr(
+        "vocab.services.translate_to_ru", lambda text: "пример перевода"
+    )
 
     item = create_word(
         user,
@@ -148,7 +155,9 @@ def test_create_word_reuses_shared_image_path(monkeypatch):
 
 @pytest.mark.django_db
 def test_word_progress_helpers_normalize_completed_types_and_learning_state():
-    user = TelegramUser.objects.create(chat_id=1005, username="tester", repeat_threshold=3, session_question_limit=99)
+    user = TelegramUser.objects.create(
+        chat_id=1005, username="tester", repeat_threshold=3, session_question_limit=99
+    )
     item = VocabularyItem.objects.create(
         user=user,
         word="apple",
@@ -157,12 +166,21 @@ def test_word_progress_helpers_normalize_completed_types_and_learning_state():
         transcription="",
         example="Example",
         example_translation="Пример",
-        completed_exercise_types=["practice_en_ru", "practice_en_ru", "unknown", "listening_word"],
+        completed_exercise_types=[
+            "practice_en_ru",
+            "practice_en_ru",
+            "unknown",
+            "listening_word",
+        ],
     )
 
     assert get_exercise_goal(user) == 3
     assert get_session_question_limit(user) == 50
-    assert get_required_exercise_types(user) == ["practice_en_ru", "listening_word", "practice_ru_en"]
+    assert get_required_exercise_types(user) == [
+        "practice_en_ru",
+        "listening_word",
+        "practice_ru_en",
+    ]
     assert get_completed_exercise_types(item) == ["practice_en_ru", "listening_word"]
     assert get_pending_exercise_types(item) == ["practice_ru_en"]
 
@@ -176,7 +194,9 @@ def test_word_progress_helpers_normalize_completed_types_and_learning_state():
 
 @pytest.mark.django_db
 def test_recalculate_user_word_progress_persists_learning_state():
-    user = TelegramUser.objects.create(chat_id=1006, username="tester", repeat_threshold=2)
+    user = TelegramUser.objects.create(
+        chat_id=1006, username="tester", repeat_threshold=2
+    )
     item = VocabularyItem.objects.create(
         user=user,
         word="apple",
@@ -199,7 +219,9 @@ def test_recalculate_user_word_progress_persists_learning_state():
 @pytest.mark.django_db
 def test_create_word_draft_uses_translation_hint_and_marks_confirmation(monkeypatch):
     user = TelegramUser.objects.create(chat_id=1007, username="tester")
-    monkeypatch.setattr("vocab.services.translate_to_ru", lambda text: "пример перевода")
+    monkeypatch.setattr(
+        "vocab.services.translate_to_ru", lambda text: "пример перевода"
+    )
 
     draft = create_word_draft(
         user,
@@ -523,8 +545,13 @@ def test_ensure_draft_image_generates_path_when_prompt_available(monkeypatch):
         example="An apple a day.",
         part_of_speech="noun",
     )
-    monkeypatch.setattr("vocab.services.build_visual_prompt", lambda *args: "visual prompt")
-    monkeypatch.setattr("vocab.services.generate_card_image", lambda prompt, slug: "media/draft_images/generated.webp")
+    monkeypatch.setattr(
+        "vocab.services.build_visual_prompt", lambda *args: "visual prompt"
+    )
+    monkeypatch.setattr(
+        "vocab.services.generate_card_image",
+        lambda prompt, slug: "media/draft_images/generated.webp",
+    )
 
     updated = ensure_draft_image(draft)
 
@@ -567,9 +594,15 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
             ]
         },
     )
-    monkeypatch.setattr("vocab.services.ensure_pack_preparation", lambda pack_id, level_id: None)
-    monkeypatch.setattr("vocab.services.request_word_image_generation", lambda item: item)
-    monkeypatch.setattr("vocab.services.generate_word_data_batch", lambda entries: [None])
+    monkeypatch.setattr(
+        "vocab.services.ensure_pack_preparation", lambda pack_id, level_id: None
+    )
+    monkeypatch.setattr(
+        "vocab.services.request_word_image_generation", lambda item: item
+    )
+    monkeypatch.setattr(
+        "vocab.services.generate_word_data_batch", lambda entries: [None]
+    )
     monkeypatch.setattr("vocab.services.translate_to_ru", lambda text: "")
 
     from vocab.models import PackPreparedWord
@@ -591,5 +624,11 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
 
     assert len(result["created"]) == 2
     assert result["skipped"] == []
-    assert VocabularyItem.objects.filter(user=user, normalized_word="apple").exists() is True
-    assert VocabularyItem.objects.filter(user=user, normalized_word="pear").exists() is True
+    assert (
+        VocabularyItem.objects.filter(user=user, normalized_word="apple").exists()
+        is True
+    )
+    assert (
+        VocabularyItem.objects.filter(user=user, normalized_word="pear").exists()
+        is True
+    )

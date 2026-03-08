@@ -6,7 +6,6 @@ import mimetypes
 import os
 import tempfile
 import traceback
-from datetime import time as dt_time
 
 from django.http import FileResponse, HttpRequest, JsonResponse
 from django.shortcuts import render
@@ -15,7 +14,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
-from .openai_utils import generate_word_data, generate_word_data_batch, transcribe_speech_file
+from .openai_utils import transcribe_speech_file
 from .services import (
     add_pack_words_to_user,
     add_words_from_text,
@@ -29,13 +28,10 @@ from .services import (
     build_speaking_question,
     consume_web_login_token,
     create_web_user,
-    create_word_draft,
     create_web_login_token,
-    create_word,
     create_word_drafts_from_text,
     delete_word,
     delete_user_draft,
-    ensure_draft_image,
     finalize_word_draft,
     get_draft_image_file,
     get_telegram_user_by_id,
@@ -47,11 +43,8 @@ from .services import (
     list_words,
     list_irregular_page,
     list_word_packs,
-    parse_word_batch,
     request_draft_image_generation,
     refresh_draft_language_data,
-    recalculate_user_word_progress,
-    resolve_shared_image_path,
     request_word_image_generation,
     serialize_user,
     serialize_draft,
@@ -68,8 +61,11 @@ from .services import (
     word_already_exists,
     ensure_pack_preparation,
 )
-from .telegram_auth import TelegramAuthError, verify_login_widget, verify_webapp_init_data
-from .utils import normalize_timezone_value
+from .telegram_auth import (
+    TelegramAuthError,
+    verify_login_widget,
+    verify_webapp_init_data,
+)
 
 SESSION_USER_KEY = "telegram_user_id"
 logger = logging.getLogger(__name__)
@@ -88,6 +84,15 @@ def _json_body(request: HttpRequest) -> dict:
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"ok": False, "error": message}, status=status)
+
+
+def _safe_unlink(path: str) -> None:
+    if not path or not os.path.exists(path):
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        logger.warning("Failed to remove temp file %s", path)
 
 
 def _safe_context(payload: dict | None) -> dict:
@@ -151,7 +156,9 @@ def _current_user(request: HttpRequest) -> TelegramUser | None:
     if not telegram_id:
         return None
 
-    user = upsert_telegram_user(chat_id=int(telegram_id), username=telegram_user.get("username"))
+    user = upsert_telegram_user(
+        chat_id=int(telegram_id), username=telegram_user.get("username")
+    )
     request.session[SESSION_USER_KEY] = user.id
     return user
 
@@ -166,7 +173,13 @@ def _require_user(request: HttpRequest) -> TelegramUser | JsonResponse:
 def _login(request: HttpRequest, user: TelegramUser) -> JsonResponse:
     request.session.cycle_key()
     request.session[SESSION_USER_KEY] = user.id
-    return JsonResponse({"ok": True, "user": serialize_user(user), "progress": build_user_progress(user)})
+    return JsonResponse(
+        {
+            "ok": True,
+            "user": serialize_user(user),
+            "progress": build_user_progress(user),
+        }
+    )
 
 
 @ensure_csrf_cookie
@@ -244,7 +257,10 @@ def auth_me(request: HttpRequest) -> JsonResponse:
 @require_POST
 def auth_request_link(request: HttpRequest) -> JsonResponse:
     login_token = create_web_login_token()
-    deep_link = f"https://t.me/{get_telegram_bot_username()}" f"?start=login_{login_token.token}"
+    deep_link = (
+        f"https://t.me/{get_telegram_bot_username()}"
+        f"?start=login_{login_token.token}"
+    )
     return JsonResponse(
         {
             "ok": True,
@@ -290,7 +306,14 @@ def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
         return JsonResponse({"ok": True, "authenticated": False})
     request.session.cycle_key()
     request.session[SESSION_USER_KEY] = user.id
-    return JsonResponse({"ok": True, "authenticated": True, "user": serialize_user(user), "progress": build_user_progress(user)})
+    return JsonResponse(
+        {
+            "ok": True,
+            "authenticated": True,
+            "user": serialize_user(user),
+            "progress": build_user_progress(user),
+        }
+    )
 
 
 @csrf_exempt
@@ -318,7 +341,9 @@ def client_error_log(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True})
 
 
-def _get_draft_for_user(user: TelegramUser, draft_id: int) -> AddWordDraft | JsonResponse:
+def _get_draft_for_user(
+    user: TelegramUser, draft_id: int
+) -> AddWordDraft | JsonResponse:
     draft = get_user_draft(user, draft_id)
     if draft is None:
         return _json_error("Draft not found.", status=404)
@@ -333,7 +358,9 @@ def dashboard(request: HttpRequest) -> JsonResponse:
 
     stats = build_user_progress(user)
     recent_words = [serialize_word(item) for item in list_words(user, limit=6)]
-    next_cards = [serialize_word(item) for item in get_ordered_unlearned_words(user, count=4)]
+    next_cards = [
+        serialize_word(item) for item in get_ordered_unlearned_words(user, count=4)
+    ]
     return JsonResponse(
         {
             "ok": True,
@@ -354,7 +381,10 @@ def words(request: HttpRequest) -> JsonResponse:
     if request.method == "GET":
         search = request.GET.get("search", "").strip()
         status = request.GET.get("status", "all")
-        items = [serialize_word(item) for item in list_words(user, search=search, status=status, limit=150)]
+        items = [
+            serialize_word(item)
+            for item in list_words(user, search=search, status=status, limit=150)
+        ]
         return JsonResponse({"ok": True, "items": items})
 
     try:
@@ -363,7 +393,9 @@ def words(request: HttpRequest) -> JsonResponse:
         return _json_error(str(exc))
 
     try:
-        result = add_words_from_text(user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS)
+        result = add_words_from_text(
+            user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS
+        )
     except ValueError as exc:
         return _json_error(str(exc), status=400)
 
@@ -389,7 +421,9 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
         return _json_error(str(exc))
 
     try:
-        result = create_word_drafts_from_text(user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS)
+        result = create_word_drafts_from_text(
+            user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS
+        )
         if result["mode"] == "batch_review":
             return JsonResponse(
                 {
@@ -410,7 +444,13 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
                     "progress": build_user_progress(user),
                 }
             )
-        return JsonResponse({"ok": True, "draft": serialize_draft(result["draft"]), "step": result["step"]})
+        return JsonResponse(
+            {
+                "ok": True,
+                "draft": serialize_draft(result["draft"]),
+                "step": result["step"],
+            }
+        )
     except ValueError as exc:
         return _json_error(str(exc), status=400)
     except Exception as exc:
@@ -426,7 +466,9 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
                 "traceback": traceback.format_exc()[-4000:],
             },
         )
-        return _json_error("Не удалось подготовить слово. Попробуй ещё раз.", status=500)
+        return _json_error(
+            "Не удалось подготовить слово. Попробуй ещё раз.", status=500
+        )
 
 
 @require_POST
@@ -450,7 +492,9 @@ def word_draft_confirm_translation(request: HttpRequest, draft_id: int) -> JsonR
 
     draft = refresh_draft_language_data(draft, translation)
     draft = request_draft_image_generation(draft)
-    return JsonResponse({"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"})
+    return JsonResponse(
+        {"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"}
+    )
 
 
 @require_POST
@@ -468,7 +512,9 @@ def word_draft_regenerate_image(request: HttpRequest, draft_id: int) -> JsonResp
         return _json_error("Лимит перегенерации фото исчерпан.", status=400)
 
     draft = request_draft_image_generation(draft, force_regenerate=True)
-    return JsonResponse({"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"})
+    return JsonResponse(
+        {"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"}
+    )
 
 
 @require_POST
@@ -493,7 +539,13 @@ def word_draft_save(request: HttpRequest, draft_id: int) -> JsonResponse:
 
     use_image = bool(payload.get("use_image", True))
     item = finalize_word_draft(draft, use_image=use_image)
-    return JsonResponse({"ok": True, "item": serialize_word(item), "progress": build_user_progress(user)})
+    return JsonResponse(
+        {
+            "ok": True,
+            "item": serialize_word(item),
+            "progress": build_user_progress(user),
+        }
+    )
 
 
 @require_http_methods(["GET", "DELETE"])
@@ -614,11 +666,20 @@ def packs_add(request: HttpRequest) -> JsonResponse:
         return _json_error("selected_words must be a list.")
 
     try:
-        result = add_pack_words_to_user(user, pack_id, level_id, [str(word) for word in selected_words])
+        result = add_pack_words_to_user(
+            user, pack_id, level_id, [str(word) for word in selected_words]
+        )
     except ValueError as exc:
         return _json_error(str(exc))
 
-    return JsonResponse({"ok": True, **result, "progress": build_user_progress(user), "packs": list_word_packs(user)})
+    return JsonResponse(
+        {
+            "ok": True,
+            **result,
+            "progress": build_user_progress(user),
+            "packs": list_word_packs(user),
+        }
+    )
 
 
 @require_GET
@@ -627,7 +688,11 @@ def learn_question(request: HttpRequest) -> JsonResponse:
     if isinstance(user, JsonResponse):
         return user
 
-    raw_exclude = [chunk.strip() for chunk in request.GET.get("exclude_ids", "").split(",") if chunk.strip()]
+    raw_exclude = [
+        chunk.strip()
+        for chunk in request.GET.get("exclude_ids", "").split(",")
+        if chunk.strip()
+    ]
     exclude_ids: list[int] = []
     for chunk in raw_exclude:
         try:
@@ -637,8 +702,20 @@ def learn_question(request: HttpRequest) -> JsonResponse:
 
     question = build_learning_question(user, exclude_ids=exclude_ids)
     if question is None:
-        return JsonResponse({"ok": True, "empty": True, "session_limit": max(1, min(user.session_question_limit, 50))})
-    return JsonResponse({"ok": True, "question": question, "session_limit": max(1, min(user.session_question_limit, 50))})
+        return JsonResponse(
+            {
+                "ok": True,
+                "empty": True,
+                "session_limit": max(1, min(user.session_question_limit, 50)),
+            }
+        )
+    return JsonResponse(
+        {
+            "ok": True,
+            "question": question,
+            "session_limit": max(1, min(user.session_question_limit, 50)),
+        }
+    )
 
 
 @require_POST
@@ -655,7 +732,12 @@ def learn_answer(request: HttpRequest) -> JsonResponse:
     except (TypeError, ValueError):
         return _json_error("Invalid learning answer payload.")
 
-    if exercise_type not in {"practice_en_ru", "practice_ru_en", "listening_word", "listening_translate"}:
+    if exercise_type not in {
+        "practice_en_ru",
+        "practice_ru_en",
+        "listening_word",
+        "listening_translate",
+    }:
         return _json_error("Unknown exercise type.")
 
     try:
@@ -694,7 +776,9 @@ def practice_answer(request: HttpRequest) -> JsonResponse:
     except (TypeError, ValueError):
         return _json_error("Invalid practice answer payload.")
 
-    return JsonResponse({"ok": True, **submit_choice_answer(user, word_id, answer, mode)})
+    return JsonResponse(
+        {"ok": True, **submit_choice_answer(user, word_id, answer, mode)}
+    )
 
 
 @require_GET
@@ -726,7 +810,9 @@ def listening_answer(request: HttpRequest) -> JsonResponse:
     except (TypeError, ValueError):
         return _json_error("Invalid listening answer payload.")
 
-    return JsonResponse({"ok": True, **submit_listening_answer(user, word_id, answer, mode)})
+    return JsonResponse(
+        {"ok": True, **submit_listening_answer(user, word_id, answer, mode)}
+    )
 
 
 @require_GET
@@ -765,15 +851,16 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
             temp_path = temp_file.name
 
         transcript = transcribe_speech_file(temp_path)
-        return JsonResponse({"ok": True, **evaluate_speaking_answer(user, word_id, transcript)})
+        return JsonResponse(
+            {"ok": True, **evaluate_speaking_answer(user, word_id, transcript)}
+        )
     except Exception as exc:
+        logger.exception(
+            "Speaking recognition failed for user=%s word_id=%s", user.id, word_id
+        )
         return _json_error(f"Speech recognition failed: {exc}", status=400)
     finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+        _safe_unlink(temp_path)
 
 
 @require_GET
@@ -795,8 +882,20 @@ def word_audio(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
         if not audio_path or not os.path.exists(audio_path):
             audio_path = asyncio.run(generate_tts_audio(item.word))
     except Exception:
+        logger.exception(
+            "Audio generation failed for user=%s word_id=%s", user.id, word_id
+        )
         return _json_error("Audio is temporarily unavailable.", status=503)
-    return FileResponse(open(audio_path, "rb"), content_type="audio/mpeg")
+    try:
+        return FileResponse(open(audio_path, "rb"), content_type="audio/mpeg")
+    except OSError:
+        logger.exception(
+            "Audio file open failed for user=%s word_id=%s path=%s",
+            user.id,
+            word_id,
+            audio_path,
+        )
+        return _json_error("Audio is temporarily unavailable.", status=503)
 
 
 @require_GET
@@ -814,7 +913,18 @@ def word_image(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
         return _json_error("Image not found.", status=404)
 
     content_type, _ = mimetypes.guess_type(image_path.name)
-    return FileResponse(open(image_path, "rb"), content_type=content_type or "image/jpeg")
+    try:
+        return FileResponse(
+            open(image_path, "rb"), content_type=content_type or "image/jpeg"
+        )
+    except OSError:
+        logger.exception(
+            "Image file open failed for user=%s word_id=%s path=%s",
+            user.id,
+            word_id,
+            image_path,
+        )
+        return _json_error("Image is temporarily unavailable.", status=503)
 
 
 @require_GET
@@ -832,7 +942,18 @@ def draft_image(request: HttpRequest, draft_id: int) -> JsonResponse | FileRespo
         return _json_error("Image not found.", status=404)
 
     content_type, _ = mimetypes.guess_type(image_path.name)
-    return FileResponse(open(image_path, "rb"), content_type=content_type or "image/png")
+    try:
+        return FileResponse(
+            open(image_path, "rb"), content_type=content_type or "image/png"
+        )
+    except OSError:
+        logger.exception(
+            "Draft image open failed for user=%s draft_id=%s path=%s",
+            user.id,
+            draft_id,
+            image_path,
+        )
+        return _json_error("Image is temporarily unavailable.", status=503)
 
 
 @require_GET
@@ -867,7 +988,14 @@ def irregular_answer(request: HttpRequest) -> JsonResponse:
     if correct:
         update_irregular_progress(user, base, True)
     update_learning_streak(user)
-    return JsonResponse({"ok": True, "correct": correct, "correct_answer": correct_pair, "progress": build_user_progress(user)})
+    return JsonResponse(
+        {
+            "ok": True,
+            "correct": correct,
+            "correct_answer": correct_pair,
+            "progress": build_user_progress(user),
+        }
+    )
 
 
 @require_GET
@@ -884,7 +1012,10 @@ def study_cards(request: HttpRequest) -> JsonResponse:
         cards = [serialize_word(item) for item in with_images + without_images]
     else:
         count = max(1, min(int(request.GET.get("count", 10)), 20))
-        cards = [serialize_word(item) for item in get_ordered_unlearned_words(user, count=count)]
+        cards = [
+            serialize_word(item)
+            for item in get_ordered_unlearned_words(user, count=count)
+        ]
     return JsonResponse({"ok": True, "items": cards})
 
 
@@ -907,4 +1038,10 @@ def study_answer(request: HttpRequest) -> JsonResponse:
 
     updated = update_word_progress(item.id, correct=correct)
     update_learning_streak(user)
-    return JsonResponse({"ok": True, "item": serialize_word(updated), "progress": build_user_progress(user)})
+    return JsonResponse(
+        {
+            "ok": True,
+            "item": serialize_word(updated),
+            "progress": build_user_progress(user),
+        }
+    )

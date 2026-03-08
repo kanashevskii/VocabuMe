@@ -240,11 +240,15 @@ def test_client_error_log_persists_context(client):
 
 @pytest.mark.django_db
 def test_learn_question_returns_empty_when_service_has_no_question(client, monkeypatch):
-    user = TelegramUser.objects.create(chat_id=2005, username="tester", session_question_limit=99)
+    user = TelegramUser.objects.create(
+        chat_id=2005, username="tester", session_question_limit=99
+    )
     session = client.session
     session["telegram_user_id"] = user.id
     session.save()
-    monkeypatch.setattr("vocab.views.build_learning_question", lambda user, exclude_ids=None: None)
+    monkeypatch.setattr(
+        "vocab.views.build_learning_question", lambda user, exclude_ids=None: None
+    )
 
     response = client.get("/api/learn/question")
 
@@ -285,7 +289,9 @@ def test_practice_question_rejects_unknown_mode(client):
 
 
 @pytest.mark.django_db
-def test_practice_question_returns_empty_when_service_has_no_question(client, monkeypatch):
+def test_practice_question_returns_empty_when_service_has_no_question(
+    client, monkeypatch
+):
     user = TelegramUser.objects.create(chat_id=2008, username="tester")
     session = client.session
     session["telegram_user_id"] = user.id

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from asgiref.sync import sync_to_async
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
@@ -7,6 +8,9 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from vocab.utils import timezone_from_name
 
 from core.env import get_telegram_token, get_webapp_url
+
+logger = logging.getLogger(__name__)
+
 
 class Command(BaseCommand):
     help = "Send learning reminders to users"
@@ -37,20 +41,31 @@ class Command(BaseCommand):
             today_local = current_local.date()
 
             if user.reminder_time and current_local.time() < user.reminder_time:
-                self.stdout.write(f"⏳ Ещё не время для {user.chat_id} ({user.reminder_time} {user.reminder_timezone})")
+                self.stdout.write(
+                    f"⏳ Ещё не время для {user.chat_id} ({user.reminder_time} {user.reminder_timezone})"
+                )
                 continue
 
             if user.last_reminder_sent_at:
                 days_since_last = (today_local - user.last_reminder_sent_at).days
                 if days_since_last < user.reminder_interval_days:
-                    self.stdout.write(f"⏭ Пропущен {user.chat_id} — уже было {user.last_reminder_sent_at}")
+                    self.stdout.write(
+                        f"⏭ Пропущен {user.chat_id} — уже было {user.last_reminder_sent_at}"
+                    )
                     continue
 
             try:
                 reply_markup = None
                 if webapp_url:
                     reply_markup = InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("🚀 Открыть VocabuMe", web_app=WebAppInfo(url=webapp_url))]]
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🚀 Открыть VocabuMe",
+                                    web_app=WebAppInfo(url=webapp_url),
+                                )
+                            ]
+                        ]
                     )
                 await bot.send_message(
                     chat_id=user.chat_id,
@@ -58,6 +73,9 @@ class Command(BaseCommand):
                     reply_markup=reply_markup,
                 )
                 await self._mark_sent(user, today_local)
-                self.stdout.write(self.style.SUCCESS(f"✅ Напоминание отправлено {user.chat_id}"))
+                self.stdout.write(
+                    self.style.SUCCESS(f"✅ Напоминание отправлено {user.chat_id}")
+                )
             except Exception as e:
+                logger.exception("Reminder command failed for chat_id=%s", user.chat_id)
                 self.stderr.write(f"❌ Ошибка отправки {user.chat_id}: {e}")

@@ -22,10 +22,23 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     Image = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
-from .models import AddWordDraft, IrregularVerbProgress, PackPreparedWord, TelegramUser, VocabularyItem, WebLoginToken
-from .openai_utils import build_visual_prompt, generate_card_image, generate_word_data, generate_word_data_batch
+from .models import (
+    AddWordDraft,
+    Achievement,
+    IrregularVerbProgress,
+    PackPreparedWord,
+    TelegramUser,
+    VocabularyItem,
+    WebLoginToken,
+)
+from .openai_utils import (
+    build_visual_prompt,
+    generate_card_image,
+    generate_word_data,
+    generate_word_data_batch,
+)
 from .utils import clean_word, normalize_timezone_value, translate_to_ru
-from .word_packs import get_pack, get_pack_definitions, get_pack_level
+from .word_packs import get_pack_definitions, get_pack_level
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEDIA_ROOT = PROJECT_ROOT / "media"
@@ -58,15 +71,47 @@ ACHIEVEMENT_DEFINITIONS = [
     {"kind": "words", "threshold": 200, "text": "🚀 Выучено 200+ слов — Гуру слов!"},
     {"kind": "practice", "threshold": 10, "text": "🎲 10 тестов — Ты вошёл в ритм!"},
     {"kind": "practice", "threshold": 50, "text": "🧠 50 тестов — Отличная реакция!"},
-    {"kind": "listening", "threshold": 10, "text": "🎧 10 аудио-ответов — Уже слышишь лучше!"},
-    {"kind": "listening", "threshold": 50, "text": "📻 50 аудио-ответов — Слух прокачан!"},
+    {
+        "kind": "listening",
+        "threshold": 10,
+        "text": "🎧 10 аудио-ответов — Уже слышишь лучше!",
+    },
+    {
+        "kind": "listening",
+        "threshold": 50,
+        "text": "📻 50 аудио-ответов — Слух прокачан!",
+    },
     {"kind": "speaking", "threshold": 10, "text": "🎙️ 10 произношений — Голос в деле!"},
-    {"kind": "speaking", "threshold": 50, "text": "🗣️ 50 произношений — Звучишь увереннее!"},
-    {"kind": "review", "threshold": 10, "text": "🔁 10 повторов — Память закрепляется!"},
-    {"kind": "review", "threshold": 50, "text": "🪄 50 повторов — Старые слова держатся!"},
-    {"kind": "irregular", "threshold": 10, "text": "🔤 10 неправильных глаголов — База собрана!"},
-    {"kind": "irregular", "threshold": 30, "text": "🧩 30 неправильных глаголов — Уже уверенно!"},
-    {"kind": "irregular", "threshold": 60, "text": "🏆 60 неправильных глаголов — Мастер форм!"},
+    {
+        "kind": "speaking",
+        "threshold": 50,
+        "text": "🗣️ 50 произношений — Звучишь увереннее!",
+    },
+    {
+        "kind": "review",
+        "threshold": 10,
+        "text": "🔁 10 повторов — Память закрепляется!",
+    },
+    {
+        "kind": "review",
+        "threshold": 50,
+        "text": "🪄 50 повторов — Старые слова держатся!",
+    },
+    {
+        "kind": "irregular",
+        "threshold": 10,
+        "text": "🔤 10 неправильных глаголов — База собрана!",
+    },
+    {
+        "kind": "irregular",
+        "threshold": 30,
+        "text": "🧩 30 неправильных глаголов — Уже уверенно!",
+    },
+    {
+        "kind": "irregular",
+        "threshold": 60,
+        "text": "🏆 60 неправильных глаголов — Мастер форм!",
+    },
     {"kind": "days", "threshold": 3, "text": "📆 3 дня подряд — Ты в ритме!"},
     {"kind": "days", "threshold": 7, "text": "📅 7 дней подряд — Неделя прогресса!"},
     {"kind": "days", "threshold": 14, "text": "🧭 14 дней подряд — Курс на успех!"},
@@ -146,7 +191,11 @@ def is_single_typo_match(answer: str, expected: str) -> bool:
         return False
 
     if len_answer == len_expected:
-        mismatches = sum(1 for left, right in zip(normalized_answer, normalized_expected) if left != right)
+        mismatches = sum(
+            1
+            for left, right in zip(normalized_answer, normalized_expected)
+            if left != right
+        )
         return mismatches <= 1
 
     if len_answer > len_expected:
@@ -190,7 +239,9 @@ def get_telegram_user_by_chat_id(chat_id: int) -> TelegramUser | None:
 
 
 def _next_web_chat_id() -> int:
-    last_web_user = TelegramUser.objects.filter(chat_id__lt=0).order_by("chat_id").first()
+    last_web_user = (
+        TelegramUser.objects.filter(chat_id__lt=0).order_by("chat_id").first()
+    )
     if not last_web_user:
         return -1
     return last_web_user.chat_id - 1
@@ -224,7 +275,9 @@ def authenticate_web_user(email: str, password: str) -> TelegramUser | None:
     if not normalized_email or not password:
         return None
 
-    user = TelegramUser.objects.filter(email=normalized_email, auth_provider="web").first()
+    user = TelegramUser.objects.filter(
+        email=normalized_email, auth_provider="web"
+    ).first()
     if not user or not user.password_hash:
         return None
     if not check_password(password, user.password_hash):
@@ -249,7 +302,11 @@ def get_achievement_stats(user: TelegramUser) -> dict:
 
 def get_user_achievements(user: TelegramUser) -> list[str]:
     stats = get_achievement_stats(user)
-    return [item["text"] for item in ACHIEVEMENT_DEFINITIONS if stats[item["kind"]] >= item["threshold"]]
+    return [
+        item["text"]
+        for item in ACHIEVEMENT_DEFINITIONS
+        if stats[item["kind"]] >= item["threshold"]
+    ]
 
 
 def get_new_achievements(user: TelegramUser) -> list[str]:
@@ -300,22 +357,34 @@ def build_user_progress(user: TelegramUser) -> dict:
     total = VocabularyItem.objects.filter(user=user).count()
     learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
     learning = total - learned
-    irregular_learned = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
-    start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))["created_at__min"]
+    irregular_learned = IrregularVerbProgress.objects.filter(
+        user=user, is_learned=True
+    ).count()
+    start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))[
+        "created_at__min"
+    ]
     today = now().date()
-    learned_today = VocabularyItem.objects.filter(user=user, learned_at__date=today).count()
+    learned_today = VocabularyItem.objects.filter(
+        user=user, learned_at__date=today
+    ).count()
     current_moment = timezone.now()
     week_window_start = current_moment - timedelta(days=7)
     month_window_start = current_moment - timedelta(days=30)
-    learned_week = VocabularyItem.objects.filter(user=user, learned_at__gte=week_window_start).count()
-    learned_month = VocabularyItem.objects.filter(user=user, learned_at__gte=month_window_start).count()
+    learned_week = VocabularyItem.objects.filter(
+        user=user, learned_at__gte=week_window_start
+    ).count()
+    learned_month = VocabularyItem.objects.filter(
+        user=user, learned_at__gte=month_window_start
+    ).count()
 
     user_stats = TelegramUser.objects.annotate(
         learned_count=Count("vocabularyitem", filter=Q(vocabularyitem__is_learned=True))
     ).order_by("-learned_count")
 
     total_users = user_stats.count()
-    better_than = sum(1 for candidate in user_stats if candidate.learned_count < learned)
+    better_than = sum(
+        1 for candidate in user_stats if candidate.learned_count < learned
+    )
     rank_percent = round(100 * (1 - better_than / total_users)) if total_users else None
 
     return {
@@ -401,7 +470,9 @@ def get_word_image_file(item: VocabularyItem) -> Path | None:
 
     if item.image_path:
         raw_path = Path(item.image_path)
-        candidates.append(raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path)
+        candidates.append(
+            raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
+        )
 
     slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", item.word or "").strip("_") or "word"
     candidates.extend(
@@ -460,7 +531,9 @@ def serialize_word(item: VocabularyItem) -> dict:
     }
 
 
-def list_words(user: TelegramUser, search: str = "", status: str = "all", limit: int = 100) -> list[VocabularyItem]:
+def list_words(
+    user: TelegramUser, search: str = "", status: str = "all", limit: int = 100
+) -> list[VocabularyItem]:
     qs = VocabularyItem.objects.filter(user=user).order_by("-updated_at", "-id")
 
     if search:
@@ -478,12 +551,16 @@ def list_words(user: TelegramUser, search: str = "", status: str = "all", limit:
     return list(qs[:limit])
 
 
-def get_user_word_page(user: TelegramUser, page: int, page_size: int) -> tuple[list[tuple[int, str, str, str]], int]:
+def get_user_word_page(
+    user: TelegramUser, page: int, page_size: int
+) -> tuple[list[tuple[int, str, str, str]], int]:
     qs = VocabularyItem.objects.filter(user=user, is_learned=False).order_by("word")
     total = qs.count()
     start = page * page_size
     end = start + page_size
-    words = list(qs[start:end].values_list("id", "word", "transcription", "translation"))
+    words = list(
+        qs[start:end].values_list("id", "word", "transcription", "translation")
+    )
     return words, total
 
 
@@ -513,10 +590,14 @@ def delete_user_draft(user: TelegramUser, draft_id: int) -> bool:
 
 
 def word_already_exists(user: TelegramUser, word: str) -> bool:
-    return VocabularyItem.objects.filter(user=user, normalized_word=clean_word(word)).exists()
+    return VocabularyItem.objects.filter(
+        user=user, normalized_word=clean_word(word)
+    ).exists()
 
 
-def resolve_shared_image_path(word: str, translation: str, preferred_path: str = "") -> str:
+def resolve_shared_image_path(
+    word: str, translation: str, preferred_path: str = ""
+) -> str:
     if preferred_path:
         return preferred_path
 
@@ -555,8 +636,12 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
     if any(char in transcription for char in "абвгдеёжзийклмнопрстуфхцчшщыэюя"):
         transcription = ""
 
-    example_translation = data.get("example_translation") or translate_to_ru(data.get("example", ""))
-    image_path = resolve_shared_image_path(word, data["translation"], data.get("image_path", ""))
+    example_translation = data.get("example_translation") or translate_to_ru(
+        data.get("example", "")
+    )
+    image_path = resolve_shared_image_path(
+        word, data["translation"], data.get("image_path", "")
+    )
     return VocabularyItem.objects.create(
         user=user,
         word=word,
@@ -571,7 +656,9 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
     )
 
 
-def add_words_from_text(user: TelegramUser, text: str, max_batch_words: int = 10) -> dict:
+def add_words_from_text(
+    user: TelegramUser, text: str, max_batch_words: int = 10
+) -> dict:
     entries = parse_word_batch(text)
     if not entries:
         raise ValueError("Add at least one word.")
@@ -587,7 +674,9 @@ def add_words_from_text(user: TelegramUser, text: str, max_batch_words: int = 10
             skipped.append({"word": entry.word, "reason": "duplicate"})
             continue
 
-        word_data = generate_word_data(entry.word, translation_hint=entry.translation_hint)
+        word_data = generate_word_data(
+            entry.word, translation_hint=entry.translation_hint
+        )
         if not word_data:
             failed.append({"word": entry.word, "reason": "generation_failed"})
             continue
@@ -602,15 +691,21 @@ def add_words_from_text(user: TelegramUser, text: str, max_batch_words: int = 10
     return {"created": created_items, "skipped": skipped, "failed": failed}
 
 
-def create_word_drafts_from_text(user: TelegramUser, text: str, max_batch_words: int = 10) -> dict:
+def create_word_drafts_from_text(
+    user: TelegramUser, text: str, max_batch_words: int = 10
+) -> dict:
     entries = parse_word_batch(text)
     if not entries:
         raise ValueError("Add one word or phrase.")
     if len(entries) > max_batch_words:
-        raise ValueError(f"За один раз можно добавить максимум {max_batch_words} слов или фраз.")
+        raise ValueError(
+            f"За один раз можно добавить максимум {max_batch_words} слов или фраз."
+        )
 
     if len(entries) > 1:
-        missing_translation = [entry.word for entry in entries if not entry.translation_hint]
+        missing_translation = [
+            entry.word for entry in entries if not entry.translation_hint
+        ]
         if missing_translation:
             raise ValueError(
                 "For multiple lines, provide a translation on every line. Add these one by one: "
@@ -622,7 +717,10 @@ def create_word_drafts_from_text(user: TelegramUser, text: str, max_batch_words:
         failed = []
 
         batch_generated = generate_word_data_batch(
-            [{"word": entry.word, "translation_hint": entry.translation_hint} for entry in entries]
+            [
+                {"word": entry.word, "translation_hint": entry.translation_hint}
+                for entry in entries
+            ]
         )
 
         for entry, generated in zip(entries, batch_generated, strict=False):
@@ -635,8 +733,12 @@ def create_word_drafts_from_text(user: TelegramUser, text: str, max_batch_words:
                 continue
 
             try:
-                draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
-                shared_image_path = resolve_shared_image_path(draft.word, draft.translation, "")
+                draft = create_word_draft(
+                    user, entry.word, generated, translation_hint=entry.translation_hint
+                )
+                shared_image_path = resolve_shared_image_path(
+                    draft.word, draft.translation, ""
+                )
                 if shared_image_path:
                     draft.image_path = shared_image_path
                     draft.save(update_fields=["image_path", "updated_at"])
@@ -662,12 +764,16 @@ def create_word_drafts_from_text(user: TelegramUser, text: str, max_batch_words:
     if not generated:
         raise ValueError("Could not prepare the word data.")
 
-    shared_image_path = resolve_shared_image_path(generated["word"], generated.get("translation", ""), "")
+    shared_image_path = resolve_shared_image_path(
+        generated["word"], generated.get("translation", ""), ""
+    )
     if generated.get("translation") and shared_image_path:
         item = create_word(user, {**generated, "image_path": shared_image_path})
         return {"mode": "auto_saved", "item": item}
 
-    draft = create_word_draft(user, entry.word, generated, translation_hint=entry.translation_hint)
+    draft = create_word_draft(
+        user, entry.word, generated, translation_hint=entry.translation_hint
+    )
     step = "confirm_translation"
     if draft.translation_confirmed:
         draft = request_draft_image_generation(draft)
@@ -675,7 +781,9 @@ def create_word_drafts_from_text(user: TelegramUser, text: str, max_batch_words:
     return {"mode": "draft", "draft": draft, "step": step}
 
 
-def update_word_translation(user: TelegramUser, word_id: int, translation: str) -> VocabularyItem:
+def update_word_translation(
+    user: TelegramUser, word_id: int, translation: str
+) -> VocabularyItem:
     item = VocabularyItem.objects.get(id=word_id, user=user)
     item.translation = translation.strip()
     item.save(update_fields=["translation", "updated_at"])
@@ -700,7 +808,9 @@ def get_available_parts(user: TelegramUser) -> list[str]:
     )
 
 
-def get_fake_words(exclude_word: str, part_of_speech: str | None = None, count: int = 3) -> list[str]:
+def get_fake_words(
+    exclude_word: str, part_of_speech: str | None = None, count: int = 3
+) -> list[str]:
     qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
@@ -736,16 +846,34 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
 
 def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     previous_goal = user.repeat_threshold
-    exercise_goal = payload.get("exercise_goal", payload.get("repeat_threshold", user.repeat_threshold))
+    exercise_goal = payload.get(
+        "exercise_goal", payload.get("repeat_threshold", user.repeat_threshold)
+    )
     user.repeat_threshold = max(2, min(int(exercise_goal), 5))
-    user.session_question_limit = max(1, min(int(payload.get("session_question_limit", user.session_question_limit)), 50))
-    user.enable_review_old_words = bool(payload.get("enable_review_old_words", user.enable_review_old_words))
-    user.days_before_review = max(1, min(int(payload.get("days_before_review", user.days_before_review)), 365))
+    user.session_question_limit = max(
+        1,
+        min(
+            int(payload.get("session_question_limit", user.session_question_limit)), 50
+        ),
+    )
+    user.enable_review_old_words = bool(
+        payload.get("enable_review_old_words", user.enable_review_old_words)
+    )
+    user.days_before_review = max(
+        1, min(int(payload.get("days_before_review", user.days_before_review)), 365)
+    )
     user.reminder_enabled = bool(payload.get("reminder_enabled", user.reminder_enabled))
-    user.reminder_interval_days = max(1, min(int(payload.get("reminder_interval_days", user.reminder_interval_days)), 30))
+    user.reminder_interval_days = max(
+        1,
+        min(
+            int(payload.get("reminder_interval_days", user.reminder_interval_days)), 30
+        ),
+    )
     reminder_time = payload.get("reminder_time", user.reminder_time.strftime("%H:%M"))
     user.reminder_time = datetime.strptime(reminder_time, "%H:%M").time()
-    user.reminder_timezone = normalize_timezone_value(payload.get("reminder_timezone", user.reminder_timezone))
+    user.reminder_timezone = normalize_timezone_value(
+        payload.get("reminder_timezone", user.reminder_timezone)
+    )
     user.save()
     if user.repeat_threshold != previous_goal:
         recalculate_user_word_progress(user)
@@ -785,7 +913,7 @@ def get_session_question_limit(user: TelegramUser) -> int:
 
 
 def get_required_exercise_types(user: TelegramUser) -> list[str]:
-    return EXERCISE_PRIORITY[:get_exercise_goal(user)]
+    return EXERCISE_PRIORITY[: get_exercise_goal(user)]
 
 
 def get_completed_exercise_types(item: VocabularyItem) -> list[str]:
@@ -812,13 +940,25 @@ def sync_word_learning_state(item: VocabularyItem) -> VocabularyItem:
 
 def get_pending_exercise_types(item: VocabularyItem) -> list[str]:
     completed = set(get_completed_exercise_types(item))
-    return [exercise_type for exercise_type in get_required_exercise_types(item.user) if exercise_type not in completed]
+    return [
+        exercise_type
+        for exercise_type in get_required_exercise_types(item.user)
+        if exercise_type not in completed
+    ]
 
 
 def recalculate_user_word_progress(user: TelegramUser) -> None:
     for item in VocabularyItem.objects.filter(user=user).iterator():
         sync_word_learning_state(item)
-        item.save(update_fields=["completed_exercise_types", "correct_count", "is_learned", "learned_at", "updated_at"])
+        item.save(
+            update_fields=[
+                "completed_exercise_types",
+                "correct_count",
+                "is_learned",
+                "learned_at",
+                "updated_at",
+            ]
+        )
 
 
 def _serialize_pack_level(
@@ -837,8 +977,12 @@ def _serialize_pack_level(
                 "translation": entry["translation"],
                 "normalized_word": normalized,
                 "has_prepared_image": bool(prepared and prepared.image_path),
-                "prepared": bool(prepared and prepared.example and prepared.transcription),
-                "image_generation_in_progress": bool(prepared and prepared.image_generation_in_progress),
+                "prepared": bool(
+                    prepared and prepared.example and prepared.transcription
+                ),
+                "image_generation_in_progress": bool(
+                    prepared and prepared.image_generation_in_progress
+                ),
                 "already_added": normalized in (existing_user_words or set()),
             }
         )
@@ -875,16 +1019,33 @@ def list_word_packs(user: TelegramUser | None = None) -> list[dict]:
     for pack in definitions:
         for level in pack["levels"]:
             ensure_pack_placeholders(pack["id"], level["id"])
-    prepared_items = PackPreparedWord.objects.filter(pack_id__in=[pack["id"] for pack in definitions])
+    prepared_items = PackPreparedWord.objects.filter(
+        pack_id__in=[pack["id"] for pack in definitions]
+    )
     prepared_map: dict[tuple[str, str], dict[str, PackPreparedWord]] = {}
     for prepared in prepared_items:
-        prepared_map.setdefault((prepared.pack_id, prepared.level_id), {})[prepared.normalized_word] = prepared
+        prepared_map.setdefault((prepared.pack_id, prepared.level_id), {})[
+            prepared.normalized_word
+        ] = prepared
 
-    existing_user_words = set(VocabularyItem.objects.filter(user=user).values_list("normalized_word", flat=True)) if user else set()
+    existing_user_words = (
+        set(
+            VocabularyItem.objects.filter(user=user).values_list(
+                "normalized_word", flat=True
+            )
+        )
+        if user
+        else set()
+    )
     packs = []
     for pack in definitions:
         levels = [
-            _serialize_pack_level(pack["id"], level, prepared_map.get((pack["id"], level["id"]), {}), existing_user_words=existing_user_words)
+            _serialize_pack_level(
+                pack["id"],
+                level,
+                prepared_map.get((pack["id"], level["id"]), {}),
+                existing_user_words=existing_user_words,
+            )
             for level in pack["levels"]
         ]
         packs.append(
@@ -912,9 +1073,7 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
 
     candidate = (
         PackPreparedWord.objects.filter(image_generation_in_progress=False)
-        .filter(
-            Q(example="") | Q(transcription="") | Q(image_path="")
-        )
+        .filter(Q(example="") | Q(transcription="") | Q(image_path=""))
         .order_by("pack_id", "level_id", "prepared_at", "id")
         .first()
     )
@@ -932,11 +1091,17 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
             )
             if generated:
                 candidate.word = generated["word"]
-                candidate.translation = generated.get("translation") or candidate.translation
+                candidate.translation = (
+                    generated.get("translation") or candidate.translation
+                )
                 candidate.transcription = generated.get("transcription", "") or ""
                 candidate.example = generated.get("example", "") or ""
-                candidate.example_translation = generated.get("example_translation") or translate_to_ru(candidate.example)
-                candidate.part_of_speech = generated.get("part_of_speech", "unknown") or "unknown"
+                candidate.example_translation = generated.get(
+                    "example_translation"
+                ) or translate_to_ru(candidate.example)
+                candidate.part_of_speech = (
+                    generated.get("part_of_speech", "unknown") or "unknown"
+                )
 
         if candidate.example and candidate.translation and not candidate.image_path:
             built = _build_item_image(
@@ -1013,11 +1178,17 @@ def _prepare_pack_level_sync(pack_id: str, level_id: str) -> None:
 
         if generated:
             cached.word = generated["word"]
-            cached.translation = generated.get("translation") or entry["translation_hint"]
+            cached.translation = (
+                generated.get("translation") or entry["translation_hint"]
+            )
             cached.transcription = generated.get("transcription", "") or ""
             cached.example = generated.get("example", "") or ""
-            cached.example_translation = generated.get("example_translation") or translate_to_ru(cached.example)
-            cached.part_of_speech = generated.get("part_of_speech", "unknown") or "unknown"
+            cached.example_translation = generated.get(
+                "example_translation"
+            ) or translate_to_ru(cached.example)
+            cached.part_of_speech = (
+                generated.get("part_of_speech", "unknown") or "unknown"
+            )
 
         cached.image_generation_in_progress = True
         cached.save(
@@ -1045,7 +1216,9 @@ def _prepare_pack_level_sync(pack_id: str, level_id: str) -> None:
             _, image_path = built
             cached.image_path = image_path
         cached.image_generation_in_progress = False
-        cached.save(update_fields=["image_path", "image_generation_in_progress", "prepared_at"])
+        cached.save(
+            update_fields=["image_path", "image_generation_in_progress", "prepared_at"]
+        )
 
 
 def ensure_pack_preparation(pack_id: str, level_id: str) -> None:
@@ -1067,19 +1240,25 @@ def ensure_pack_preparation(pack_id: str, level_id: str) -> None:
     Thread(target=_run, daemon=True).start()
 
 
-def add_pack_words_to_user(user: TelegramUser, pack_id: str, level_id: str, selected_words: list[str]) -> dict:
+def add_pack_words_to_user(
+    user: TelegramUser, pack_id: str, level_id: str, selected_words: list[str]
+) -> dict:
     level = get_pack_level(pack_id, level_id)
     if not level:
         raise ValueError("Pack level not found.")
 
     allowed = {clean_word(item["word"]): item for item in level["items"]}
-    normalized_selected = [clean_word(word) for word in selected_words if clean_word(word) in allowed]
+    normalized_selected = [
+        clean_word(word) for word in selected_words if clean_word(word) in allowed
+    ]
     if not normalized_selected:
         raise ValueError("Choose at least one word from the pack.")
 
     prepared_map = {
         item.normalized_word: item
-        for item in PackPreparedWord.objects.filter(pack_id=pack_id, level_id=level_id, normalized_word__in=normalized_selected)
+        for item in PackPreparedWord.objects.filter(
+            pack_id=pack_id, level_id=level_id, normalized_word__in=normalized_selected
+        )
     }
 
     created = []
@@ -1109,7 +1288,9 @@ def add_pack_words_to_user(user: TelegramUser, pack_id: str, level_id: str, sele
                 request_word_image_generation(item)
             created.append(serialize_word(item))
         else:
-            fallback_entries.append({"word": entry["word"], "translation_hint": entry["translation"]})
+            fallback_entries.append(
+                {"word": entry["word"], "translation_hint": entry["translation"]}
+            )
 
     if fallback_entries:
         generated_batch = generate_word_data_batch(fallback_entries)
@@ -1127,12 +1308,19 @@ def add_pack_words_to_user(user: TelegramUser, pack_id: str, level_id: str, sele
                 user,
                 {
                     "word": generated["word"],
-                    "translation": generated.get("translation") or entry["translation_hint"],
+                    "translation": generated.get("translation")
+                    or entry["translation_hint"],
                     "transcription": generated.get("transcription", "") or "",
                     "example": generated.get("example", "") or "",
-                    "example_translation": generated.get("example_translation", "") or "",
-                    "part_of_speech": generated.get("part_of_speech", "unknown") or "unknown",
-                    "image_path": resolve_shared_image_path(entry["word"], generated.get("translation") or entry["translation_hint"], ""),
+                    "example_translation": generated.get("example_translation", "")
+                    or "",
+                    "part_of_speech": generated.get("part_of_speech", "unknown")
+                    or "unknown",
+                    "image_path": resolve_shared_image_path(
+                        entry["word"],
+                        generated.get("translation") or entry["translation_hint"],
+                        "",
+                    ),
                 },
             )
             if not item.image_path:
@@ -1185,7 +1373,12 @@ def get_draft_image_file(draft: AddWordDraft) -> Path | None:
     return None
 
 
-def create_word_draft(user: TelegramUser, source_text: str, generated: dict, translation_hint: str | None = None) -> AddWordDraft:
+def create_word_draft(
+    user: TelegramUser,
+    source_text: str,
+    generated: dict,
+    translation_hint: str | None = None,
+) -> AddWordDraft:
     translation = (translation_hint or generated.get("translation") or "").strip()
     return AddWordDraft.objects.create(
         user=user,
@@ -1196,20 +1389,28 @@ def create_word_draft(user: TelegramUser, source_text: str, generated: dict, tra
         translation_confirmed=bool(translation_hint),
         transcription=generated.get("transcription", "") or "",
         example=generated.get("example", "") or "",
-        example_translation=generated.get("example_translation") or translate_to_ru(generated.get("example", "")),
+        example_translation=generated.get("example_translation")
+        or translate_to_ru(generated.get("example", "")),
         part_of_speech=generated.get("part_of_speech", "unknown"),
     )
 
 
 def refresh_draft_language_data(draft: AddWordDraft, translation: str) -> AddWordDraft:
-    generated = generate_word_data(draft.word, part_hint=draft.part_of_speech, translation_hint=translation)
+    generated = generate_word_data(
+        draft.word, part_hint=draft.part_of_speech, translation_hint=translation
+    )
     if generated:
         draft.translation = translation
         draft.translation_confirmed = True
         draft.transcription = generated.get("transcription", "") or draft.transcription
         draft.example = generated.get("example", "") or draft.example
-        draft.example_translation = generated.get("example_translation") or translate_to_ru(draft.example)
-        draft.part_of_speech = generated.get("part_of_speech", draft.part_of_speech) or draft.part_of_speech
+        draft.example_translation = generated.get(
+            "example_translation"
+        ) or translate_to_ru(draft.example)
+        draft.part_of_speech = (
+            generated.get("part_of_speech", draft.part_of_speech)
+            or draft.part_of_speech
+        )
     else:
         draft.translation = translation
         draft.translation_confirmed = True
@@ -1231,7 +1432,9 @@ def refresh_draft_language_data(draft: AddWordDraft, translation: str) -> AddWor
     return draft
 
 
-def _build_item_image(word: str, translation: str, part_of_speech: str, example: str, slug: str) -> tuple[str, str] | None:
+def _build_item_image(
+    word: str, translation: str, part_of_speech: str, example: str, slug: str
+) -> tuple[str, str] | None:
     visual_prompt = build_visual_prompt(word, translation, part_of_speech, example)
     if not visual_prompt:
         return None
@@ -1267,19 +1470,41 @@ def _run_draft_image_generation(draft_id: int, version: int) -> None:
         latest.image_prompt = visual_prompt
         latest.image_path = image_path
         latest.image_generation_in_progress = False
-        latest.save(update_fields=["image_prompt", "image_path", "image_generation_in_progress", "updated_at"])
+        latest.save(
+            update_fields=[
+                "image_prompt",
+                "image_path",
+                "image_generation_in_progress",
+                "updated_at",
+            ]
+        )
     except Exception:
         logger.exception("Draft image generation failed for draft %s", draft_id)
-        AddWordDraft.objects.filter(id=draft_id, image_generation_version=version).update(image_generation_in_progress=False)
+        AddWordDraft.objects.filter(
+            id=draft_id, image_generation_version=version
+        ).update(image_generation_in_progress=False)
 
 
-def request_draft_image_generation(draft: AddWordDraft, force_regenerate: bool = False) -> AddWordDraft:
-    reused_path = "" if force_regenerate else resolve_shared_image_path(draft.word, draft.translation, "")
+def request_draft_image_generation(
+    draft: AddWordDraft, force_regenerate: bool = False
+) -> AddWordDraft:
+    reused_path = (
+        ""
+        if force_regenerate
+        else resolve_shared_image_path(draft.word, draft.translation, "")
+    )
     if reused_path:
         draft.image_path = reused_path
         draft.image_prompt = ""
         draft.image_generation_in_progress = False
-        draft.save(update_fields=["image_path", "image_prompt", "image_generation_in_progress", "updated_at"])
+        draft.save(
+            update_fields=[
+                "image_path",
+                "image_prompt",
+                "image_generation_in_progress",
+                "updated_at",
+            ]
+        )
         return draft
 
     draft.image_path = ""
@@ -1298,7 +1523,11 @@ def request_draft_image_generation(draft: AddWordDraft, force_regenerate: bool =
             "updated_at",
         ]
     )
-    Thread(target=_run_draft_image_generation, args=(draft.id, draft.image_generation_version), daemon=True).start()
+    Thread(
+        target=_run_draft_image_generation,
+        args=(draft.id, draft.image_generation_version),
+        daemon=True,
+    ).start()
     return draft
 
 
@@ -1329,30 +1558,55 @@ def _run_word_image_generation(item_id: int, version: int) -> None:
         _, image_path = built
         latest.image_path = image_path
         latest.image_generation_in_progress = False
-        latest.save(update_fields=["image_path", "image_generation_in_progress", "updated_at"])
+        latest.save(
+            update_fields=["image_path", "image_generation_in_progress", "updated_at"]
+        )
     except Exception:
         logger.exception("Word image generation failed for item %s", item_id)
-        VocabularyItem.objects.filter(id=item_id, image_generation_version=version).update(image_generation_in_progress=False)
+        VocabularyItem.objects.filter(
+            id=item_id, image_generation_version=version
+        ).update(image_generation_in_progress=False)
 
 
-def request_word_image_generation(item: VocabularyItem, force_regenerate: bool = False) -> VocabularyItem:
-    reused_path = "" if force_regenerate else resolve_shared_image_path(item.word, item.translation, "")
+def request_word_image_generation(
+    item: VocabularyItem, force_regenerate: bool = False
+) -> VocabularyItem:
+    reused_path = (
+        ""
+        if force_regenerate
+        else resolve_shared_image_path(item.word, item.translation, "")
+    )
     if reused_path:
         item.image_path = reused_path
         item.image_generation_in_progress = False
-        item.save(update_fields=["image_path", "image_generation_in_progress", "updated_at"])
+        item.save(
+            update_fields=["image_path", "image_generation_in_progress", "updated_at"]
+        )
         return item
 
     item.image_generation_version += 1
     item.image_generation_in_progress = True
     if force_regenerate:
         item.image_regeneration_count += 1
-    item.save(update_fields=["image_generation_version", "image_generation_in_progress", "image_regeneration_count", "updated_at"])
-    Thread(target=_run_word_image_generation, args=(item.id, item.image_generation_version), daemon=True).start()
+    item.save(
+        update_fields=[
+            "image_generation_version",
+            "image_generation_in_progress",
+            "image_regeneration_count",
+            "updated_at",
+        ]
+    )
+    Thread(
+        target=_run_word_image_generation,
+        args=(item.id, item.image_generation_version),
+        daemon=True,
+    ).start()
     return item
 
 
-def ensure_draft_image(draft: AddWordDraft, force_regenerate: bool = False) -> AddWordDraft:
+def ensure_draft_image(
+    draft: AddWordDraft, force_regenerate: bool = False
+) -> AddWordDraft:
     if not force_regenerate:
         reused_path = resolve_shared_image_path(draft.word, draft.translation, "")
         if reused_path:
@@ -1378,7 +1632,14 @@ def ensure_draft_image(draft: AddWordDraft, force_regenerate: bool = False) -> A
     draft.image_path = image_path
     if force_regenerate:
         draft.image_regeneration_count += 1
-    draft.save(update_fields=["image_prompt", "image_path", "image_regeneration_count", "updated_at"])
+    draft.save(
+        update_fields=[
+            "image_prompt",
+            "image_path",
+            "image_regeneration_count",
+            "updated_at",
+        ]
+    )
     return draft
 
 
@@ -1430,7 +1691,9 @@ def get_ordered_unlearned_words(
     )
 
 
-def get_unlearned_words(user: TelegramUser, count: int = 10, part_of_speech: str | None = None) -> list[VocabularyItem]:
+def get_unlearned_words(
+    user: TelegramUser, count: int = 10, part_of_speech: str | None = None
+) -> list[VocabularyItem]:
     base_qs = VocabularyItem.objects.filter(user=user, is_learned=False)
     if part_of_speech:
         base_qs = base_qs.filter(part_of_speech=part_of_speech)
@@ -1439,7 +1702,9 @@ def get_unlearned_words(user: TelegramUser, count: int = 10, part_of_speech: str
     review_ids: list[int] = []
     if user.enable_review_old_words:
         threshold = now() - timedelta(days=user.days_before_review)
-        review_qs = VocabularyItem.objects.filter(user=user, is_learned=True, updated_at__lt=threshold)
+        review_qs = VocabularyItem.objects.filter(
+            user=user, is_learned=True, updated_at__lt=threshold
+        )
         if part_of_speech:
             review_qs = review_qs.filter(part_of_speech=part_of_speech)
         review_ids = list(review_qs.values_list("id", flat=True))
@@ -1452,17 +1717,36 @@ def get_unlearned_words(user: TelegramUser, count: int = 10, part_of_speech: str
 
 
 def get_learned_words(user: TelegramUser) -> list[VocabularyItem]:
-    return list(VocabularyItem.objects.filter(user=user, is_learned=True).order_by("updated_at", "id"))
+    return list(
+        VocabularyItem.objects.filter(user=user, is_learned=True).order_by(
+            "updated_at", "id"
+        )
+    )
 
 
-def update_word_progress(item_id: int, correct: bool, exercise_type: str | None = None) -> VocabularyItem:
+def update_word_progress(
+    item_id: int, correct: bool, exercise_type: str | None = None
+) -> VocabularyItem:
     item = VocabularyItem.objects.select_related("user").get(id=item_id)
     completed = get_completed_exercise_types(item)
-    if correct and exercise_type and exercise_type in EXERCISE_TYPE_LABELS and exercise_type not in completed:
+    if (
+        correct
+        and exercise_type
+        and exercise_type in EXERCISE_TYPE_LABELS
+        and exercise_type not in completed
+    ):
         completed.append(exercise_type)
         item.completed_exercise_types = completed
     sync_word_learning_state(item)
-    item.save(update_fields=["completed_exercise_types", "correct_count", "is_learned", "learned_at", "updated_at"])
+    item.save(
+        update_fields=[
+            "completed_exercise_types",
+            "correct_count",
+            "is_learned",
+            "learned_at",
+            "updated_at",
+        ]
+    )
     return item
 
 
@@ -1479,16 +1763,31 @@ def reset_word_progress(item_id: int) -> VocabularyItem:
     item.learned_at = None
     item.correct_count = 0
     item.completed_exercise_types = []
-    item.save(update_fields=["is_learned", "learned_at", "correct_count", "completed_exercise_types", "updated_at"])
+    item.save(
+        update_fields=[
+            "is_learned",
+            "learned_at",
+            "correct_count",
+            "completed_exercise_types",
+            "updated_at",
+        ]
+    )
     return item
 
 
-def get_fake_translations(user: TelegramUser, exclude_word: str, part_of_speech: str | None = None, count: int = 3) -> list[str]:
+def get_fake_translations(
+    user: TelegramUser,
+    exclude_word: str,
+    part_of_speech: str | None = None,
+    count: int = 3,
+) -> list[str]:
     qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
 
-    translations = list(qs.values_list("translation", flat=True).distinct().order_by("?")[:count])
+    translations = list(
+        qs.values_list("translation", flat=True).distinct().order_by("?")[:count]
+    )
     if len(translations) < count:
         extras = list(
             VocabularyItem.objects.exclude(word__iexact=exclude_word)
@@ -1504,14 +1803,20 @@ def get_fake_translations(user: TelegramUser, exclude_word: str, part_of_speech:
     return translations
 
 
-def get_learning_candidates(user: TelegramUser, exclude_ids: Iterable[int] | None = None) -> list[VocabularyItem]:
-    qs = VocabularyItem.objects.filter(user=user, is_learned=False).exclude(id__in=list(exclude_ids or []))
+def get_learning_candidates(
+    user: TelegramUser, exclude_ids: Iterable[int] | None = None
+) -> list[VocabularyItem]:
+    qs = VocabularyItem.objects.filter(user=user, is_learned=False).exclude(
+        id__in=list(exclude_ids or [])
+    )
     items = list(qs)
     random.shuffle(items)
     return [item for item in items if get_pending_exercise_types(item)]
 
 
-def _build_choice_options(item: VocabularyItem, answer_mode: str) -> tuple[str, list[str]]:
+def _build_choice_options(
+    item: VocabularyItem, answer_mode: str
+) -> tuple[str, list[str]]:
     if answer_mode == "practice_ru_en":
         correct_answer = item.word
         fake_options = list(
@@ -1533,7 +1838,9 @@ def _build_choice_options(item: VocabularyItem, answer_mode: str) -> tuple[str, 
     return correct_answer, options
 
 
-def build_learning_question(user: TelegramUser, exclude_ids: Iterable[int] | None = None) -> dict | None:
+def build_learning_question(
+    user: TelegramUser, exclude_ids: Iterable[int] | None = None
+) -> dict | None:
     candidates = get_learning_candidates(user, exclude_ids=exclude_ids)
     if not candidates:
         return None
@@ -1555,7 +1862,11 @@ def build_learning_question(user: TelegramUser, exclude_ids: Iterable[int] | Non
         payload.update(
             {
                 "kind": "choice",
-                "prompt": "Выбери правильный перевод" if exercise_type == "practice_en_ru" else "Выбери правильное английское слово",
+                "prompt": (
+                    "Выбери правильный перевод"
+                    if exercise_type == "practice_en_ru"
+                    else "Выбери правильное английское слово"
+                ),
                 "answer_mode": exercise_type,
                 "options": options,
                 "correct_answer": correct_answer,
@@ -1567,7 +1878,11 @@ def build_learning_question(user: TelegramUser, exclude_ids: Iterable[int] | Non
         payload.update(
             {
                 "kind": "listening",
-                "prompt": "Напиши услышанное слово" if exercise_type == "listening_word" else "Напиши перевод услышанного слова",
+                "prompt": (
+                    "Напиши услышанное слово"
+                    if exercise_type == "listening_word"
+                    else "Напиши перевод услышанного слова"
+                ),
                 "answer_mode": exercise_type,
             }
         )
@@ -1608,32 +1923,49 @@ def build_choice_question(user: TelegramUser, mode: str) -> dict | None:
             .order_by("?")[:3]
         )
     else:
-        fakes = get_fake_translations(user, exclude_word=item.word, part_of_speech=item.part_of_speech, count=3)
+        fakes = get_fake_translations(
+            user, exclude_word=item.word, part_of_speech=item.part_of_speech, count=3
+        )
 
     options = list(dict.fromkeys(fakes + [correct_answer]))
     random.shuffle(options)
-    return {"item": serialize_word(item), "options": options, "mode": mode, "prompt": prompt}
+    return {
+        "item": serialize_word(item),
+        "options": options,
+        "mode": mode,
+        "prompt": prompt,
+    }
 
 
-def submit_choice_answer(user: TelegramUser, item_id: int, answer: str, mode: str) -> dict:
+def submit_choice_answer(
+    user: TelegramUser, item_id: int, answer: str, mode: str
+) -> dict:
     item = VocabularyItem.objects.get(id=item_id, user=user)
     normalized = answer.strip().lower()
 
     if mode == "reverse":
         correct = normalized == item.word.lower()
-        updated = update_word_progress(item.id, correct=correct, exercise_type="practice_ru_en")
+        updated = update_word_progress(
+            item.id, correct=correct, exercise_type="practice_ru_en"
+        )
         correct_answer = item.word
         if correct:
             increment_user_metric(user, "practice_correct")
     elif mode == "review":
         correct = is_translation_answer_correct(answer, item.translation)
-        updated = update_word_progress(item.id, correct=True) if correct else reset_word_progress(item.id)
+        updated = (
+            update_word_progress(item.id, correct=True)
+            if correct
+            else reset_word_progress(item.id)
+        )
         correct_answer = item.translation
         if correct:
             increment_user_metric(user, "review_correct")
     else:
         correct = is_translation_answer_correct(answer, item.translation)
-        updated = update_word_progress(item.id, correct=correct, exercise_type="practice_en_ru")
+        updated = update_word_progress(
+            item.id, correct=correct, exercise_type="practice_en_ru"
+        )
         correct_answer = item.translation
         if correct:
             increment_user_metric(user, "practice_correct")
@@ -1652,11 +1984,17 @@ def build_listening_question(user: TelegramUser, mode: str) -> dict | None:
     if not candidates:
         return None
     item = candidates[0]
-    prompt = "Напиши услышанное слово" if mode == "word" else "Напиши перевод услышанного слова"
+    prompt = (
+        "Напиши услышанное слово"
+        if mode == "word"
+        else "Напиши перевод услышанного слова"
+    )
     return {"item": serialize_word(item), "mode": mode, "prompt": prompt}
 
 
-def submit_listening_answer(user: TelegramUser, item_id: int, answer: str, mode: str) -> dict:
+def submit_listening_answer(
+    user: TelegramUser, item_id: int, answer: str, mode: str
+) -> dict:
     item = VocabularyItem.objects.get(id=item_id, user=user)
     expected = item.word if mode == "word" else item.translation
     accepted_with_typo = False
@@ -1734,14 +2072,18 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
     }
 
 
-def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, exercise_type: str) -> dict:
+def submit_learning_text_answer(
+    user: TelegramUser, item_id: int, answer: str, exercise_type: str
+) -> dict:
     item = VocabularyItem.objects.get(id=item_id, user=user)
     normalized = answer.strip().lower()
     accepted_with_typo = False
     if exercise_type == "practice_en_ru":
         expected = item.translation
         correct = is_translation_answer_correct(answer, item.translation)
-        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        updated = update_word_progress(
+            item.id, correct=correct, exercise_type=exercise_type
+        )
         if correct:
             increment_user_metric(user, "practice_correct")
     elif exercise_type == "practice_ru_en":
@@ -1750,7 +2092,9 @@ def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, e
         if not correct and is_single_typo_match(answer, item.word):
             correct = True
             accepted_with_typo = True
-        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        updated = update_word_progress(
+            item.id, correct=correct, exercise_type=exercise_type
+        )
         if correct:
             increment_user_metric(user, "practice_correct")
     elif exercise_type == "listening_word":
@@ -1759,13 +2103,17 @@ def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, e
         if not correct and is_single_typo_match(answer, item.word):
             correct = True
             accepted_with_typo = True
-        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        updated = update_word_progress(
+            item.id, correct=correct, exercise_type=exercise_type
+        )
         if correct:
             increment_user_metric(user, "listening_correct")
     elif exercise_type == "listening_translate":
         expected = item.translation
         correct = is_translation_answer_correct(answer, item.translation)
-        updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
+        updated = update_word_progress(
+            item.id, correct=correct, exercise_type=exercise_type
+        )
         if correct:
             increment_user_metric(user, "listening_correct")
     else:
@@ -1807,7 +2155,9 @@ def build_irregular_question() -> dict:
     return {"verb": verb, "correct_pair": correct_pair, "options": options[:4]}
 
 
-def update_irregular_progress(user: TelegramUser, base: str, correct: bool) -> IrregularVerbProgress:
+def update_irregular_progress(
+    user: TelegramUser, base: str, correct: bool
+) -> IrregularVerbProgress:
     progress, _ = IrregularVerbProgress.objects.get_or_create(user=user, verb_base=base)
     if correct:
         progress.correct_count += 1
@@ -1818,12 +2168,16 @@ def update_irregular_progress(user: TelegramUser, base: str, correct: bool) -> I
 
 
 def create_web_login_token() -> WebLoginToken:
-    return WebLoginToken.objects.create(expires_at=timezone.now() + timedelta(minutes=15))
+    return WebLoginToken.objects.create(
+        expires_at=timezone.now() + timedelta(minutes=15)
+    )
 
 
 def bind_web_login_token(token: str, user: TelegramUser) -> WebLoginToken | None:
     try:
-        login_token = WebLoginToken.objects.get(token=token, expires_at__gt=timezone.now(), consumed_at__isnull=True)
+        login_token = WebLoginToken.objects.get(
+            token=token, expires_at__gt=timezone.now(), consumed_at__isnull=True
+        )
     except WebLoginToken.DoesNotExist:
         return None
     login_token.user = user
@@ -1856,7 +2210,12 @@ def parse_word_batch(text: str) -> list[ParsedWordEntry]:
         value = (raw or "").strip()
         value = re.sub(r"^[•*·\-]+\s*", "", value)
         value = re.sub(r"\s*:\s*$", "", value)
-        value = re.sub(r"\s*\((?:v|adj|adv|n|noun|verb|adjective|adverb|phrase)\)\s*$", "", value, flags=re.IGNORECASE)
+        value = re.sub(
+            r"\s*\((?:v|adj|adv|n|noun|verb|adjective|adverb|phrase)\)\s*$",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        )
         value = re.sub(r"\s+(?:v|adj|adv|n)\s*$", "", value, flags=re.IGNORECASE)
         return value.strip()
 
@@ -1874,8 +2233,8 @@ def parse_word_batch(text: str) -> list[ParsedWordEntry]:
 
         cyrillic_match = re.search(r"[А-Яа-яЁё]", line)
         if cyrillic_match:
-            word_part = normalize_word_part(line[:cyrillic_match.start()])
-            translation_hint = line[cyrillic_match.start():].strip()
+            word_part = normalize_word_part(line[: cyrillic_match.start()])
+            translation_hint = line[cyrillic_match.start() :].strip()
             if word_part and translation_hint:
                 return word_part, translation_hint
 
@@ -1890,7 +2249,9 @@ def parse_word_batch(text: str) -> list[ParsedWordEntry]:
         cleaned = clean_word(word_part)
         if not cleaned:
             continue
-        entries.append(ParsedWordEntry(word=cleaned, translation_hint=translation_hint or None))
+        entries.append(
+            ParsedWordEntry(word=cleaned, translation_hint=translation_hint or None)
+        )
     return entries
 
 
