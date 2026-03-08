@@ -132,6 +132,44 @@ def is_translation_answer_correct(answer: str, translation: str) -> bool:
     return normalized_answer in split_translation_variants(translation)
 
 
+def is_single_typo_match(answer: str, expected: str) -> bool:
+    normalized_answer = clean_word(answer)
+    normalized_expected = clean_word(expected)
+    if not normalized_answer or not normalized_expected:
+        return False
+    if normalized_answer == normalized_expected:
+        return False
+
+    len_answer = len(normalized_answer)
+    len_expected = len(normalized_expected)
+    if abs(len_answer - len_expected) > 1:
+        return False
+
+    if len_answer == len_expected:
+        mismatches = sum(1 for left, right in zip(normalized_answer, normalized_expected) if left != right)
+        return mismatches <= 1
+
+    if len_answer > len_expected:
+        longer, shorter = normalized_answer, normalized_expected
+    else:
+        longer, shorter = normalized_expected, normalized_answer
+
+    index_longer = 0
+    index_shorter = 0
+    edits = 0
+    while index_longer < len(longer) and index_shorter < len(shorter):
+        if longer[index_longer] == shorter[index_shorter]:
+            index_longer += 1
+            index_shorter += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return False
+        index_longer += 1
+
+    return True
+
+
 def upsert_telegram_user(chat_id: int, username: str | None = None) -> TelegramUser:
     user, created = TelegramUser.objects.get_or_create(
         chat_id=chat_id,
@@ -1362,7 +1400,14 @@ def build_listening_question(user: TelegramUser, mode: str) -> dict | None:
 def submit_listening_answer(user: TelegramUser, item_id: int, answer: str, mode: str) -> dict:
     item = VocabularyItem.objects.get(id=item_id, user=user)
     expected = item.word if mode == "word" else item.translation
-    correct = answer.strip().lower() == expected.lower() if mode == "word" else is_translation_answer_correct(answer, expected)
+    accepted_with_typo = False
+    if mode == "word":
+        correct = answer.strip().lower() == expected.lower()
+        if not correct and is_single_typo_match(answer, expected):
+            correct = True
+            accepted_with_typo = True
+    else:
+        correct = is_translation_answer_correct(answer, expected)
     updated = update_word_progress(
         item.id,
         correct=correct,
@@ -1375,6 +1420,7 @@ def submit_listening_answer(user: TelegramUser, item_id: int, answer: str, mode:
         "correct": correct,
         "item": serialize_word(updated),
         "correct_answer": expected,
+        "accepted_with_typo": accepted_with_typo,
         "progress": build_user_progress(user),
     }
 
@@ -1432,6 +1478,7 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
 def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, exercise_type: str) -> dict:
     item = VocabularyItem.objects.get(id=item_id, user=user)
     normalized = answer.strip().lower()
+    accepted_with_typo = False
     if exercise_type == "practice_en_ru":
         expected = item.translation
         correct = is_translation_answer_correct(answer, item.translation)
@@ -1441,12 +1488,18 @@ def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, e
     elif exercise_type == "practice_ru_en":
         expected = item.word
         correct = normalized == item.word.lower()
+        if not correct and is_single_typo_match(answer, item.word):
+            correct = True
+            accepted_with_typo = True
         updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
         if correct:
             increment_user_metric(user, "practice_correct")
     elif exercise_type == "listening_word":
         expected = item.word
         correct = normalized == item.word.lower()
+        if not correct and is_single_typo_match(answer, item.word):
+            correct = True
+            accepted_with_typo = True
         updated = update_word_progress(item.id, correct=correct, exercise_type=exercise_type)
         if correct:
             increment_user_metric(user, "listening_correct")
@@ -1466,6 +1519,7 @@ def submit_learning_text_answer(user: TelegramUser, item_id: int, answer: str, e
         "correct": correct,
         "item": serialize_word(updated),
         "correct_answer": expected,
+        "accepted_with_typo": accepted_with_typo,
         "progress": build_user_progress(user),
         "exercise_type": exercise_type,
     }

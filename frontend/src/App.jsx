@@ -66,6 +66,23 @@ function formatLearnCorrectAnswer(learnQuestion, learnResult) {
   return answer;
 }
 
+function formatLearnResultLabel(learnQuestion, learnResult) {
+  if (!learnResult) {
+    return "";
+  }
+  const correctAnswer = formatLearnCorrectAnswer(learnQuestion, learnResult);
+  if (learnResult.skipped) {
+    return `Правильный ответ: ${correctAnswer}`;
+  }
+  if (learnResult.correct && learnResult.accepted_with_typo) {
+    return `Верно, засчитано с опечаткой. Правильно пишется: ${correctAnswer}`;
+  }
+  if (learnResult.correct) {
+    return "Верно";
+  }
+  return `Правильный ответ: ${correctAnswer}`;
+}
+
 function getCookie(name) {
   const match = document.cookie.match(new RegExp(`(^| )${name}=([^;]+)`));
   return match ? decodeURIComponent(match[2]) : "";
@@ -1982,6 +1999,9 @@ function App() {
           </div>
           <div className="prompt-card">
             <strong>{promptTitle}</strong>
+            {isSpeaking && learnQuestion.item?.transcription ? (
+              <p className="transcription">/{learnQuestion.item.transcription}/</p>
+            ) : null}
             <span>{learnQuestion.prompt}</span>
             <span className="study-hint">{learnQuestion.exercise_label}</span>
           </div>
@@ -2051,11 +2071,7 @@ function App() {
                   ? learnResult.skipped
                     ? `Правильный ответ: ${learnResult.correct_answer}`
                     : `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
-                  : learnResult.skipped
-                    ? `Правильный ответ: ${formatLearnCorrectAnswer(learnQuestion, learnResult)}`
-                    : learnResult.correct
-                      ? "Верно"
-                      : `Правильный ответ: ${formatLearnCorrectAnswer(learnQuestion, learnResult)}`}
+                  : formatLearnResultLabel(learnQuestion, learnResult)}
               </span>
               <button className="secondary-button" type="button" onClick={() => void advanceLearnSession()}>
                 Дальше
