@@ -2176,7 +2176,12 @@ function App() {
                       Удалить
                     </button>
                   </div>
-                      {previewWordId === item.id ? (
+                  {item.image_generation_in_progress ? (
+                    <div className="inline-note status-note">
+                      <strong>Генерируем новое фото...</strong> Старое изображение останется до обновления.
+                    </div>
+                  ) : null}
+                  {previewWordId === item.id ? (
                     item.has_image ? (
                       <div className="word-image-preview">
                         <img

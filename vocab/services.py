@@ -1083,12 +1083,11 @@ def request_word_image_generation(item: VocabularyItem, force_regenerate: bool =
         item.save(update_fields=["image_path", "image_generation_in_progress", "updated_at"])
         return item
 
-    item.image_path = ""
     item.image_generation_version += 1
     item.image_generation_in_progress = True
     if force_regenerate:
         item.image_regeneration_count += 1
-    item.save(update_fields=["image_path", "image_generation_version", "image_generation_in_progress", "image_regeneration_count", "updated_at"])
+    item.save(update_fields=["image_generation_version", "image_generation_in_progress", "image_regeneration_count", "updated_at"])
     Thread(target=_run_word_image_generation, args=(item.id, item.image_generation_version), daemon=True).start()
     return item
 
