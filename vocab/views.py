@@ -14,6 +14,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
+from .alphabets import get_alphabet_letter
 from .openai_utils import transcribe_speech_file
 from .services import (
     add_pack_words_to_user,
@@ -902,6 +903,53 @@ def word_audio(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
             "Audio file open failed for user=%s word_id=%s path=%s",
             user.id,
             word_id,
+            audio_path,
+        )
+        return _json_error("Audio is temporarily unavailable.", status=503)
+
+
+@require_GET
+def alphabet_audio(request: HttpRequest) -> JsonResponse | FileResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    symbol = request.GET.get("symbol", "").strip()
+    if not symbol:
+        return _json_error("Alphabet symbol is required.", status=400)
+
+    active_course = get_active_course_code(user)
+    letter = get_alphabet_letter(active_course, symbol)
+    if letter is None:
+        return _json_error("Alphabet letter not found.", status=404)
+
+    import asyncio
+    import os
+    from .tts import get_audio_path, generate_tts_audio
+
+    audio_text = str(letter.get("name") or letter["symbol"]).strip()
+    try:
+        audio_path = get_audio_path(audio_text, language_code=active_course)
+        if not audio_path or not os.path.exists(audio_path):
+            audio_path = asyncio.run(
+                generate_tts_audio(audio_text, language_code=active_course)
+            )
+    except Exception:
+        logger.exception(
+            "Alphabet audio generation failed for user=%s course=%s symbol=%s",
+            user.id,
+            active_course,
+            symbol,
+        )
+        return _json_error("Audio is temporarily unavailable.", status=503)
+    try:
+        return FileResponse(open(audio_path, "rb"), content_type="audio/mpeg")
+    except OSError:
+        logger.exception(
+            "Alphabet audio file open failed for user=%s course=%s symbol=%s path=%s",
+            user.id,
+            active_course,
+            symbol,
             audio_path,
         )
         return _json_error("Audio is temporarily unavailable.", status=503)

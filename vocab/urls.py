@@ -39,6 +39,7 @@ urlpatterns = [
     path("api/speaking/question", views.speaking_question, name="speaking-question"),
     path("api/speaking/answer", views.speaking_answer, name="speaking-answer"),
     path("api/audio/<int:word_id>", views.word_audio, name="word-audio"),
+    path("api/alphabet/audio", views.alphabet_audio, name="alphabet-audio"),
     path("api/image/<int:word_id>", views.word_image, name="word-image"),
     path("api/draft-image/<int:draft_id>", views.draft_image, name="draft-image"),
     path("api/irregular/list", views.irregular_list, name="irregular-list"),

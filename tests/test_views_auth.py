@@ -362,6 +362,26 @@ def test_alphabet_answer_returns_result_payload(client, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_alphabet_audio_returns_mp3_for_current_course(client, monkeypatch, tmp_path):
+    user = TelegramUser.objects.create(
+        chat_id=2010, username="tester", active_studied_language="ka"
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    audio_path = tmp_path / "alphabet.mp3"
+    audio_path.write_bytes(b"fake mp3")
+
+    monkeypatch.setattr("vocab.tts.get_audio_path", lambda text, language_code=None: str(audio_path))
+
+    response = client.get("/api/alphabet/audio?symbol=ა")
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "audio/mpeg"
+
+
+@pytest.mark.django_db
 def test_learn_answer_rejects_unknown_exercise_type(client):
     user = TelegramUser.objects.create(chat_id=2006, username="tester")
     session = client.session

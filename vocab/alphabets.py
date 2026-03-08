@@ -78,6 +78,13 @@ def get_alphabet(course_code: str) -> list[dict]:
     return ALPHABETS.get(course_code, ENGLISH_ALPHABET)
 
 
+def get_alphabet_letter(course_code: str, symbol: str) -> dict | None:
+    for item in get_alphabet(course_code):
+        if item["symbol"] == symbol:
+            return item
+    return None
+
+
 def get_random_alphabet_options(course_code: str, current_symbol: str, count: int = 3) -> list[str]:
     entries = [item["symbol"] for item in get_alphabet(course_code) if item["symbol"] != current_symbol]
     random.shuffle(entries)

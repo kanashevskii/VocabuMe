@@ -566,6 +566,20 @@ h3 {
   align-items: center;
 }
 
+.alphabet-audio-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mini-audio-button {
+  min-width: 44px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 14px;
+}
+
 .main-segment {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

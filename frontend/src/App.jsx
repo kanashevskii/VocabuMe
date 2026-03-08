@@ -141,6 +141,7 @@ function App() {
   const [alphabetCorrectCount, setAlphabetCorrectCount] = useState(0);
   const [alphabetSessionLimit, setAlphabetSessionLimit] = useState(12);
   const [alphabetSessionDone, setAlphabetSessionDone] = useState(false);
+  const [alphabetAudioLoadingSymbol, setAlphabetAudioLoadingSymbol] = useState("");
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
@@ -149,6 +150,7 @@ function App() {
   const [webPassword, setWebPassword] = useState("");
   const pollRef = useRef(null);
   const stageRef = useRef(null);
+  const alphabetAudioRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const speakingChunksRef = useRef([]);
@@ -196,6 +198,10 @@ function App() {
   }, []);
 
   useEffect(() => () => {
+    if (alphabetAudioRef.current) {
+      alphabetAudioRef.current.pause();
+      alphabetAudioRef.current = null;
+    }
     if (noticeTimerRef.current) {
       window.clearTimeout(noticeTimerRef.current);
     }
@@ -513,6 +519,10 @@ function App() {
     ]);
   }
 
+  async function loadStudyCardsOnly(options = {}) {
+    await loadCards(options);
+  }
+
   function showPreviousCard() {
     setCardIndex((value) => Math.max(0, value - 1));
     setCardReveal(false);
@@ -607,7 +617,7 @@ function App() {
     if (!auth.authenticated) {
       return;
     }
-    Promise.all([loadDashboard(), loadLearningData(), loadIrregularQuestion()])
+    Promise.all([loadDashboard(), loadStudyCardsOnly()])
       .catch((error) => setNotice(error.message));
   }, [auth.authenticated, deferredSearch, statusFilter, irregularPage, alphabetPage]);
 
@@ -725,7 +735,9 @@ function App() {
       setWords([]);
       setCardQueue([]);
       setLearnQuestion(null);
+      setLearnResult(null);
       setIrregularQuestion(null);
+      setAlphabetQuestion(null);
       setShowLibraryAdd(false);
       setAuth({ loading: false, authenticated: false, user: null, progress: null });
       setNotice("Выход выполнен.");
@@ -784,7 +796,7 @@ function App() {
   }
 
   async function refreshAfterWordMutation() {
-    await Promise.all([loadDashboard(), loadLearningData(), loadPacks()]);
+    await Promise.all([loadDashboard(), loadStudyCardsOnly(), loadPacks()]);
   }
 
   async function loadPacks() {
@@ -1275,6 +1287,37 @@ function App() {
     }
   }
 
+  async function playAlphabetAudio(symbol) {
+    if (!symbol) {
+      return;
+    }
+    if (alphabetAudioRef.current) {
+      alphabetAudioRef.current.pause();
+      alphabetAudioRef.current = null;
+    }
+    setAlphabetAudioLoadingSymbol(symbol);
+    try {
+      const audio = new Audio(`/api/alphabet/audio?symbol=${encodeURIComponent(symbol)}`);
+      alphabetAudioRef.current = audio;
+      audio.onended = () => {
+        if (alphabetAudioRef.current === audio) {
+          alphabetAudioRef.current = null;
+        }
+        setAlphabetAudioLoadingSymbol("");
+      };
+      audio.onerror = () => {
+        if (alphabetAudioRef.current === audio) {
+          alphabetAudioRef.current = null;
+        }
+        setAlphabetAudioLoadingSymbol("");
+      };
+      await audio.play();
+    } catch (error) {
+      setAlphabetAudioLoadingSymbol("");
+      setNotice("Не удалось воспроизвести аудио буквы.");
+    }
+  }
+
   function skipAlphabetQuestion() {
     if (!alphabetQuestion || alphabetResult) {
       return;
@@ -1392,7 +1435,7 @@ function App() {
       setPrimaryTab("today");
       await Promise.all([
         loadDashboard(),
-        loadLearningData(),
+        loadStudyCardsOnly(),
         loadPacks(),
         courseCode === "en" ? loadIrregularQuestion() : Promise.resolve(),
       ]);
@@ -1412,9 +1455,6 @@ function App() {
       setPrimaryTab("learn");
       setShowLibraryAdd(false);
     });
-    if (learnSessionDone || !learnQuestion) {
-      void loadLearningData();
-    }
   }
 
   function openAddWords() {
@@ -2330,7 +2370,18 @@ function App() {
                   <strong>{item.symbol}</strong>
                   <span>{item.name}</span>
                   <span>/{item.transcription}/</span>
-                  <span>{item.hint}</span>
+                  <div className="alphabet-audio-cell">
+                    <span>{item.hint}</span>
+                    <button
+                      className="secondary-button mini-audio-button"
+                      type="button"
+                      onClick={() => void playAlphabetAudio(item.symbol)}
+                      disabled={alphabetAudioLoadingSymbol === item.symbol}
+                      aria-label={`Слушать букву ${item.symbol}`}
+                    >
+                      {alphabetAudioLoadingSymbol === item.symbol ? "..." : "🔊"}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
