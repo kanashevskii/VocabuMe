@@ -25,9 +25,12 @@ from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 from .models import (
     AddWordDraft,
     Achievement,
+    DEFAULT_STUDIED_LANGUAGE,
     IrregularVerbProgress,
     PackPreparedWord,
+    STUDIED_LANGUAGE_CHOICES,
     TelegramUser,
+    UserCourseProgress,
     VocabularyItem,
     WebLoginToken,
 )
@@ -121,12 +124,60 @@ ACHIEVEMENT_DEFINITIONS = [
     {"kind": "days", "threshold": 200, "text": "🛡️ 200 дней подряд — Гуру дисциплины!"},
     {"kind": "days", "threshold": 365, "text": "🌈 365 дней подряд — Год знаний!"},
 ]
+AVAILABLE_STUDIED_LANGUAGES = [
+    {"code": code, "label": label} for code, label in STUDIED_LANGUAGE_CHOICES
+]
 
 
 @dataclass
 class ParsedWordEntry:
     word: str
     translation_hint: str | None = None
+
+
+def normalize_course_code(course_code: str | None) -> str:
+    value = (course_code or DEFAULT_STUDIED_LANGUAGE).strip().lower()
+    supported = {code for code, _ in STUDIED_LANGUAGE_CHOICES}
+    return value if value in supported else DEFAULT_STUDIED_LANGUAGE
+
+
+def get_active_course_code(user: TelegramUser) -> str:
+    return normalize_course_code(getattr(user, "active_studied_language", None))
+
+
+def get_or_create_user_course_progress(
+    user: TelegramUser, course_code: str | None = None
+) -> UserCourseProgress:
+    normalized = normalize_course_code(course_code or get_active_course_code(user))
+    progress, _ = UserCourseProgress.objects.get_or_create(
+        user=user, course_code=normalized
+    )
+    return progress
+
+
+def get_course_pack_definitions(course_code: str | None = None) -> list[dict]:
+    active_course = normalize_course_code(course_code)
+    return get_pack_definitions() if active_course == "en" else []
+
+
+def get_course_progress_stats(user: TelegramUser, course_code: str | None = None) -> dict:
+    active_course = normalize_course_code(course_code or get_active_course_code(user))
+    progress = get_or_create_user_course_progress(user, active_course)
+    learned = VocabularyItem.objects.filter(
+        user=user, course_code=active_course, is_learned=True
+    ).count()
+    irregular = IrregularVerbProgress.objects.filter(
+        user=user, course_code=active_course, is_learned=True
+    ).count()
+    return {
+        "words": learned,
+        "days": progress.consecutive_days or 0,
+        "irregular": irregular,
+        "practice": progress.practice_correct or 0,
+        "listening": progress.listening_correct or 0,
+        "speaking": progress.speaking_correct or 0,
+        "review": progress.review_correct or 0,
+    }
 
 
 def normalize_translation_value(value: str) -> str:
@@ -285,23 +336,16 @@ def authenticate_web_user(email: str, password: str) -> TelegramUser | None:
     return user
 
 
-def get_achievement_stats(user: TelegramUser) -> dict:
-    learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
-    days = user.consecutive_days or 0
-    irregular = IrregularVerbProgress.objects.filter(user=user, is_learned=True).count()
-    return {
-        "words": learned,
-        "days": days,
-        "irregular": irregular,
-        "practice": user.practice_correct or 0,
-        "listening": user.listening_correct or 0,
-        "speaking": user.speaking_correct or 0,
-        "review": user.review_correct or 0,
-    }
+def get_achievement_stats(
+    user: TelegramUser, course_code: str | None = None
+) -> dict:
+    return get_course_progress_stats(user, course_code=course_code)
 
 
-def get_user_achievements(user: TelegramUser) -> list[str]:
-    stats = get_achievement_stats(user)
+def get_user_achievements(
+    user: TelegramUser, course_code: str | None = None
+) -> list[str]:
+    stats = get_achievement_stats(user, course_code=course_code)
     return [
         item["text"]
         for item in ACHIEVEMENT_DEFINITIONS
@@ -309,21 +353,30 @@ def get_user_achievements(user: TelegramUser) -> list[str]:
     ]
 
 
-def get_new_achievements(user: TelegramUser) -> list[str]:
-    stats = get_achievement_stats(user)
-    earned = set(Achievement.objects.filter(user=user).values_list("code", flat=True))
+def get_new_achievements(
+    user: TelegramUser, course_code: str | None = None
+) -> list[str]:
+    active_course = normalize_course_code(course_code or get_active_course_code(user))
+    stats = get_achievement_stats(user, course_code=active_course)
+    earned = set(
+        Achievement.objects.filter(user=user, course_code=active_course).values_list(
+            "code", flat=True
+        )
+    )
     new_achievements: list[str] = []
 
     for item in ACHIEVEMENT_DEFINITIONS:
         code = f"{item['kind']}_{item['threshold']}"
         if stats[item["kind"]] >= item["threshold"] and code not in earned:
-            Achievement.objects.create(user=user, code=code)
+            Achievement.objects.create(user=user, course_code=active_course, code=code)
             new_achievements.append(item["text"])
     return new_achievements
 
 
-def get_pending_achievements(user: TelegramUser) -> list[dict]:
-    stats = get_achievement_stats(user)
+def get_pending_achievements(
+    user: TelegramUser, course_code: str | None = None
+) -> list[dict]:
+    stats = get_achievement_stats(user, course_code=course_code)
 
     pending: list[dict] = []
     for item in ACHIEVEMENT_DEFINITIONS:
@@ -341,8 +394,10 @@ def get_pending_achievements(user: TelegramUser) -> list[dict]:
     return pending[:12]
 
 
-def get_pending_achievement_highlights(user: TelegramUser) -> list[dict]:
-    pending = get_pending_achievements(user)
+def get_pending_achievement_highlights(
+    user: TelegramUser, course_code: str | None = None
+) -> list[dict]:
+    pending = get_pending_achievements(user, course_code=course_code)
     highlights: list[dict] = []
     seen_kinds: set[str] = set()
     for item in pending:
@@ -354,31 +409,41 @@ def get_pending_achievement_highlights(user: TelegramUser) -> list[dict]:
 
 
 def build_user_progress(user: TelegramUser) -> dict:
-    total = VocabularyItem.objects.filter(user=user).count()
-    learned = VocabularyItem.objects.filter(user=user, is_learned=True).count()
+    active_course = get_active_course_code(user)
+    course_progress = get_or_create_user_course_progress(user, active_course)
+    total = VocabularyItem.objects.filter(user=user, course_code=active_course).count()
+    learned = VocabularyItem.objects.filter(
+        user=user, course_code=active_course, is_learned=True
+    ).count()
     learning = total - learned
     irregular_learned = IrregularVerbProgress.objects.filter(
-        user=user, is_learned=True
+        user=user, course_code=active_course, is_learned=True
     ).count()
-    start_date = VocabularyItem.objects.filter(user=user).aggregate(Min("created_at"))[
-        "created_at__min"
-    ]
+    start_date = VocabularyItem.objects.filter(
+        user=user, course_code=active_course
+    ).aggregate(Min("created_at"))["created_at__min"]
     today = now().date()
     learned_today = VocabularyItem.objects.filter(
-        user=user, learned_at__date=today
+        user=user, course_code=active_course, learned_at__date=today
     ).count()
     current_moment = timezone.now()
     week_window_start = current_moment - timedelta(days=7)
     month_window_start = current_moment - timedelta(days=30)
     learned_week = VocabularyItem.objects.filter(
-        user=user, learned_at__gte=week_window_start
+        user=user, course_code=active_course, learned_at__gte=week_window_start
     ).count()
     learned_month = VocabularyItem.objects.filter(
-        user=user, learned_at__gte=month_window_start
+        user=user, course_code=active_course, learned_at__gte=month_window_start
     ).count()
 
     user_stats = TelegramUser.objects.annotate(
-        learned_count=Count("vocabularyitem", filter=Q(vocabularyitem__is_learned=True))
+        learned_count=Count(
+            "vocabularyitem",
+            filter=Q(
+                vocabularyitem__course_code=active_course,
+                vocabularyitem__is_learned=True,
+            ),
+        )
     ).order_by("-learned_count")
 
     total_users = user_stats.count()
@@ -394,19 +459,24 @@ def build_user_progress(user: TelegramUser) -> dict:
         "irregular": irregular_learned,
         "start_date": start_date.isoformat() if start_date else None,
         "rank_percent": rank_percent,
-        "achievements": get_user_achievements(user),
-        "pending_achievements": get_pending_achievements(user),
-        "pending_achievement_highlights": get_pending_achievement_highlights(user),
-        "streak_days": user.consecutive_days,
-        "study_days": user.total_study_days,
-        "studied_today": user.last_study_date == today,
+        "achievements": get_user_achievements(user, course_code=active_course),
+        "pending_achievements": get_pending_achievements(
+            user, course_code=active_course
+        ),
+        "pending_achievement_highlights": get_pending_achievement_highlights(
+            user, course_code=active_course
+        ),
+        "streak_days": course_progress.consecutive_days,
+        "study_days": course_progress.total_study_days,
+        "studied_today": course_progress.last_study_date == today,
         "learned_today": learned_today,
         "learned_week": learned_week,
         "learned_month": learned_month,
-        "practice_correct": user.practice_correct,
-        "listening_correct": user.listening_correct,
-        "speaking_correct": user.speaking_correct,
-        "review_correct": user.review_correct,
+        "practice_correct": course_progress.practice_correct,
+        "listening_correct": course_progress.listening_correct,
+        "speaking_correct": course_progress.speaking_correct,
+        "review_correct": course_progress.review_correct,
+        "course_code": active_course,
     }
 
 
@@ -504,6 +574,8 @@ def serialize_user(user: TelegramUser) -> dict:
         "username": user.username,
         "email": user.email,
         "auth_provider": user.auth_provider,
+        "active_studied_language": get_active_course_code(user),
+        "available_studied_languages": AVAILABLE_STUDIED_LANGUAGES,
         "display_name": user.username or user.email or f"user{user.chat_id}",
         "joined_at": user.joined_at.isoformat() if user.joined_at else None,
     }
@@ -519,6 +591,7 @@ def serialize_word(item: VocabularyItem) -> dict:
         "example": item.example,
         "example_translation": item.example_translation,
         "part_of_speech": item.part_of_speech,
+        "course_code": item.course_code,
         "correct_count": item.correct_count,
         "completed_exercise_types": list(item.completed_exercise_types or []),
         "is_learned": item.is_learned,
@@ -534,7 +607,9 @@ def serialize_word(item: VocabularyItem) -> dict:
 def list_words(
     user: TelegramUser, search: str = "", status: str = "all", limit: int = 100
 ) -> list[VocabularyItem]:
-    qs = VocabularyItem.objects.filter(user=user).order_by("-updated_at", "-id")
+    qs = VocabularyItem.objects.filter(
+        user=user, course_code=get_active_course_code(user)
+    ).order_by("-updated_at", "-id")
 
     if search:
         qs = qs.filter(
@@ -554,7 +629,9 @@ def list_words(
 def get_user_word_page(
     user: TelegramUser, page: int, page_size: int
 ) -> tuple[list[tuple[int, str, str, str]], int]:
-    qs = VocabularyItem.objects.filter(user=user, is_learned=False).order_by("word")
+    qs = VocabularyItem.objects.filter(
+        user=user, course_code=get_active_course_code(user), is_learned=False
+    ).order_by("word")
     total = qs.count()
     start = page * page_size
     end = start + page_size
@@ -566,14 +643,18 @@ def get_user_word_page(
 
 def get_user_word_list(user: TelegramUser) -> list[tuple[str, str, str]]:
     return list(
-        VocabularyItem.objects.filter(user=user, is_learned=False)
+        VocabularyItem.objects.filter(
+            user=user, course_code=get_active_course_code(user), is_learned=False
+        )
         .values_list("word", "transcription", "translation")
         .order_by("word")
     )
 
 
 def get_user_word(user: TelegramUser, word_id: int) -> VocabularyItem | None:
-    return VocabularyItem.objects.filter(id=word_id, user=user).first()
+    return VocabularyItem.objects.filter(
+        id=word_id, user=user, course_code=get_active_course_code(user)
+    ).first()
 
 
 def get_word_by_id(word_id: int) -> VocabularyItem | None:
@@ -581,22 +662,31 @@ def get_word_by_id(word_id: int) -> VocabularyItem | None:
 
 
 def get_user_draft(user: TelegramUser, draft_id: int) -> AddWordDraft | None:
-    return AddWordDraft.objects.filter(id=draft_id, user=user).first()
+    return AddWordDraft.objects.filter(
+        id=draft_id, user=user, course_code=get_active_course_code(user)
+    ).first()
 
 
 def delete_user_draft(user: TelegramUser, draft_id: int) -> bool:
-    deleted, _ = AddWordDraft.objects.filter(id=draft_id, user=user).delete()
+    deleted, _ = AddWordDraft.objects.filter(
+        id=draft_id, user=user, course_code=get_active_course_code(user)
+    ).delete()
     return deleted > 0
 
 
 def word_already_exists(user: TelegramUser, word: str) -> bool:
     return VocabularyItem.objects.filter(
-        user=user, normalized_word=clean_word(word)
+        user=user,
+        course_code=get_active_course_code(user),
+        normalized_word=clean_word(word),
     ).exists()
 
 
 def resolve_shared_image_path(
-    word: str, translation: str, preferred_path: str = ""
+    word: str,
+    translation: str,
+    preferred_path: str = "",
+    course_code: str | None = None,
 ) -> str:
     if preferred_path:
         return preferred_path
@@ -606,8 +696,10 @@ def resolve_shared_image_path(
     if not normalized_word or not normalized_translation:
         return ""
 
+    active_course = normalize_course_code(course_code)
     existing = (
         VocabularyItem.objects.filter(
+            course_code=active_course,
             normalized_word=normalized_word,
             translation__iexact=normalized_translation,
         )
@@ -620,6 +712,7 @@ def resolve_shared_image_path(
 
     prepared = (
         PackPreparedWord.objects.filter(
+            course_code=active_course,
             normalized_word=normalized_word,
             translation__iexact=normalized_translation,
         )
@@ -631,6 +724,7 @@ def resolve_shared_image_path(
 
 
 def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
+    course_code = normalize_course_code(data.get("course_code") or get_active_course_code(user))
     word = clean_word(data["word"])
     transcription = data.get("transcription", "") or ""
     if any(char in transcription for char in "абвгдеёжзийклмнопрстуфхцчшщыэюя"):
@@ -640,10 +734,14 @@ def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
         data.get("example", "")
     )
     image_path = resolve_shared_image_path(
-        word, data["translation"], data.get("image_path", "")
+        word,
+        data["translation"],
+        data.get("image_path", ""),
+        course_code=course_code,
     )
     return VocabularyItem.objects.create(
         user=user,
+        course_code=course_code,
         word=word,
         normalized_word=word,
         translation=data["translation"],
@@ -737,7 +835,7 @@ def create_word_drafts_from_text(
                     user, entry.word, generated, translation_hint=entry.translation_hint
                 )
                 shared_image_path = resolve_shared_image_path(
-                    draft.word, draft.translation, ""
+                    draft.word, draft.translation, "", course_code=draft.course_code
                 )
                 if shared_image_path:
                     draft.image_path = shared_image_path
@@ -765,7 +863,10 @@ def create_word_drafts_from_text(
         raise ValueError("Could not prepare the word data.")
 
     shared_image_path = resolve_shared_image_path(
-        generated["word"], generated.get("translation", ""), ""
+        generated["word"],
+        generated.get("translation", ""),
+        "",
+        course_code=get_active_course_code(user),
     )
     if generated.get("translation") and shared_image_path:
         item = create_word(user, {**generated, "image_path": shared_image_path})
@@ -796,22 +897,31 @@ def delete_word(user: TelegramUser, word_id: int) -> bool:
 
 
 def delete_all_words(user: TelegramUser) -> int:
-    deleted, _ = VocabularyItem.objects.filter(user=user).delete()
+    deleted, _ = VocabularyItem.objects.filter(
+        user=user, course_code=get_active_course_code(user)
+    ).delete()
     return deleted
 
 
 def get_available_parts(user: TelegramUser) -> list[str]:
     return list(
-        VocabularyItem.objects.filter(user=user, is_learned=False)
+        VocabularyItem.objects.filter(
+            user=user, course_code=get_active_course_code(user), is_learned=False
+        )
         .values_list("part_of_speech", flat=True)
         .distinct()
     )
 
 
 def get_fake_words(
-    exclude_word: str, part_of_speech: str | None = None, count: int = 3
+    exclude_word: str,
+    part_of_speech: str | None = None,
+    count: int = 3,
+    course_code: str | None = None,
 ) -> list[str]:
-    qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
+    qs = VocabularyItem.objects.filter(
+        course_code=normalize_course_code(course_code)
+    ).exclude(word__iexact=exclude_word)
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
 
@@ -841,11 +951,14 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "reminder_time": user.reminder_time.strftime("%H:%M"),
         "reminder_interval_days": user.reminder_interval_days,
         "reminder_timezone": user.reminder_timezone,
+        "active_studied_language": get_active_course_code(user),
+        "available_studied_languages": AVAILABLE_STUDIED_LANGUAGES,
     }
 
 
 def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     previous_goal = user.repeat_threshold
+    previous_course = get_active_course_code(user)
     exercise_goal = payload.get(
         "exercise_goal", payload.get("repeat_threshold", user.repeat_threshold)
     )
@@ -874,9 +987,15 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     user.reminder_timezone = normalize_timezone_value(
         payload.get("reminder_timezone", user.reminder_timezone)
     )
+    user.active_studied_language = normalize_course_code(
+        payload.get("active_studied_language", user.active_studied_language)
+    )
     user.save()
+    get_or_create_user_course_progress(user, user.active_studied_language)
     if user.repeat_threshold != previous_goal:
         recalculate_user_word_progress(user)
+    elif user.active_studied_language != previous_course:
+        get_or_create_user_course_progress(user, user.active_studied_language)
     return user
 
 
@@ -948,7 +1067,9 @@ def get_pending_exercise_types(item: VocabularyItem) -> list[str]:
 
 
 def recalculate_user_word_progress(user: TelegramUser) -> None:
-    for item in VocabularyItem.objects.filter(user=user).iterator():
+    for item in VocabularyItem.objects.filter(
+        user=user, course_code=get_active_course_code(user)
+    ).iterator():
         sync_word_learning_state(item)
         item.save(
             update_fields=[
@@ -997,13 +1118,17 @@ def _serialize_pack_level(
     }
 
 
-def ensure_pack_placeholders(pack_id: str, level_id: str) -> None:
+def ensure_pack_placeholders(
+    pack_id: str, level_id: str, course_code: str | None = None
+) -> None:
+    active_course = normalize_course_code(course_code)
     level = get_pack_level(pack_id, level_id)
     if not level:
         return
     for entry in level["items"]:
         normalized = clean_word(entry["word"])
         PackPreparedWord.objects.get_or_create(
+            course_code=active_course,
             pack_id=pack_id,
             level_id=level_id,
             normalized_word=normalized,
@@ -1014,12 +1139,18 @@ def ensure_pack_placeholders(pack_id: str, level_id: str) -> None:
         )
 
 
-def list_word_packs(user: TelegramUser | None = None) -> list[dict]:
-    definitions = get_pack_definitions()
+def list_word_packs(
+    user: TelegramUser | None = None, course_code: str | None = None
+) -> list[dict]:
+    active_course = normalize_course_code(
+        course_code or (get_active_course_code(user) if user else None)
+    )
+    definitions = get_course_pack_definitions(active_course)
     for pack in definitions:
         for level in pack["levels"]:
-            ensure_pack_placeholders(pack["id"], level["id"])
+            ensure_pack_placeholders(pack["id"], level["id"], course_code=active_course)
     prepared_items = PackPreparedWord.objects.filter(
+        course_code=active_course,
         pack_id__in=[pack["id"] for pack in definitions]
     )
     prepared_map: dict[tuple[str, str], dict[str, PackPreparedWord]] = {}
@@ -1037,6 +1168,12 @@ def list_word_packs(user: TelegramUser | None = None) -> list[dict]:
         if user
         else set()
     )
+    if user:
+        existing_user_words = set(
+            VocabularyItem.objects.filter(
+                user=user, course_code=active_course
+            ).values_list("normalized_word", flat=True)
+        )
     packs = []
     for pack in definitions:
         levels = [
@@ -1061,18 +1198,20 @@ def list_word_packs(user: TelegramUser | None = None) -> list[dict]:
 
 
 def prepare_all_word_packs() -> None:
-    for pack in get_pack_definitions():
+    for pack in get_course_pack_definitions("en"):
         for level in pack["levels"]:
-            _prepare_pack_level_sync(pack["id"], level["id"])
+            _prepare_pack_level_sync(pack["id"], level["id"], course_code="en")
 
 
 def prepare_next_pack_word() -> PackPreparedWord | None:
-    for pack in get_pack_definitions():
+    for pack in get_course_pack_definitions("en"):
         for level in pack["levels"]:
-            ensure_pack_placeholders(pack["id"], level["id"])
+            ensure_pack_placeholders(pack["id"], level["id"], course_code="en")
 
     candidate = (
-        PackPreparedWord.objects.filter(image_generation_in_progress=False)
+        PackPreparedWord.objects.filter(
+            course_code="en", image_generation_in_progress=False
+        )
         .filter(Q(example="") | Q(transcription="") | Q(image_path=""))
         .order_by("pack_id", "level_id", "prepared_at", "id")
         .first()
@@ -1135,14 +1274,19 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
         raise
 
 
-def _prepare_pack_level_sync(pack_id: str, level_id: str) -> None:
+def _prepare_pack_level_sync(
+    pack_id: str, level_id: str, course_code: str | None = None
+) -> None:
+    active_course = normalize_course_code(course_code)
     level = get_pack_level(pack_id, level_id)
     if not level:
         return
 
     existing = {
         item.normalized_word: item
-        for item in PackPreparedWord.objects.filter(pack_id=pack_id, level_id=level_id)
+        for item in PackPreparedWord.objects.filter(
+            course_code=active_course, pack_id=pack_id, level_id=level_id
+        )
     }
     pending_entries = []
     for entry in level["items"]:
@@ -1166,6 +1310,7 @@ def _prepare_pack_level_sync(pack_id: str, level_id: str) -> None:
         cached = existing.get(normalized)
         if cached is None:
             cached, _ = PackPreparedWord.objects.get_or_create(
+                course_code=active_course,
                 pack_id=pack_id,
                 level_id=level_id,
                 normalized_word=normalized,
@@ -1221,8 +1366,11 @@ def _prepare_pack_level_sync(pack_id: str, level_id: str) -> None:
         )
 
 
-def ensure_pack_preparation(pack_id: str, level_id: str) -> None:
-    key = f"{pack_id}:{level_id}"
+def ensure_pack_preparation(
+    pack_id: str, level_id: str, course_code: str | None = None
+) -> None:
+    active_course = normalize_course_code(course_code)
+    key = f"{active_course}:{pack_id}:{level_id}"
     with _PACK_PREPARATION_LOCK:
         if key in _PACK_PREPARATION_IN_FLIGHT:
             return
@@ -1230,7 +1378,7 @@ def ensure_pack_preparation(pack_id: str, level_id: str) -> None:
 
     def _run() -> None:
         try:
-            _prepare_pack_level_sync(pack_id, level_id)
+            _prepare_pack_level_sync(pack_id, level_id, course_code=active_course)
         except Exception:
             logger.exception("Pack preparation failed for %s", key)
         finally:
@@ -1243,6 +1391,7 @@ def ensure_pack_preparation(pack_id: str, level_id: str) -> None:
 def add_pack_words_to_user(
     user: TelegramUser, pack_id: str, level_id: str, selected_words: list[str]
 ) -> dict:
+    active_course = get_active_course_code(user)
     level = get_pack_level(pack_id, level_id)
     if not level:
         raise ValueError("Pack level not found.")
@@ -1257,7 +1406,10 @@ def add_pack_words_to_user(
     prepared_map = {
         item.normalized_word: item
         for item in PackPreparedWord.objects.filter(
-            pack_id=pack_id, level_id=level_id, normalized_word__in=normalized_selected
+            course_code=active_course,
+            pack_id=pack_id,
+            level_id=level_id,
+            normalized_word__in=normalized_selected,
         )
     }
 
@@ -1320,6 +1472,7 @@ def add_pack_words_to_user(
                         entry["word"],
                         generated.get("translation") or entry["translation_hint"],
                         "",
+                        course_code=active_course,
                     ),
                 },
             )
@@ -1343,6 +1496,7 @@ def serialize_draft(draft: AddWordDraft) -> dict:
         "example": draft.example,
         "example_translation": draft.example_translation,
         "part_of_speech": draft.part_of_speech,
+        "course_code": draft.course_code,
         "image_regeneration_count": draft.image_regeneration_count,
         "image_generation_in_progress": draft.image_generation_in_progress,
         "image_prompt": draft.image_prompt,
@@ -1382,6 +1536,9 @@ def create_word_draft(
     translation = (translation_hint or generated.get("translation") or "").strip()
     return AddWordDraft.objects.create(
         user=user,
+        course_code=normalize_course_code(
+            generated.get("course_code") or get_active_course_code(user)
+        ),
         source_text=source_text,
         word=generated["word"],
         normalized_word=clean_word(generated["word"]),
@@ -1645,6 +1802,7 @@ def ensure_draft_image(
 
 def finalize_word_draft(draft: AddWordDraft, use_image: bool = True) -> VocabularyItem:
     payload = {
+        "course_code": draft.course_code,
         "word": draft.word,
         "translation": draft.translation,
         "transcription": draft.transcription,
@@ -1685,7 +1843,9 @@ def get_ordered_unlearned_words(
 ) -> list[VocabularyItem]:
     exclude_ids = list(exclude_ids or [])
     return list(
-        VocabularyItem.objects.filter(user=user, is_learned=False)
+        VocabularyItem.objects.filter(
+            user=user, course_code=get_active_course_code(user), is_learned=False
+        )
         .exclude(id__in=exclude_ids)
         .order_by("created_at", "id")[:count]
     )
@@ -1694,7 +1854,10 @@ def get_ordered_unlearned_words(
 def get_unlearned_words(
     user: TelegramUser, count: int = 10, part_of_speech: str | None = None
 ) -> list[VocabularyItem]:
-    base_qs = VocabularyItem.objects.filter(user=user, is_learned=False)
+    active_course = get_active_course_code(user)
+    base_qs = VocabularyItem.objects.filter(
+        user=user, course_code=active_course, is_learned=False
+    )
     if part_of_speech:
         base_qs = base_qs.filter(part_of_speech=part_of_speech)
     base_ids = list(base_qs.values_list("id", flat=True))
@@ -1703,7 +1866,10 @@ def get_unlearned_words(
     if user.enable_review_old_words:
         threshold = now() - timedelta(days=user.days_before_review)
         review_qs = VocabularyItem.objects.filter(
-            user=user, is_learned=True, updated_at__lt=threshold
+            user=user,
+            course_code=active_course,
+            is_learned=True,
+            updated_at__lt=threshold,
         )
         if part_of_speech:
             review_qs = review_qs.filter(part_of_speech=part_of_speech)
@@ -1718,7 +1884,9 @@ def get_unlearned_words(
 
 def get_learned_words(user: TelegramUser) -> list[VocabularyItem]:
     return list(
-        VocabularyItem.objects.filter(user=user, is_learned=True).order_by(
+        VocabularyItem.objects.filter(
+            user=user, course_code=get_active_course_code(user), is_learned=True
+        ).order_by(
             "updated_at", "id"
         )
     )
@@ -1751,9 +1919,10 @@ def update_word_progress(
 
 
 def increment_user_metric(user: TelegramUser, field_name: str) -> TelegramUser:
-    current_value = getattr(user, field_name, 0) or 0
-    setattr(user, field_name, current_value + 1)
-    user.save(update_fields=[field_name])
+    progress = get_or_create_user_course_progress(user)
+    current_value = getattr(progress, field_name, 0) or 0
+    setattr(progress, field_name, current_value + 1)
+    progress.save(update_fields=[field_name])
     return user
 
 
@@ -1781,7 +1950,10 @@ def get_fake_translations(
     part_of_speech: str | None = None,
     count: int = 3,
 ) -> list[str]:
-    qs = VocabularyItem.objects.exclude(word__iexact=exclude_word)
+    active_course = get_active_course_code(user)
+    qs = VocabularyItem.objects.filter(course_code=active_course).exclude(
+        word__iexact=exclude_word
+    )
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
 
@@ -1791,6 +1963,7 @@ def get_fake_translations(
     if len(translations) < count:
         extras = list(
             VocabularyItem.objects.exclude(word__iexact=exclude_word)
+            .filter(course_code=active_course)
             .values_list("translation", flat=True)
             .distinct()
             .order_by("?")[: count - len(translations)]
@@ -1806,9 +1979,9 @@ def get_fake_translations(
 def get_learning_candidates(
     user: TelegramUser, exclude_ids: Iterable[int] | None = None
 ) -> list[VocabularyItem]:
-    qs = VocabularyItem.objects.filter(user=user, is_learned=False).exclude(
-        id__in=list(exclude_ids or [])
-    )
+    qs = VocabularyItem.objects.filter(
+        user=user, course_code=get_active_course_code(user), is_learned=False
+    ).exclude(id__in=list(exclude_ids or []))
     items = list(qs)
     random.shuffle(items)
     return [item for item in items if get_pending_exercise_types(item)]
@@ -1820,7 +1993,7 @@ def _build_choice_options(
     if answer_mode == "practice_ru_en":
         correct_answer = item.word
         fake_options = list(
-            VocabularyItem.objects.exclude(id=item.id)
+            VocabularyItem.objects.filter(course_code=item.course_code).exclude(id=item.id)
             .values_list("word", flat=True)
             .distinct()
             .order_by("?")[:3]
@@ -1917,7 +2090,7 @@ def build_choice_question(user: TelegramUser, mode: str) -> dict | None:
 
     if mode == "reverse":
         fakes = list(
-            VocabularyItem.objects.exclude(id=item.id)
+            VocabularyItem.objects.filter(course_code=item.course_code).exclude(id=item.id)
             .values_list("word", flat=True)
             .distinct()
             .order_by("?")[:3]
@@ -1940,7 +2113,9 @@ def build_choice_question(user: TelegramUser, mode: str) -> dict | None:
 def submit_choice_answer(
     user: TelegramUser, item_id: int, answer: str, mode: str
 ) -> dict:
-    item = VocabularyItem.objects.get(id=item_id, user=user)
+    item = VocabularyItem.objects.get(
+        id=item_id, user=user, course_code=get_active_course_code(user)
+    )
     normalized = answer.strip().lower()
 
     if mode == "reverse":
@@ -1995,7 +2170,9 @@ def build_listening_question(user: TelegramUser, mode: str) -> dict | None:
 def submit_listening_answer(
     user: TelegramUser, item_id: int, answer: str, mode: str
 ) -> dict:
-    item = VocabularyItem.objects.get(id=item_id, user=user)
+    item = VocabularyItem.objects.get(
+        id=item_id, user=user, course_code=get_active_course_code(user)
+    )
     expected = item.word if mode == "word" else item.translation
     accepted_with_typo = False
     if mode == "word":
@@ -2031,7 +2208,9 @@ def build_speaking_question(user: TelegramUser) -> dict | None:
 
 
 def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) -> dict:
-    item = VocabularyItem.objects.get(id=item_id, user=user)
+    item = VocabularyItem.objects.get(
+        id=item_id, user=user, course_code=get_active_course_code(user)
+    )
     expected = clean_word(item.word)
     spoken = clean_word(transcript)
     similarity = SequenceMatcher(None, spoken, expected).ratio() if spoken else 0.0
@@ -2075,7 +2254,9 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
 def submit_learning_text_answer(
     user: TelegramUser, item_id: int, answer: str, exercise_type: str
 ) -> dict:
-    item = VocabularyItem.objects.get(id=item_id, user=user)
+    item = VocabularyItem.objects.get(
+        id=item_id, user=user, course_code=get_active_course_code(user)
+    )
     normalized = answer.strip().lower()
     accepted_with_typo = False
     if exercise_type == "practice_en_ru":
@@ -2158,12 +2339,19 @@ def build_irregular_question() -> dict:
 def update_irregular_progress(
     user: TelegramUser, base: str, correct: bool
 ) -> IrregularVerbProgress:
-    progress, _ = IrregularVerbProgress.objects.get_or_create(user=user, verb_base=base)
+    active_course = get_active_course_code(user)
+    progress, _ = IrregularVerbProgress.objects.get_or_create(
+        user=user, course_code=active_course, verb_base=base
+    )
     if correct:
         progress.correct_count += 1
         if not progress.is_learned and progress.correct_count >= 5:
             progress.is_learned = True
     progress.save()
+    if correct:
+        course_progress = get_or_create_user_course_progress(user, active_course)
+        course_progress.irregular_correct += 1
+        course_progress.save(update_fields=["irregular_correct"])
     return progress
 
 
@@ -2256,16 +2444,19 @@ def parse_word_batch(text: str) -> list[ParsedWordEntry]:
 
 
 def update_learning_streak(user: TelegramUser) -> TelegramUser:
+    progress = get_or_create_user_course_progress(user)
     today = now().date()
-    if user.last_study_date == today:
+    if progress.last_study_date == today:
         return user
 
-    if user.last_study_date and (today - user.last_study_date).days == 1:
-        user.consecutive_days += 1
+    if progress.last_study_date and (today - progress.last_study_date).days == 1:
+        progress.consecutive_days += 1
     else:
-        user.consecutive_days = 1
+        progress.consecutive_days = 1
 
-    user.total_study_days += 1
-    user.last_study_date = today
-    user.save(update_fields=["consecutive_days", "total_study_days", "last_study_date"])
+    progress.total_study_days += 1
+    progress.last_study_date = today
+    progress.save(
+        update_fields=["consecutive_days", "total_study_days", "last_study_date"]
+    )
     return user

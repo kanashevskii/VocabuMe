@@ -61,4 +61,4 @@ rsync -az --delete \
   "$ROOT_DIR/" "${SSH_USER}@${SSH_HOST}:${REMOTE_PATH}/"
 
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" \
-  "sudo chown -R eduard:eduard '${REMOTE_PATH}' && sudo systemctl restart '${SYSTEMD_SERVICE}' && sudo systemctl is-active '${SYSTEMD_SERVICE}'"
+  "sudo chown -R eduard:eduard '${REMOTE_PATH}' && cd '${REMOTE_PATH}' && python manage.py migrate --noinput && sudo systemctl restart '${SYSTEMD_SERVICE}' && sudo systemctl is-active '${SYSTEMD_SERVICE}'"

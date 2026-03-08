@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import pytest
-from vocab.models import AddWordDraft, TelegramUser, VocabularyItem
+from vocab.models import AddWordDraft, TelegramUser, UserCourseProgress, VocabularyItem
 from vocab.services import (
     authenticate_web_user,
     add_pack_words_to_user,
+    apply_user_settings,
     build_choice_question,
     build_learning_question,
     build_listening_question,
+    build_user_progress,
     build_speaking_question,
     consume_web_login_token,
     create_web_login_token,
@@ -17,8 +19,10 @@ from vocab.services import (
     finalize_word_draft,
     evaluate_speaking_answer,
     ensure_draft_image,
+    get_active_course_code,
     get_completed_exercise_types,
     get_exercise_goal,
+    get_or_create_user_course_progress,
     get_pending_exercise_types,
     get_required_exercise_types,
     get_session_question_limit,
@@ -360,11 +364,11 @@ def test_submit_choice_answer_updates_practice_metric():
     )
 
     result = submit_choice_answer(user, item.id, "яблоко", "classic")
-    user.refresh_from_db()
     item.refresh_from_db()
+    progress = get_or_create_user_course_progress(user)
 
     assert result["correct"] is True
-    assert user.practice_correct == 1
+    assert progress.practice_correct == 1
     assert "practice_en_ru" in item.completed_exercise_types
 
 
@@ -406,11 +410,11 @@ def test_submit_listening_answer_accepts_single_typo():
     )
 
     result = submit_listening_answer(user, item.id, "appl", "word")
-    user.refresh_from_db()
+    progress = get_or_create_user_course_progress(user)
 
     assert result["correct"] is True
     assert result["accepted_with_typo"] is True
-    assert user.listening_correct == 1
+    assert progress.listening_correct == 1
 
 
 @pytest.mark.django_db
@@ -427,11 +431,11 @@ def test_submit_learning_text_answer_reverse_mode_accepts_typo():
     )
 
     result = submit_learning_text_answer(user, item.id, "appl", "practice_ru_en")
-    user.refresh_from_db()
+    progress = get_or_create_user_course_progress(user)
 
     assert result["correct"] is True
     assert result["accepted_with_typo"] is True
-    assert user.practice_correct == 1
+    assert progress.practice_correct == 1
 
 
 @pytest.mark.django_db
@@ -467,11 +471,11 @@ def test_evaluate_speaking_answer_marks_correct_attempt():
     )
 
     result = evaluate_speaking_answer(user, item.id, "apple")
-    user.refresh_from_db()
     item.refresh_from_db()
+    progress = get_or_create_user_course_progress(user)
 
     assert result["status"] == "correct"
-    assert user.speaking_correct == 1
+    assert progress.speaking_correct == 1
     assert "speaking" in item.completed_exercise_types
 
 
@@ -632,3 +636,62 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
         VocabularyItem.objects.filter(user=user, normalized_word="pear").exists()
         is True
     )
+
+
+@pytest.mark.django_db
+def test_apply_user_settings_switches_active_studied_language():
+    user = TelegramUser.objects.create(chat_id=1030, username="tester")
+
+    apply_user_settings(user, {"active_studied_language": "ka"})
+    user.refresh_from_db()
+
+    assert get_active_course_code(user) == "ka"
+    assert UserCourseProgress.objects.filter(user=user, course_code="ka").exists()
+
+
+@pytest.mark.django_db
+def test_build_user_progress_is_isolated_per_course():
+    user = TelegramUser.objects.create(chat_id=1031, username="tester")
+    VocabularyItem.objects.create(
+        user=user,
+        course_code="en",
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="Example",
+        example_translation="Пример",
+        is_learned=True,
+        correct_count=2,
+        completed_exercise_types=["practice_en_ru", "listening_word"],
+    )
+    VocabularyItem.objects.create(
+        user=user,
+        course_code="ka",
+        word="gamarjoba",
+        normalized_word="gamarjoba",
+        translation="привет",
+        transcription="",
+        example="Gamarjoba!",
+        example_translation="Привет!",
+        is_learned=False,
+    )
+    progress_en = get_or_create_user_course_progress(user, "en")
+    progress_en.practice_correct = 2
+    progress_en.save(update_fields=["practice_correct"])
+
+    apply_user_settings(user, {"active_studied_language": "ka"})
+    payload_ka = build_user_progress(user)
+
+    assert payload_ka["course_code"] == "ka"
+    assert payload_ka["total"] == 1
+    assert payload_ka["learned"] == 0
+    assert payload_ka["practice_correct"] == 0
+
+    apply_user_settings(user, {"active_studied_language": "en"})
+    payload_en = build_user_progress(user)
+
+    assert payload_en["course_code"] == "en"
+    assert payload_en["total"] == 1
+    assert payload_en["learned"] == 1
+    assert payload_en["practice_correct"] == 2

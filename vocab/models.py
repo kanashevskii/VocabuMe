@@ -2,6 +2,12 @@ from django.db import models
 from datetime import time
 import secrets
 
+STUDIED_LANGUAGE_CHOICES = (
+    ("en", "English"),
+    ("ka", "Georgian"),
+)
+DEFAULT_STUDIED_LANGUAGE = "en"
+
 
 def generate_web_login_token() -> str:
     return secrets.token_urlsafe(32)
@@ -13,6 +19,11 @@ class TelegramUser(models.Model):
     email = models.EmailField(unique=True, null=True, blank=True)
     password_hash = models.CharField(max_length=255, blank=True, default="")
     auth_provider = models.CharField(max_length=20, default="telegram")
+    active_studied_language = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
     repeat_threshold = models.PositiveIntegerField(default=4)
     session_question_limit = models.PositiveIntegerField(default=12)
     enable_review_old_words = models.BooleanField(default=True)
@@ -38,8 +49,36 @@ class TelegramUser(models.Model):
         return f"{self.username or self.email or 'User'} ({self.chat_id})"
 
 
+class UserCourseProgress(models.Model):
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
+    total_study_days = models.PositiveIntegerField(default=0)
+    consecutive_days = models.PositiveIntegerField(default=0)
+    last_study_date = models.DateField(null=True, blank=True)
+    irregular_correct = models.PositiveIntegerField(default=0)
+    practice_correct = models.PositiveIntegerField(default=0)
+    listening_correct = models.PositiveIntegerField(default=0)
+    speaking_correct = models.PositiveIntegerField(default=0)
+    review_correct = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ("user", "course_code")
+
+    def __str__(self):
+        return f"{self.user} [{self.course_code}]"
+
+
 class VocabularyItem(models.Model):
     user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
     word = models.CharField(max_length=255)  # исходное
     normalized_word = models.CharField(max_length=255)
     translation = models.CharField(max_length=255)
@@ -60,7 +99,10 @@ class VocabularyItem(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=['user', 'normalized_word'], name='unique_user_normalized_word')
+            models.UniqueConstraint(
+                fields=["user", "course_code", "normalized_word"],
+                name="unique_user_course_normalized_word",
+            )
         ]
 
     def __str__(self):
@@ -78,11 +120,16 @@ class LearningSession(models.Model):
 
 class Achievement(models.Model):
     user = models.ForeignKey('TelegramUser', on_delete=models.CASCADE)
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
     code = models.CharField(max_length=100)
     date_awarded = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('user', 'code')
+        unique_together = ("user", "course_code", "code")
 
     def __str__(self):
         return f"{self.code} for {self.user.username or self.user.chat_id}"
@@ -91,12 +138,17 @@ class IrregularVerbProgress(models.Model):
     """Track user's progress for each irregular verb."""
 
     user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
     verb_base = models.CharField(max_length=50)
     correct_count = models.PositiveIntegerField(default=0)
     is_learned = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ("user", "verb_base")
+        unique_together = ("user", "course_code", "verb_base")
 
     def __str__(self):
         return f"{self.verb_base} ({self.user})"
@@ -115,6 +167,11 @@ class WebLoginToken(models.Model):
 
 class AddWordDraft(models.Model):
     user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
     source_text = models.CharField(max_length=255)
     word = models.CharField(max_length=255)
     normalized_word = models.CharField(max_length=255)
@@ -158,6 +215,11 @@ class AppErrorLog(models.Model):
 
 
 class PackPreparedWord(models.Model):
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
     pack_id = models.CharField(max_length=64)
     level_id = models.CharField(max_length=64)
     word = models.CharField(max_length=255)
@@ -172,8 +234,8 @@ class PackPreparedWord(models.Model):
     prepared_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("pack_id", "level_id", "normalized_word")
-        ordering = ["pack_id", "level_id", "word"]
+        unique_together = ("course_code", "pack_id", "level_id", "normalized_word")
+        ordering = ["course_code", "pack_id", "level_id", "word"]
 
     def __str__(self):
         return f"{self.pack_id}:{self.level_id}:{self.word}"

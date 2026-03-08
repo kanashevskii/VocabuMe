@@ -20,6 +20,11 @@ export default function SettingsScreen({
           label: settings.reminder_timezone,
         },
       ];
+  const studiedLanguageOptions =
+    settings.available_studied_languages || [
+      { code: "en", label: "English" },
+      { code: "ka", label: "Georgian" },
+    ];
 
   return (
     <section className="glass-card compact-section">
@@ -27,7 +32,23 @@ export default function SettingsScreen({
       <h3>Настройки ⚙️</h3>
       <form className="settings-grid" onSubmit={onSave}>
         <label>
-          <span>Exercises to learn</span>
+          <span>Изучаемый язык</span>
+          <small>Выбери язык, который изучаешь сейчас. Прогресс хранится отдельно.</small>
+          <select
+            value={settings.active_studied_language}
+            onChange={(event) =>
+              onChange("active_studied_language", event.target.value)
+            }
+          >
+            {studiedLanguageOptions.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Упражнений до статуса "выучено"</span>
           <small>
             Сколько разных упражнений нужно выполнить, чтобы слово стало
             выученным.
@@ -45,7 +66,7 @@ export default function SettingsScreen({
           </select>
         </label>
         <label>
-          <span>Questions per run</span>
+          <span>Вопросов за прогон</span>
           <small>
             Максимум заданий за один прогон практики без повторов слов.
           </small>
@@ -60,7 +81,7 @@ export default function SettingsScreen({
           />
         </label>
         <label>
-          <span>Days before review</span>
+          <span>Дней до повторения</span>
           <input
             type="number"
             min="1"
@@ -72,7 +93,7 @@ export default function SettingsScreen({
           />
         </label>
         <label>
-          <span>Reminder interval</span>
+          <span>Интервал напоминаний</span>
           <input
             type="number"
             min="1"
@@ -84,7 +105,7 @@ export default function SettingsScreen({
           />
         </label>
         <label>
-          <span>Reminder time</span>
+          <span>Время напоминания</span>
           <input
             type="time"
             value={settings.reminder_time}
@@ -92,7 +113,7 @@ export default function SettingsScreen({
           />
         </label>
         <label>
-          <span>Time zone</span>
+          <span>Часовой пояс</span>
           <select
             value={settings.reminder_timezone}
             onChange={(event) =>
@@ -114,7 +135,7 @@ export default function SettingsScreen({
               onChange("reminder_enabled", event.target.checked)
             }
           />
-          <span>Enable reminders</span>
+          <span>Включить напоминания</span>
         </label>
         <button className="primary-button" type="submit">
           Сохранить настройки
