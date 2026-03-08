@@ -160,6 +160,8 @@ function App() {
     auth.authenticated && auth.user && !auth.user.has_selected_studied_language;
   const isMiniApp = Boolean(webApp?.initData);
   const canRecordSpeech = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  const activeStudiedLanguage = settings?.active_studied_language || auth.progress?.course_code || "en";
+  const supportsIrregularPractice = activeStudiedLanguage === "en";
 
   useEffect(() => {
     const handleWindowError = (event) => {
@@ -608,6 +610,21 @@ function App() {
     Promise.all([loadDashboard(), loadLearningData(), loadIrregularQuestion()])
       .catch((error) => setNotice(error.message));
   }, [auth.authenticated, deferredSearch, statusFilter, irregularPage, alphabetPage]);
+
+  useEffect(() => {
+    if (supportsIrregularPractice) {
+      return;
+    }
+    if (learnPanel === "irregular") {
+      setLearnPanel("mixed");
+    }
+    setIrregularMode("review");
+    setIrregularQuestion(null);
+    setIrregularResult(null);
+    setIrregularQuestionCount(0);
+    setIrregularCorrectCount(0);
+    setIrregularSessionDone(false);
+  }, [supportsIrregularPractice, learnPanel]);
 
   useEffect(() => {
     if (!auth.authenticated) {
@@ -1377,7 +1394,7 @@ function App() {
         loadDashboard(),
         loadLearningData(),
         loadPacks(),
-        loadIrregularQuestion(),
+        courseCode === "en" ? loadIrregularQuestion() : Promise.resolve(),
       ]);
       setNotice("Язык обучения сохранен.");
     } catch (error) {
@@ -1580,7 +1597,7 @@ function App() {
 
   function renderLearn() {
     const hasWordsToLearn = (auth.progress?.learning ?? 0) > 0;
-    const hasActiveIrregularTest = learnPanel === "irregular" && irregularMode === "test";
+    const hasActiveIrregularTest = supportsIrregularPractice && learnPanel === "irregular" && irregularMode === "test";
     const hasActiveAlphabetTest = learnPanel === "alphabet" && alphabetMode === "test";
     const showLearnOverview = !["irregular", "alphabet"].includes(learnPanel) && !learnQuestion && !hasActiveIrregularTest && !hasActiveAlphabetTest;
 
@@ -1618,33 +1635,35 @@ function App() {
             </div>
           </section>
 
-          <section className="glass-card compact-section practice-overview-card">
-            <div className="section-head">
-              <div>
-                <p className="overline">Irregular</p>
-                <h3>Неправильные глаголы 📘</h3>
-                <p className="lead compact">Можно быстро повторять формы или пройти отдельный тест.</p>
+          {supportsIrregularPractice ? (
+            <section className="glass-card compact-section practice-overview-card">
+              <div className="section-head">
+                <div>
+                  <p className="overline">Irregular</p>
+                  <h3>Неправильные глаголы 📘</h3>
+                  <p className="lead compact">Можно быстро повторять формы или пройти отдельный тест.</p>
+                </div>
               </div>
-            </div>
-            <div className="segment-wrap main-segment">
-              {IRREGULAR_MODES.map((item) => (
-                <button
-                  key={item.id}
-                  className={irregularMode === item.id ? "segment-button active" : "segment-button"}
-                  type="button"
-                  onClick={() => {
-                    setLearnPanel("irregular");
-                    setIrregularMode(item.id);
-                    if (item.id === "test" && !irregularQuestion) {
-                      void startIrregularTest();
-                    }
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </section>
+              <div className="segment-wrap main-segment">
+                {IRREGULAR_MODES.map((item) => (
+                  <button
+                    key={item.id}
+                    className={irregularMode === item.id ? "segment-button active" : "segment-button"}
+                    type="button"
+                    onClick={() => {
+                      setLearnPanel("irregular");
+                      setIrregularMode(item.id);
+                      if (item.id === "test" && !irregularQuestion) {
+                        void startIrregularTest();
+                      }
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="glass-card compact-section practice-overview-card">
             <div className="section-head">
@@ -1677,7 +1696,7 @@ function App() {
       );
     }
 
-    if (learnPanel === "irregular") {
+    if (supportsIrregularPractice && learnPanel === "irregular") {
       return (
         <div className="screen-stack">
           {renderIrregular()}
@@ -1935,7 +1954,6 @@ function App() {
     const isTranslationStep = addDraftStep === "confirm_translation";
     const isImageStep = addDraftStep === "confirm_image";
     const isBatchReview = addDraftStep === "batch_review";
-    const activeStudiedLanguage = settings?.active_studied_language || "en";
     const addWordPlaceholder =
       activeStudiedLanguage === "ka"
         ? "გამარჯობა\nმადლობა\nგზა - дорога"
