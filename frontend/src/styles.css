@@ -1291,6 +1291,10 @@ textarea {
     grid-template-rows: auto auto minmax(0, 1fr);
   }
 
+  .app-stage {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
   .auth-layout {
     padding: calc(8px + env(safe-area-inset-top, 0px)) 6px calc(18px + env(safe-area-inset-bottom, 0px));
   }
@@ -1413,22 +1417,22 @@ textarea {
     left: 6px;
     right: 6px;
     bottom: calc(6px + env(safe-area-inset-bottom, 0px));
-    gap: 6px;
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
-    border-radius: 22px;
-    min-height: 70px;
+    gap: 5px;
+    padding: 4px 4px calc(2px + env(safe-area-inset-bottom, 0px));
+    border-radius: 20px;
+    min-height: 54px;
     z-index: 60;
   }
 
   .nav-pill {
-    height: 50px;
-    min-height: 50px;
-    max-height: 50px;
-    border-radius: 16px;
+    height: 40px;
+    min-height: 40px;
+    max-height: 40px;
+    border-radius: 12px;
   }
 
   .nav-icon {
-    font-size: 1.1rem;
+    font-size: 0.94rem;
   }
 }
 
@@ -1785,7 +1789,7 @@ textarea {
   }
 
   .app-stage {
-    padding-bottom: 88px;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   }
 
   .topbar {
