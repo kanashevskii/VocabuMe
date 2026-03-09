@@ -136,6 +136,7 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [settings, setSettings] = useState(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [checkoutBusyPeriod, setCheckoutBusyPeriod] = useState("");
   const [words, setWords] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -242,6 +243,11 @@ function App() {
         },
       },
     },
+  };
+  const billing = settings?.billing || {
+    premium_active: false,
+    active_subscription: null,
+    plans: [],
   };
   const activeLanguageLabel =
     settings?.available_studied_languages?.find((item) => item.code === activeStudiedLanguage)?.label
@@ -592,6 +598,43 @@ function App() {
     setWords(wordsData.items);
     setIrregularList(irregularData);
     setAlphabetList(alphabetData);
+  }
+
+  async function startPremiumCheckout(billingPeriod, source = "miniapp") {
+    try {
+      setCheckoutBusyPeriod(billingPeriod);
+      const data = await api("/api/billing/checkout", {
+        method: "POST",
+        body: JSON.stringify({
+          plan_code: "premium",
+          billing_period: billingPeriod,
+          source,
+        }),
+      });
+
+      if (window.Telegram?.WebApp?.openInvoice) {
+        await new Promise((resolve) => {
+          window.Telegram.WebApp.openInvoice(data.invoice_link, async (status) => {
+            if (status === "paid") {
+              await loadDashboard();
+              setNotice("Premium активирован.");
+            } else if (status === "cancelled") {
+              setNotice("Оплата отменена.");
+            } else if (status === "failed") {
+              setNotice("Оплата не прошла.");
+            }
+            resolve();
+          });
+        });
+        return;
+      }
+
+      window.location.href = data.invoice_link;
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setCheckoutBusyPeriod("");
+    }
   }
 
   async function loadCards(options = {}) {
@@ -2945,9 +2988,11 @@ function App() {
   function renderMore() {
     return (
       <SettingsScreen
+        billing={billing}
         settings={settings}
         uploadingAvatar={uploadingAvatar}
         onDeleteAvatar={() => void deleteAvatar()}
+        onStartCheckout={(period) => void startPremiumCheckout(period, "settings")}
         onSave={saveSettings}
         onUploadAvatar={(file) => void uploadAvatar(file)}
         onChange={(field, value) =>
@@ -3192,6 +3237,28 @@ function App() {
                   ${monetization.plans?.premium?.price?.yearly?.amount || "39.99"} / год
                 </span>
               </div>
+              {!billing.premium_active ? (
+                <div className="button-row onboarding-premium-buy-row">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void startPremiumCheckout("monthly", "onboarding")}
+                    disabled={busy || Boolean(checkoutBusyPeriod)}
+                  >
+                    {checkoutBusyPeriod === "monthly" ? "Открываем оплату..." : "Купить месяц"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void startPremiumCheckout("yearly", "onboarding")}
+                    disabled={busy || Boolean(checkoutBusyPeriod)}
+                  >
+                    {checkoutBusyPeriod === "yearly" ? "Открываем оплату..." : "Купить год"}
+                  </button>
+                </div>
+              ) : (
+                <div className="inline-note">Premium уже активен. Можно сразу переходить к наборам.</div>
+              )}
               <div className="stack-form onboarding-premium-actions">
                 <button className="primary-button" type="button" onClick={() => void completeOnboarding({ openPacks: true })} disabled={busy}>
                   Начать бесплатно

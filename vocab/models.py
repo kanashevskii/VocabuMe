@@ -12,6 +12,18 @@ GEORGIAN_DISPLAY_MODE_CHOICES = (
     ("native", "Georgian only"),
 )
 DEFAULT_GEORGIAN_DISPLAY_MODE = "both"
+SUBSCRIPTION_STATUS_CHOICES = (
+    ("pending", "Pending"),
+    ("active", "Active"),
+    ("expired", "Expired"),
+    ("cancelled", "Cancelled"),
+)
+PAYMENT_ATTEMPT_STATUS_CHOICES = (
+    ("pending", "Pending"),
+    ("paid", "Paid"),
+    ("failed", "Failed"),
+    ("cancelled", "Cancelled"),
+)
 
 
 def generate_web_login_token() -> str:
@@ -87,6 +99,75 @@ class UserCourseProgress(models.Model):
 
     def __str__(self):
         return f"{self.user} [{self.course_code}]"
+
+
+class SubscriptionPlan(models.Model):
+    code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    billing_period = models.CharField(max_length=20)
+    currency = models.CharField(max_length=10, default="USD")
+    price_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    duration_days = models.PositiveIntegerField(default=30)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["price_amount", "id"]
+
+    def __str__(self):
+        return f"{self.code} ({self.price_amount} {self.currency})"
+
+
+class UserSubscription(models.Model):
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT)
+    status = models.CharField(
+        max_length=20, choices=SUBSCRIPTION_STATUS_CHOICES, default="pending"
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    source = models.CharField(max_length=20, default="telegram")
+    invoice_payload = models.CharField(max_length=255, blank=True, default="")
+    telegram_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
+    provider_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.user} -> {self.plan.code} [{self.status}]"
+
+
+class PaymentAttempt(models.Model):
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT)
+    provider = models.CharField(max_length=20, default="telegram")
+    status = models.CharField(
+        max_length=20, choices=PAYMENT_ATTEMPT_STATUS_CHOICES, default="pending"
+    )
+    invoice_payload = models.CharField(max_length=255, unique=True)
+    invoice_link = models.URLField(max_length=1000, blank=True, default="")
+    amount_minor = models.PositiveIntegerField(default=0)
+    currency = models.CharField(max_length=10, default="USD")
+    paid_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    telegram_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
+    provider_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.user} -> {self.plan.code} [{self.status}]"
 
 
 class VocabularyItem(models.Model):

@@ -18,8 +18,10 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
 });
 
 export default function SettingsScreen({
+  billing,
   onChange,
   onDeleteAvatar,
+  onStartCheckout,
   onUploadAvatar,
   onSave,
   settings,
@@ -78,6 +80,26 @@ export default function SettingsScreen({
       <p className="overline">Настройки</p>
       <h3>Настройки ⚙️</h3>
       <form className="settings-grid" onSubmit={onSave}>
+        <label>
+          <span>Premium</span>
+          <small>
+            {billing?.premium_active
+              ? `Активен${billing?.active_subscription?.expires_at ? ` до ${new Date(billing.active_subscription.expires_at).toLocaleDateString("ru-RU")}` : ""}.`
+              : "Откроет все relocation-сценарии и уберёт лимиты free-плана."}
+          </small>
+          {billing?.premium_active ? (
+            <div className="inline-note">Подписка уже активна.</div>
+          ) : (
+            <div className="button-row">
+              <button className="primary-button" type="button" onClick={() => onStartCheckout("monthly")}>
+                Купить месяц
+              </button>
+              <button className="secondary-button" type="button" onClick={() => onStartCheckout("yearly")}>
+                Купить год
+              </button>
+            </div>
+          )}
+        </label>
         <label>
           <span>Аватар профиля</span>
           <small>JPG, PNG или WEBP. До 5 MB. После загрузки сожмём в WEBP.</small>

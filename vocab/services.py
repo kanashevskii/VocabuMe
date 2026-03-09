@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from difflib import SequenceMatcher
 from pathlib import Path
 from threading import Lock, Thread
@@ -10,12 +11,17 @@ from urllib.parse import urlparse
 import logging
 import random
 import re
+import secrets
 import time
 
+from asgiref.sync import async_to_sync
 from django.contrib.auth.hashers import check_password, make_password
 from django.db.models import Count, Min, Q
 from django.utils import timezone
 from django.utils.timezone import now
+from telegram import Bot, LabeledPrice
+
+from core.env import get_telegram_payments_provider_token, get_telegram_token
 
 try:
     from PIL import Image, ImageOps
@@ -30,14 +36,17 @@ from .models import (
     Achievement,
     DEFAULT_STUDIED_LANGUAGE,
     IrregularVerbProgress,
+    PaymentAttempt,
     PackPreparedWord,
+    SubscriptionPlan,
     STUDIED_LANGUAGE_CHOICES,
     TelegramUser,
+    UserSubscription,
     UserCourseProgress,
     VocabularyItem,
     WebLoginToken,
 )
-from .monetization import get_monetization_payload
+from .monetization import PLAN_DEFINITIONS, get_monetization_payload
 from .openai_utils import (
     build_visual_prompt,
     generate_card_image,
@@ -195,6 +204,259 @@ def get_or_create_user_course_progress(
         user=user, course_code=normalized
     )
     return progress
+
+
+def sync_subscription_plans() -> list[SubscriptionPlan]:
+    premium_price = PLAN_DEFINITIONS["premium"]["price"]
+    plan_specs = [
+        {
+            "code": "premium_monthly",
+            "name": "Premium Monthly",
+            "billing_period": "monthly",
+            "currency": premium_price["monthly"]["currency"],
+            "price_amount": Decimal(premium_price["monthly"]["amount"]),
+            "duration_days": 30,
+        },
+        {
+            "code": "premium_yearly",
+            "name": "Premium Yearly",
+            "billing_period": "yearly",
+            "currency": premium_price["yearly"]["currency"],
+            "price_amount": Decimal(premium_price["yearly"]["amount"]),
+            "duration_days": 365,
+        },
+    ]
+    plans: list[SubscriptionPlan] = []
+    for spec in plan_specs:
+        plan, _ = SubscriptionPlan.objects.update_or_create(
+            code=spec["code"],
+            defaults={
+                "name": spec["name"],
+                "billing_period": spec["billing_period"],
+                "currency": spec["currency"],
+                "price_amount": spec["price_amount"],
+                "duration_days": spec["duration_days"],
+                "is_active": True,
+                "metadata": {"base_plan_code": "premium"},
+            },
+        )
+        plans.append(plan)
+    return plans
+
+
+def get_subscription_plans() -> list[SubscriptionPlan]:
+    plans = list(SubscriptionPlan.objects.filter(is_active=True).order_by("price_amount", "id"))
+    if plans:
+        return plans
+    return sync_subscription_plans()
+
+
+def expire_user_subscriptions(user: TelegramUser) -> None:
+    current_time = timezone.now()
+    UserSubscription.objects.filter(
+        user=user,
+        status="active",
+        expires_at__isnull=False,
+        expires_at__lte=current_time,
+    ).update(status="expired", updated_at=current_time)
+
+
+def get_active_subscription(user: TelegramUser) -> UserSubscription | None:
+    expire_user_subscriptions(user)
+    return (
+        UserSubscription.objects.select_related("plan")
+        .filter(user=user, status="active")
+        .order_by("-expires_at", "-id")
+        .first()
+    )
+
+
+def user_has_premium(user: TelegramUser | None) -> bool:
+    if user is None:
+        return False
+    return get_active_subscription(user) is not None
+
+
+def serialize_subscription(subscription: UserSubscription | None) -> dict | None:
+    if subscription is None:
+        return None
+    return {
+        "plan_code": subscription.plan.code,
+        "plan_name": subscription.plan.name,
+        "billing_period": subscription.plan.billing_period,
+        "status": subscription.status,
+        "started_at": subscription.started_at.isoformat() if subscription.started_at else None,
+        "expires_at": subscription.expires_at.isoformat() if subscription.expires_at else None,
+        "activated_at": subscription.activated_at.isoformat() if subscription.activated_at else None,
+    }
+
+
+def get_billing_payload(user: TelegramUser) -> dict:
+    active_subscription = get_active_subscription(user)
+    plans = get_subscription_plans()
+    return {
+        "premium_active": active_subscription is not None,
+        "active_subscription": serialize_subscription(active_subscription),
+        "plans": [
+            {
+                "code": plan.code,
+                "name": plan.name,
+                "billing_period": plan.billing_period,
+                "currency": plan.currency,
+                "price_amount": format(plan.price_amount, ".2f"),
+                "duration_days": plan.duration_days,
+            }
+            for plan in plans
+        ],
+    }
+
+
+def _get_subscription_plan(plan_code: str, billing_period: str) -> SubscriptionPlan:
+    normalized_period = (billing_period or "").strip().lower()
+    if plan_code != "premium" or normalized_period not in {"monthly", "yearly"}:
+        raise ValueError("Unsupported plan selection.")
+    desired_code = f"premium_{normalized_period}"
+    for plan in get_subscription_plans():
+        if plan.code == desired_code:
+            return plan
+    raise ValueError("Subscription plan is unavailable.")
+
+
+def _build_payment_payload(user: TelegramUser, plan: SubscriptionPlan) -> str:
+    return f"sub:{user.id}:{plan.code}:{secrets.token_hex(8)}"
+
+
+def create_bot_payment_attempt(
+    user: TelegramUser, *, plan_code: str, billing_period: str
+) -> dict:
+    plan = _get_subscription_plan(plan_code, billing_period)
+    payload = _build_payment_payload(user, plan)
+    amount_minor = int((plan.price_amount * 100).quantize(Decimal("1")))
+    attempt = PaymentAttempt.objects.create(
+        user=user,
+        plan=plan,
+        provider="telegram",
+        status="pending",
+        invoice_payload=payload,
+        amount_minor=amount_minor,
+        currency=plan.currency,
+        metadata={"return_source": "bot"},
+    )
+    return {
+        "attempt_id": attempt.id,
+        "invoice_payload": payload,
+        "amount_minor": amount_minor,
+        "plan": plan,
+    }
+
+
+def create_checkout_session(
+    user: TelegramUser,
+    *,
+    plan_code: str,
+    billing_period: str,
+    return_source: str = "miniapp",
+) -> dict:
+    provider_token = get_telegram_payments_provider_token().strip()
+    if not provider_token:
+        raise ValueError("Оплата пока не настроена. Попробуй позже.")
+
+    plan = _get_subscription_plan(plan_code, billing_period)
+    prepared = create_bot_payment_attempt(
+        user, plan_code=plan_code, billing_period=billing_period
+    )
+    payload = prepared["invoice_payload"]
+    amount_minor = prepared["amount_minor"]
+
+    bot = Bot(token=get_telegram_token())
+    invoice_link = async_to_sync(bot.create_invoice_link)(
+        title=f"{plan.name} for VocabuMe",
+        description="Premium для безлимитного добавления и всех relocation-сценариев.",
+        payload=payload,
+        provider_token=provider_token,
+        currency=plan.currency,
+        prices=[LabeledPrice(label=plan.name, amount=amount_minor)],
+    )
+
+    attempt = PaymentAttempt.objects.get(id=prepared["attempt_id"])
+    attempt.invoice_link = invoice_link
+    attempt.metadata = {"return_source": return_source}
+    attempt.save(update_fields=["invoice_link", "metadata", "updated_at"])
+    return {
+        "attempt_id": attempt.id,
+        "invoice_payload": payload,
+        "invoice_link": invoice_link,
+        "plan": {
+            "code": "premium",
+            "billing_period": plan.billing_period,
+            "price_amount": format(plan.price_amount, ".2f"),
+            "currency": plan.currency,
+        },
+    }
+
+
+def activate_subscription_for_successful_payment(
+    *,
+    invoice_payload: str,
+    telegram_payment_charge_id: str,
+    provider_payment_charge_id: str,
+    amount_minor: int,
+    currency: str,
+) -> UserSubscription:
+    attempt = (
+        PaymentAttempt.objects.select_related("user", "plan")
+        .filter(invoice_payload=invoice_payload)
+        .first()
+    )
+    if attempt is None:
+        raise ValueError("Payment attempt not found.")
+
+    if attempt.status == "paid":
+        existing = (
+            UserSubscription.objects.select_related("plan")
+            .filter(invoice_payload=invoice_payload, status="active")
+            .first()
+        )
+        if existing is not None:
+            return existing
+
+    current_time = timezone.now()
+    attempt.status = "paid"
+    attempt.paid_at = current_time
+    attempt.telegram_payment_charge_id = telegram_payment_charge_id
+    attempt.provider_payment_charge_id = provider_payment_charge_id
+    attempt.amount_minor = amount_minor
+    attempt.currency = currency
+    attempt.save(
+        update_fields=[
+            "status",
+            "paid_at",
+            "telegram_payment_charge_id",
+            "provider_payment_charge_id",
+            "amount_minor",
+            "currency",
+            "updated_at",
+        ]
+    )
+
+    UserSubscription.objects.filter(user=attempt.user, status="active").update(
+        status="expired", updated_at=current_time
+    )
+
+    subscription = UserSubscription.objects.create(
+        user=attempt.user,
+        plan=attempt.plan,
+        status="active",
+        started_at=current_time,
+        activated_at=current_time,
+        expires_at=current_time + timedelta(days=attempt.plan.duration_days),
+        source="telegram",
+        invoice_payload=invoice_payload,
+        telegram_payment_charge_id=telegram_payment_charge_id,
+        provider_payment_charge_id=provider_payment_charge_id,
+        metadata={"attempt_id": attempt.id},
+    )
+    return subscription
 
 
 def get_course_pack_definitions(course_code: str | None = None) -> list[dict]:
@@ -722,6 +984,7 @@ def get_word_image_file(item: VocabularyItem) -> Path | None:
 
 def serialize_user(user: TelegramUser) -> dict:
     avatar_file = get_profile_avatar_file(user)
+    billing = get_billing_payload(user)
     return {
         "id": user.id,
         "chat_id": user.chat_id,
@@ -744,6 +1007,8 @@ def serialize_user(user: TelegramUser) -> dict:
         "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
         "display_name": user.username or user.email or f"user{user.chat_id}",
         "joined_at": user.joined_at.isoformat() if user.joined_at else None,
+        "premium_active": billing["premium_active"],
+        "active_subscription": billing["active_subscription"],
     }
 
 
@@ -1118,6 +1383,7 @@ def get_fake_words(
 
 
 def get_user_settings_payload(user: TelegramUser) -> dict:
+    billing = get_billing_payload(user)
     return {
         "custom_avatar_url": user.custom_avatar_url,
         "avatar_url": serialize_user(user)["avatar_url"],
@@ -1136,6 +1402,7 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "has_selected_georgian_display_mode": user.has_selected_georgian_display_mode,
         "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
         "monetization": get_monetization_payload(),
+        "billing": billing,
         "has_completed_onboarding": user.has_completed_onboarding,
     }
 

@@ -54,3 +54,8 @@ def get_webapp_url() -> str:
 @lru_cache(maxsize=1)
 def get_openai_api_key() -> str:
     return env("OPENAI_API_KEY", required=True)
+
+
+@lru_cache(maxsize=1)
+def get_telegram_payments_provider_token() -> str:
+    return env("TELEGRAM_PAYMENTS_PROVIDER_TOKEN", default="")

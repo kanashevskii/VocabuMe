@@ -36,6 +36,8 @@ from .services import (
     delete_word,
     delete_user_draft,
     finalize_word_draft,
+    create_checkout_session,
+    get_billing_payload,
     get_draft_image_file,
     get_profile_avatar_file,
     get_telegram_user_by_id,
@@ -374,10 +376,54 @@ def dashboard(request: HttpRequest) -> JsonResponse:
             "ok": True,
             "user": serialize_user(user),
             "progress": stats,
+            "billing": get_billing_payload(user),
             "recent_words": recent_words,
             "next_cards": next_cards,
         }
     )
+
+
+@require_GET
+def billing_status(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+    return JsonResponse({"ok": True, "billing": get_billing_payload(user)})
+
+
+@require_POST
+def billing_checkout(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+
+    try:
+        payload = _json_body(request)
+    except ValueError as exc:
+        return _json_error(str(exc))
+
+    try:
+        checkout = create_checkout_session(
+            user,
+            plan_code=(payload.get("plan_code") or "premium").strip().lower(),
+            billing_period=(payload.get("billing_period") or "monthly").strip().lower(),
+            return_source=(payload.get("source") or "miniapp").strip().lower(),
+        )
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+    except Exception as exc:
+        logger.exception("billing checkout failed")
+        _log_app_error(
+            request,
+            user=user,
+            category="billing",
+            status_code=500,
+            message=f"billing checkout failed: {exc}",
+            context={"traceback": traceback.format_exc()[-4000:]},
+        )
+        return _json_error("Не удалось начать оплату. Попробуй ещё раз.", status=500)
+
+    return JsonResponse({"ok": True, **checkout, "billing": get_billing_payload(user)})
 
 
 @require_http_methods(["GET", "POST"])

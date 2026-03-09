@@ -10,14 +10,25 @@ from urllib.request import Request, urlopen
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
 
-from core.env import get_telegram_token, get_webapp_url
+from core.env import (
+    get_telegram_payments_provider_token,
+    get_telegram_token,
+    get_webapp_url,
+)
 
 # Note: django.setup() is not called here because:
 # 1. When imported from run.py, Django is already set up before the import
 # 2. When used in Django management commands, Django is automatically set up
 # Calling django.setup() here would cause it to be called twice, which is not idempotent
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile,
+    LabeledPrice,
+    WebAppInfo,
+)
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut, TelegramError, Forbidden
@@ -28,16 +39,20 @@ from telegram.ext import (
     CallbackQueryHandler,
     ConversationHandler,
     ContextTypes,
+    PreCheckoutQueryHandler,
     filters,
 )
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
 from .services import (
+    activate_subscription_for_successful_payment as activate_subscription_for_successful_payment_service,
     bind_web_login_token,
     build_user_progress as build_user_progress_service,
+    create_bot_payment_attempt,
     create_word as create_word_service,
     delete_all_words as delete_all_words_service,
     delete_word as delete_word_service,
+    get_subscription_plans,
     get_fake_translations as get_fake_translations_service,
     get_fake_words as get_fake_words_service,
     get_learned_words as get_learned_words_service,
@@ -79,6 +94,7 @@ from types import SimpleNamespace
 
 TELEGRAM_TOKEN = get_telegram_token()
 WEBAPP_URL = get_webapp_url()
+TELEGRAM_PAYMENTS_PROVIDER_TOKEN = get_telegram_payments_provider_token()
 ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
 WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
@@ -404,6 +420,28 @@ def get_or_create_user(chat_id, username):
     user = upsert_telegram_user(chat_id=chat_id, username=username)
     return user, False
 
+
+@sync_to_async
+def get_paid_subscription_plans():
+    return list(get_subscription_plans())
+
+
+@sync_to_async
+def activate_subscription_for_successful_payment(
+    invoice_payload: str,
+    telegram_payment_charge_id: str,
+    provider_payment_charge_id: str,
+    amount_minor: int,
+    currency: str,
+):
+    return activate_subscription_for_successful_payment_service(
+        invoice_payload=invoice_payload,
+        telegram_payment_charge_id=telegram_payment_charge_id,
+        provider_payment_charge_id=provider_payment_charge_id,
+        amount_minor=amount_minor,
+        currency=currency,
+    )
+
 @sync_to_async
 def word_already_exists(user, word):
     return word_already_exists_service(user, word)
@@ -641,6 +679,96 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Открывай приложение, чтобы добавлять слова, проходить практику, смотреть прогресс и управлять словарём.\n"
         "Этот бот остаётся для входа и напоминаний о занятиях.",
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
+    )
+
+
+async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    plans = await get_paid_subscription_plans()
+    if not TELEGRAM_PAYMENTS_PROVIDER_TOKEN:
+        await safe_reply(update, "Оплата пока не настроена. Попробуй позже.")
+        return
+    if not plans:
+        await safe_reply(update, "Планы подписки пока недоступны.")
+        return
+
+    buttons = []
+    for plan in plans:
+        period_label = "месяц" if plan.billing_period == "monthly" else "год"
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    f"{plan.price_amount} {plan.currency} / {period_label}",
+                    callback_data=f"subscribe:{plan.billing_period}",
+                )
+            ]
+        )
+    await safe_reply(
+        update,
+        "💎 Premium открывает все relocation-сценарии и убирает лимиты.\nВыбери вариант подписки:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def start_subscription_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await safe_answer(query)
+    if not TELEGRAM_PAYMENTS_PROVIDER_TOKEN:
+        await query.edit_message_text("Оплата пока не настроена. Попробуй позже.")
+        return
+
+    billing_period = query.data.split(":", 1)[1]
+    plans = await get_paid_subscription_plans()
+    plan = next((item for item in plans if item.billing_period == billing_period), None)
+    if plan is None:
+        await query.edit_message_text("План подписки недоступен.")
+        return
+
+    user, _ = await get_or_create_user(query.from_user.id, query.from_user.username)
+    payment_attempt = await sync_to_async(create_bot_payment_attempt)(
+        user, plan_code="premium", billing_period=billing_period
+    )
+    prices = [LabeledPrice(label=plan.name, amount=payment_attempt["amount_minor"])]
+    await context.bot.send_invoice(
+        chat_id=query.message.chat_id,
+        title=f"{plan.name} for VocabuMe",
+        description="Premium для безлимитного добавления и всех relocation-сценариев.",
+        payload=payment_attempt["invoice_payload"],
+        provider_token=TELEGRAM_PAYMENTS_PROVIDER_TOKEN,
+        currency=plan.currency,
+        prices=prices,
+    )
+    await query.edit_message_text("Счёт отправлен выше. Заверши оплату в Telegram.")
+
+
+async def handle_pre_checkout_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.pre_checkout_query
+    await query.answer(ok=True)
+
+
+async def handle_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    payment = update.message.successful_payment if update.message else None
+    if payment is None:
+        return
+    try:
+        subscription = await activate_subscription_for_successful_payment(
+            invoice_payload=payment.invoice_payload,
+            telegram_payment_charge_id=payment.telegram_payment_charge_id,
+            provider_payment_charge_id=payment.provider_payment_charge_id,
+            amount_minor=payment.total_amount,
+            currency=payment.currency,
+        )
+    except Exception as exc:
+        logging.exception("Failed to activate subscription after successful payment")
+        await safe_reply(
+            update,
+            "Платёж получен, но активация Premium задержалась. Мы уже разбираемся.",
+        )
+        return
+
+    period_label = "месяц" if subscription.plan.billing_period == "monthly" else "год"
+    await safe_reply(
+        update,
+        f"✅ Premium активирован на {period_label}.\nДоступ открыт до {subscription.expires_at:%d.%m.%Y}.",
     )
 
 async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1511,7 +1639,11 @@ def run_telegram_bot():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_error_handler(on_telegram_error)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CallbackQueryHandler(start, pattern="^start$"))
+    app.add_handler(CallbackQueryHandler(start_subscription_checkout, pattern="^subscribe:(monthly|yearly)$"))
+    app.add_handler(PreCheckoutQueryHandler(handle_pre_checkout_query))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     logging.info("Telegram bot is running...")
     # When running inside a background thread (see run.py) the default
     # signal handlers used by run_polling() can't be registered. Setting

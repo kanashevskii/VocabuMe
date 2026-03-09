@@ -69,6 +69,7 @@ Key environment variables:
 - `DB_HOST`
 - `DB_PORT`
 - `TELEGRAM_TOKEN`
+- `TELEGRAM_PAYMENTS_PROVIDER_TOKEN`
 - `TELEGRAM_BOT_USERNAME`
 - `WEBAPP_URL`
 - `OPENAI_API_KEY`
@@ -79,6 +80,7 @@ See [.env.example](.env.example).
 
 Configuration rules:
 - `SECRET_KEY`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `TELEGRAM_TOKEN`, and `OPENAI_API_KEY` are required.
+- `TELEGRAM_PAYMENTS_PROVIDER_TOKEN` is required to enable Premium checkout via Telegram Payments.
 - The app fails fast on startup if any required secret/config value is missing or empty.
 - Generate a strong Django key with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`.
 

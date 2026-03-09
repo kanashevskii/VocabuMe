@@ -6,12 +6,16 @@ import pytest
 from PIL import Image
 from vocab.models import (
     AddWordDraft,
+    PaymentAttempt,
     PackPreparedWord,
+    SubscriptionPlan,
     TelegramUser,
+    UserSubscription,
     UserCourseProgress,
     VocabularyItem,
 )
 from vocab.services import (
+    activate_subscription_for_successful_payment,
     authenticate_web_user,
     add_pack_words_to_user,
     apply_user_settings,
@@ -22,6 +26,8 @@ from vocab.services import (
     build_user_progress,
     build_speaking_question,
     consume_web_login_token,
+    create_bot_payment_attempt,
+    create_checkout_session,
     create_web_login_token,
     create_web_user,
     create_word_draft,
@@ -51,12 +57,14 @@ from vocab.services import (
     request_draft_image_generation,
     request_word_image_generation,
     save_user_avatar,
+    sync_subscription_plans,
     submit_choice_answer,
     submit_alphabet_answer,
     submit_learning_text_answer,
     submit_listening_answer,
     split_translation_variants,
     sync_word_learning_state,
+    user_has_premium,
     is_course_word_answer_correct,
 )
 
@@ -102,6 +110,64 @@ def test_create_and_consume_web_login_token_is_single_use():
     assert consumed == user
     assert token.consumed_at is not None
     assert consume_web_login_token(token.token) is None
+
+
+@pytest.mark.django_db
+def test_sync_subscription_plans_creates_monthly_and_yearly_definitions():
+    plans = sync_subscription_plans()
+
+    assert {plan.code for plan in plans} == {"premium_monthly", "premium_yearly"}
+    assert SubscriptionPlan.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_activate_subscription_from_successful_payment_marks_user_premium():
+    user = TelegramUser.objects.create(chat_id=10001, username="payer")
+    attempt = create_bot_payment_attempt(
+        user, plan_code="premium", billing_period="monthly"
+    )
+
+    subscription = activate_subscription_for_successful_payment(
+        invoice_payload=attempt["invoice_payload"],
+        telegram_payment_charge_id="tg_charge",
+        provider_payment_charge_id="provider_charge",
+        amount_minor=699,
+        currency="USD",
+    )
+
+    assert subscription.status == "active"
+    assert subscription.plan.code == "premium_monthly"
+    assert PaymentAttempt.objects.get(id=attempt["attempt_id"]).status == "paid"
+    assert UserSubscription.objects.filter(user=user, status="active").count() == 1
+    assert user_has_premium(user) is True
+
+
+@pytest.mark.django_db
+def test_create_checkout_session_returns_invoice_link(monkeypatch):
+    user = TelegramUser.objects.create(chat_id=10002, username="payer")
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def create_invoice_link(self, **kwargs):
+            return "https://t.me/invoice/test"
+
+    monkeypatch.setattr(
+        "vocab.services.get_telegram_payments_provider_token", lambda: "provider"
+    )
+    monkeypatch.setattr("vocab.services.Bot", FakeBot)
+
+    result = create_checkout_session(
+        user, plan_code="premium", billing_period="yearly"
+    )
+
+    assert result["invoice_link"] == "https://t.me/invoice/test"
+    assert result["plan"]["billing_period"] == "yearly"
+    assert (
+        PaymentAttempt.objects.get(invoice_payload=result["invoice_payload"]).plan.code
+        == "premium_yearly"
+    )
 
 
 def test_parse_word_batch_supports_translation_hints_and_bullets():

@@ -9,7 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
 from vocab.models import AppErrorLog, TelegramUser
-from vocab.services import create_web_login_token
+from vocab.services import create_bot_payment_attempt, create_web_login_token
 
 
 @pytest.mark.django_db
@@ -404,6 +404,56 @@ def test_settings_view_includes_georgian_display_mode_fields(client):
     assert payload["georgian_display_mode"] == "both"
     assert payload["has_selected_georgian_display_mode"] is True
     assert payload["georgian_display_mode_options"][0]["code"] == "both"
+
+
+@pytest.mark.django_db
+def test_billing_status_returns_current_subscription_state(client):
+    user = TelegramUser.objects.create(chat_id=20115, username="tester")
+    create_bot_payment_attempt(user, plan_code="premium", billing_period="monthly")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.get("/api/billing")
+
+    assert response.status_code == 200
+    payload = response.json()["billing"]
+    assert payload["premium_active"] is False
+    assert len(payload["plans"]) >= 2
+
+
+@pytest.mark.django_db
+def test_billing_checkout_returns_invoice_link(client, monkeypatch):
+    user = TelegramUser.objects.create(chat_id=20116, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    monkeypatch.setattr(
+        "vocab.views.create_checkout_session",
+        lambda current_user, plan_code, billing_period, return_source="miniapp": {
+            "attempt_id": 1,
+            "invoice_payload": "sub:test",
+            "invoice_link": "https://t.me/invoice/test",
+            "plan": {
+                "code": plan_code,
+                "billing_period": billing_period,
+                "price_amount": "6.99",
+                "currency": "USD",
+            },
+        },
+    )
+
+    response = client.post(
+        "/api/billing/checkout",
+        data=json.dumps({"plan_code": "premium", "billing_period": "monthly"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["invoice_link"] == "https://t.me/invoice/test"
 
 
 @pytest.mark.django_db

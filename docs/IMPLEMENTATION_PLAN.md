@@ -24,8 +24,8 @@ This order is now optimized for the fastest path to first paid subscriptions, no
 | P13 | `done` | Monetization model and paywall design | The fastest route to first subscriptions starts with a concrete paid offer and a clear free-vs-premium boundary, but that offer should sit on the intended language architecture. | Free vs premium limits are approved, paywall triggers are documented, and target pricing is fixed for MVP launch. |
 | P22 | `done` | Georgia practical relocation scenarios | Users will not buy a vague relocation product; they need immediate concrete value around real Georgia-first tasks. | First approved scenario packs exist for `work permit`, `bank account`, and related everyday relocation tasks in English and Georgian. |
 | P16 | `done` | Onboarding and premium conversion flow | First-run experience must explain the relocation promise and route the user toward the paid offer quickly. | First-run onboarding exists, teaches the core loop, and leads cleanly into the selected premium offer. |
-| P14 | `next` | Subscription and Telegram payments | After offer and onboarding are defined, payment flow becomes the shortest path to first revenue. | Subscription models, payment flow, entitlement checks, and expiration handling work end to end. |
-| P15 | `queued` | Free-tier limits and entitlement enforcement | The paywall only converts if limits are enforced consistently after payment logic exists. | Daily/plan-based limits are enforced consistently across bot, Mini App, and website. |
+| P14 | `done` | Subscription and Telegram payments | After offer and onboarding are defined, payment flow becomes the shortest path to first revenue. | Subscription models, payment flow, entitlement checks, and expiration handling work end to end. |
+| P15 | `next` | Free-tier limits and entitlement enforcement | The paywall only converts if limits are enforced consistently after payment logic exists. | Daily/plan-based limits are enforced consistently across bot, Mini App, and website. |
 | P17 | `queued` | Product analytics and conversion tracking | We need to see where users convert or drop before spending more effort on scaling. | Core events, funnel checkpoints, and subscription conversion metrics are implemented and documented. |
 | P20 | `queued` | Landing page and acquisition assets | Once the product can sell, it needs a focused acquisition surface aligned to the Georgia relocation wedge. | Marketing landing, screenshots, store-like copy, and CTA flow are aligned with the approved product direction. |
 | P21 | `queued` | Referral and growth loops | Telegram-native sharing can lower CAC early, but only after the core product and paywall exist. | At least one approved growth loop is implemented with measurable invite/share conversion, and referral mechanics are consistent with pricing and analytics. |
@@ -222,16 +222,17 @@ Implementation notes:
 
 ### P14. Subscription and Telegram payments
 
-Open questions to agree before work starts:
-- Are we using Telegram payments only, or do we need a web fallback too?
-- What plans ship first: monthly only, yearly only, or both?
-- How do we handle grace periods, renewal failure, refunds, and subscription expiration UX?
-- Do we need trial access, promo codes, or launch discounts in v1?
+Completed:
+- Added billing domain models: `SubscriptionPlan`, `PaymentAttempt`, `UserSubscription`.
+- Synced the approved monthly/yearly Premium plans from [vocab/monetization.py](/Users/eduard/PycharmProjects/englishbot/vocab/monetization.py).
+- Added Mini App checkout API endpoints and billing status payloads.
+- Added Telegram invoice flow in the bot with `/subscribe`, pre-checkout approval, and successful-payment activation.
+- Exposed billing state to the frontend and added Premium purchase entry points in onboarding and settings.
 
-Implementation approach after agreement:
-- Add billing domain models.
-- Implement payment webhook / callback handling.
-- Implement entitlement checks in shared services.
+Follow-up notes:
+- Current implementation is Telegram-payments-only.
+- Renewal, refunds, grace periods, and trial logic are intentionally deferred.
+- Entitlement enforcement is still the next task (`P15`), so checkout exists before hard gates are switched on.
 
 ### P15. Free-tier limits and entitlement enforcement
 
