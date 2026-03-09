@@ -378,13 +378,11 @@ function App() {
       { label: "📚 Словарь", value: progress?.total ?? 0 },
       { label: "✅ Выучено", value: progress?.learned ?? 0 },
       { label: "🔄 В процессе", value: progress?.learning ?? 0 },
-      { label: "✨ Очки", value: progress?.total_points ?? 0 },
       { label: "🔥 Дней подряд", value: progress?.streak_days ?? 0 },
     ];
   }, [auth.progress, dashboard]);
 
-  const todayStats = useMemo(() => progressStats.slice(0, 2), [progressStats]);
-  const todayStreakStat = useMemo(() => progressStats[4] || null, [progressStats]);
+  const todayStreakStat = useMemo(() => progressStats[3] || null, [progressStats]);
   const progressTopStats = useMemo(() => progressStats.slice(0, 3), [progressStats]);
   const progressSecondaryStats = useMemo(() => progressStats.slice(3), [progressStats]);
   const todayAchievements = useMemo(() => {
@@ -2223,7 +2221,7 @@ function App() {
                 </span>
                 {learnPointsEarned ? (
                   <span className="points-burst">
-                    ✨ +{learnPointsEarned} {formatPointsLabel(learnPointsEarned)} · всего {learnResult.progress?.total_points || 0}
+                    ✨ +{learnPointsEarned} {formatPointsLabel(learnPointsEarned)}
                   </span>
                 ) : null}
               </div>
@@ -2801,7 +2799,7 @@ function App() {
                       <span>{irregularResult.correct ? "Верно" : `Правильный ответ: ${irregularResult.correct_answer}`}</span>
                       {irregularResult.points_earned ? (
                         <span className="points-burst">
-                          🎉 +{irregularResult.points_earned} {formatPointsLabel(irregularResult.points_earned)} · всего {irregularResult.progress?.total_points || 0}
+                          🎉 +{irregularResult.points_earned} {formatPointsLabel(irregularResult.points_earned)}
                         </span>
                       ) : null}
                     </div>
@@ -2914,7 +2912,7 @@ function App() {
                       </span>
                       {alphabetResult.points_earned ? (
                         <span className="points-burst">
-                          🌟 +{alphabetResult.points_earned} {formatPointsLabel(alphabetResult.points_earned)} · всего {alphabetResult.progress?.total_points || 0}
+                          🌟 +{alphabetResult.points_earned} {formatPointsLabel(alphabetResult.points_earned)}
                         </span>
                       ) : null}
                     </div>
@@ -2988,7 +2986,6 @@ function App() {
       return (
         <TodayScreen
           progress={auth.progress}
-          todayStats={todayStats}
           todayStreakStat={todayStreakStat}
           todayAchievements={todayAchievements}
           hasMoreAchievements={hasMoreAchievements}

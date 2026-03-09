@@ -6,7 +6,6 @@ export default function TodayScreen({
   onOpenProgress,
   progress,
   todayAchievements,
-  todayStats,
   todayStreakStat,
 }) {
   const studiedToday = Boolean(progress?.studied_today);
@@ -37,15 +36,6 @@ export default function TodayScreen({
         >
           {hasWordsToLearn ? "▶️ Продолжить" : "＋ Добавить слова"}
         </button>
-      </section>
-
-      <section className="today-stats-row">
-        {todayStats.map((item) => (
-          <article key={item.label} className="glass-card stat-card">
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-          </article>
-        ))}
       </section>
 
       {todayStreakStat ? (
