@@ -2258,7 +2258,7 @@ function App() {
                             <span className="pack-badge">
                               {pack.levels.length === 1 ? "1 уровень" : `${pack.levels.length} уровней`}
                             </span>
-                            <span className="pack-badge">{totalWords} фраз</span>
+                            <span className="pack-badge">{totalWords} слов и фраз</span>
                           </div>
                           {isActivePack && isPackExpanded ? (
                             <>
@@ -2302,7 +2302,7 @@ function App() {
                               </div>
                               <div className="button-row batch-save-row">
                                 <button className="primary-button" type="button" onClick={addSelectedPack} disabled={addBusy || !selectedWordCount}>
-                                  {addBusy ? "Добавляем..." : `Добавить ${selectedWordCount} фраз`}
+                                  {addBusy ? "Добавляем..." : `Добавить ${selectedWordCount} слов и фраз`}
                                 </button>
                               </div>
                             </>
