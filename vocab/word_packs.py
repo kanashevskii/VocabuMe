@@ -97,7 +97,7 @@ TRAVEL_PACKS = [
 ENGLISH_RELOCATION_PACKS = [
     {
         "id": "georgia_work_permit_en",
-        "title": "Грузия: работа и документы",
+        "title": "English: работа и документы в Грузии",
         "emoji": "📄",
         "description": "Фразы и слова для трудоустройства, документов и общения с работодателем.",
         "levels": [
@@ -122,7 +122,7 @@ ENGLISH_RELOCATION_PACKS = [
     },
     {
         "id": "georgia_bank_en",
-        "title": "Грузия: банк и счет",
+        "title": "English: банк и счет в Грузии",
         "emoji": "🏦",
         "description": "Лексика для открытия счета, карты и общения в отделении банка.",
         "levels": [
@@ -147,7 +147,7 @@ ENGLISH_RELOCATION_PACKS = [
     },
     {
         "id": "georgia_first_week_en",
-        "title": "Грузия: первая неделя",
+        "title": "Новая страна: первая неделя",
         "emoji": "🧭",
         "description": "Бытовые фразы для связи, адреса, транспорта и первых дел после переезда.",
         "levels": [
@@ -285,7 +285,7 @@ GEORGIAN_RELOCATION_PACKS = [
     },
     {
         "id": "georgia_first_week_ka",
-        "title": "Грузинский: первая неделя",
+        "title": "Новая страна: первая неделя",
         "emoji": "🧭",
         "description": "Бытовые фразы для связи, адреса, транспорта и первых шагов после переезда.",
         "levels": [
@@ -311,7 +311,7 @@ GEORGIAN_RELOCATION_PACKS = [
 ]
 
 COURSE_PACKS = {
-    "en": [*TRAVEL_PACKS, *ENGLISH_RELOCATION_PACKS],
+    "en": [*ENGLISH_RELOCATION_PACKS, *TRAVEL_PACKS],
     "ka": [*GEORGIAN_TEST_PACKS, *GEORGIAN_RELOCATION_PACKS],
 }
 

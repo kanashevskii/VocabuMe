@@ -2160,9 +2160,17 @@ function App() {
         : "stare\nfigure out\ntravel - путешествие";
     const addWordHint =
       activeStudiedLanguage === "ka"
-        ? "По одному грузинскому слову или фразе на строку. Перевод можно сразу указать через дефис."
-        : "По одному английскому слову или фразе на строку. Перевод можно сразу указать через дефис.";
-    const selectedPack = packs.find((pack) => pack.id === selectedPackId) || packs[0] || null;
+        ? "По одному слову или фразе на строку. Перевод можно указать через дефис."
+        : "По одному слову или фразе на строку. Перевод можно указать через дефис.";
+    const displayPacks = [...packs].sort((left, right) => {
+      const leftPriority = left.id === "travel" ? 2 : 1;
+      const rightPriority = right.id === "travel" ? 2 : 1;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return 0;
+    });
+    const selectedPack = displayPacks.find((pack) => pack.id === selectedPackId) || displayPacks[0] || null;
     const selectedLevel = selectedPack?.levels.find((level) => level.id === selectedPackLevelId) || selectedPack?.levels?.[0] || null;
     const selectedWordCount = selectedLevel
       ? selectedLevel.items.filter((item) => selectedPackWords[item.normalized_word] ?? !item.already_added).length
@@ -2177,7 +2185,7 @@ function App() {
             <p className="lead compact">
               {isBatchReview
                 ? "Проверь переводы. Фото загружаются автоматически и не тормозят добавление."
-                : `До ${MAX_ADD_BATCH_WORDS} слов или фраз за раз. Перевод подтвердим, фото загрузится автоматически.`}
+                : `До ${MAX_ADD_BATCH_WORDS} слов или фраз за раз.`}
             </p>
           </div>
           <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>
@@ -2213,84 +2221,99 @@ function App() {
                 <div>
                   <p className="overline">Наборы</p>
                   <h3>Готовые наборы ✈️</h3>
-                  <p className="lead compact">Выбери набор и уровень. Остальное можно раскрыть ниже.</p>
+                  <p className="lead compact">Выбери готовый набор по ситуации.</p>
                 </div>
               </div>
-              {packs.length ? (
+              {displayPacks.length ? (
                 <>
-                  <div className="pack-list">
-                    {packs.map((pack) => (
-                      <button
-                        key={pack.id}
-                        className={selectedPackId === pack.id ? "segment-button active" : "segment-button"}
-                        type="button"
-                        onClick={() => {
-                          setSelectedPackId(pack.id);
-                          setSelectedPackLevelId(pack.levels[0]?.id || "");
-                          setSelectedPackWords({});
-                        }}
-                      >
-                        {pack.emoji} {pack.title}
-                      </button>
-                    ))}
+                  <div className="pack-card-list">
+                    {displayPacks.map((pack) => {
+                      const isActivePack = selectedPackId === pack.id;
+                      const totalWords = pack.levels.reduce((sum, level) => sum + level.size, 0);
+
+                      return (
+                        <article key={pack.id} className={isActivePack ? "pack-card active" : "pack-card"}>
+                          <div className="pack-card-header">
+                            <div className="pack-card-copy">
+                              <div className="pack-card-title-row">
+                                <span className="pack-card-emoji">{pack.emoji}</span>
+                                <strong>{pack.title}</strong>
+                              </div>
+                              <p className="pack-card-description">{pack.description}</p>
+                            </div>
+                            <button
+                              className={isActivePack && isPackExpanded ? "secondary-button" : "primary-button"}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPackId(pack.id);
+                                setSelectedPackLevelId(pack.levels[0]?.id || "");
+                                setSelectedPackWords({});
+                                setIsPackExpanded((current) => (isActivePack ? !current : true));
+                              }}
+                            >
+                              {isActivePack && isPackExpanded ? "Скрыть" : "Открыть"}
+                            </button>
+                          </div>
+                          <div className="pack-card-meta">
+                            <span className="pack-badge">
+                              {pack.levels.length === 1 ? "1 уровень" : `${pack.levels.length} уровней`}
+                            </span>
+                            <span className="pack-badge">{totalWords} фраз</span>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                   {selectedPack ? (
                     <>
-                      <div className="pack-list">
-                        {selectedPack.levels.map((level) => (
-                          <button
-                            key={level.id}
-                            className={selectedPackLevelId === level.id ? "segment-button active" : "segment-button"}
-                            type="button"
-                            onClick={() => {
-                              setSelectedPackLevelId(level.id);
-                              setSelectedPackWords({});
-                            }}
-                          >
-                            {level.title} · {level.size}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="button-row">
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => setIsPackExpanded((current) => !current)}
-                        >
-                          {isPackExpanded ? "Скрыть слова" : "Показать слова"}
-                        </button>
-                      </div>
-                    </>
-                  ) : null}
-                  {selectedLevel && isPackExpanded ? (
-                    <>
-                      <p className="lead compact">{selectedPack?.description}</p>
-                      <p className="inline-note pack-level-note">{selectedLevel.description}</p>
-                      <div className="pack-word-grid">
-                        {selectedLevel.items.map((item) => {
-                          const checked = selectedPackWords[item.normalized_word] ?? !item.already_added;
-                          return (
-                            <label key={item.normalized_word} className={item.already_added ? "pack-word-row muted" : "pack-word-row"}>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={item.already_added}
-                                onChange={(event) => setSelectedPackWords((current) => ({ ...current, [item.normalized_word]: event.target.checked }))}
-                              />
-                              <span className="pack-word-main">
-                                <strong>{item.word}</strong>
-                                <small>{item.translation}</small>
-                              </span>
-                              {item.already_added ? <em className="pack-word-state">Уже есть</em> : null}
-                            </label>
-                          );
-                        })}
-                      </div>
-                      <div className="button-row batch-save-row">
-                        <button className="primary-button" type="button" onClick={addSelectedPack} disabled={addBusy || !selectedWordCount}>
-                          {addBusy ? "Добавляем..." : `Добавить ${selectedWordCount} слов`}
-                        </button>
-                      </div>
+                      {selectedPack.levels.length > 1 ? (
+                        <div className="pack-list pack-level-list">
+                          {selectedPack.levels.map((level) => (
+                            <button
+                              key={level.id}
+                              className={selectedPackLevelId === level.id ? "segment-button active" : "segment-button"}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPackLevelId(level.id);
+                                setSelectedPackWords({});
+                              }}
+                            >
+                              {level.title} · {level.size}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      {isPackExpanded ? (
+                        <>
+                          <p className="lead compact">{selectedPack?.description}</p>
+                          <p className="inline-note pack-level-note">{selectedLevel.description}</p>
+                          <div className="pack-word-grid">
+                            {selectedLevel.items.map((item) => {
+                              const checked = selectedPackWords[item.normalized_word] ?? !item.already_added;
+                              return (
+                                <label key={item.normalized_word} className={item.already_added ? "pack-word-row muted" : "pack-word-row"}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={item.already_added}
+                                    onChange={(event) => setSelectedPackWords((current) => ({ ...current, [item.normalized_word]: event.target.checked }))}
+                                  />
+                                  <span className="pack-word-main">
+                                    <strong>{item.word}</strong>
+                                    <small>{item.translation}</small>
+                                  </span>
+                                  {item.already_added ? <em className="pack-word-state">Уже есть</em> : null}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="button-row batch-save-row">
+                            <button className="primary-button" type="button" onClick={addSelectedPack} disabled={addBusy || !selectedWordCount}>
+                              {addBusy ? "Добавляем..." : `Добавить ${selectedWordCount} фраз`}
+                            </button>
+                          </div>
+                        </>
+                      ) : null}
                     </>
                   ) : null}
                 </>

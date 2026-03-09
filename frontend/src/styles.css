@@ -731,6 +731,77 @@ h3 {
   gap: 12px;
 }
 
+.pack-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.pack-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(11, 115, 200, 0.14);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.pack-card.active {
+  border-color: rgba(11, 115, 200, 0.28);
+  background: linear-gradient(180deg, rgba(11, 115, 200, 0.1), rgba(255, 255, 255, 0.92));
+  box-shadow: 0 14px 30px rgba(11, 115, 200, 0.08);
+}
+
+.pack-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.pack-card-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pack-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.02rem;
+  line-height: 1.2;
+}
+
+.pack-card-emoji {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.pack-card-description {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.pack-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pack-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(11, 115, 200, 0.08);
+  color: var(--ink);
+  border: 1px solid rgba(11, 115, 200, 0.12);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 .practice-overview-card {
   display: grid;
   gap: 16px;
@@ -765,6 +836,10 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.pack-level-list {
+  margin-top: 2px;
 }
 
 .pack-word-grid {
@@ -956,7 +1031,7 @@ select {
 
 textarea {
   resize: vertical;
-  min-height: 180px;
+  min-height: 140px;
 }
 
 .settings-grid {
@@ -1455,6 +1530,20 @@ textarea {
 
   .pack-list {
     gap: 8px;
+  }
+
+  .pack-card {
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .pack-card-header {
+    grid-template-columns: 1fr;
+  }
+
+  .pack-card-header .primary-button,
+  .pack-card-header .secondary-button {
+    width: 100%;
   }
 
   .pack-list .segment-button {
