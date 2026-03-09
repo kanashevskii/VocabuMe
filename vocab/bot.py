@@ -633,11 +633,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = []
     if WEBAPP_URL:
-        keyboard.append([InlineKeyboardButton("🚀 Открыть VocabuMe", web_app=WebAppInfo(url=WEBAPP_URL))])
+        keyboard.append([InlineKeyboardButton("🚀 Открыть Lingua Voyage", web_app=WebAppInfo(url=WEBAPP_URL))])
 
     await safe_reply(
         update,
-        "👋 VocabuMe теперь работает как Telegram Mini App.\n\n"
+        "👋 Lingua Voyage теперь работает как Telegram Mini App.\n\n"
         "Открывай приложение, чтобы добавлять слова, проходить практику, смотреть прогресс и управлять словарём.\n"
         "Этот бот остаётся для входа и напоминаний о занятиях.",
         reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,

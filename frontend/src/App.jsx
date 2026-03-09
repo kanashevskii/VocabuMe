@@ -2838,7 +2838,7 @@ function App() {
   }
 
   if (auth.loading) {
-    return <div className="boot-screen">Loading VocabuMe...</div>;
+    return <div className="boot-screen">Loading Lingua Voyage...</div>;
   }
 
   if (!auth.authenticated) {
@@ -2969,7 +2969,7 @@ function App() {
           {onboardingStep === "intro" ? (
             <section className="glass-card compact-section">
               <p className="overline">Старт</p>
-              <h3>VocabuMe для жизни в новой стране ✨</h3>
+              <h3>Lingua Voyage для жизни в новой стране ✨</h3>
               <p className="lead compact">
                 Ты выбрал {activeLanguageLabel.toLowerCase()}. Дальше можно учить язык через
                 готовые сценарии: банк, документы, первая неделя, рынок, почта.

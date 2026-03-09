@@ -30,7 +30,7 @@ export default function AuthPanel({
         <div className="brand-lockup">
           <LogoMark />
           <div>
-            <p className="overline">VocabuMe</p>
+            <p className="overline">Lingua Voyage</p>
             <h1>Один вход. Один словарь. Один общий прогресс.</h1>
           </div>
         </div>
