@@ -79,8 +79,8 @@ export default function AppTopbar({
           aria-label="Открыть профиль и настройки"
           title="Профиль и настройки"
         >
-          {user?.custom_avatar_url ? (
-            <img src={user.custom_avatar_url} alt={user.display_name || user.username || "Профиль"} />
+          {user?.avatar_url ? (
+            <img src={user.avatar_url} alt={user.display_name || user.username || "Профиль"} />
           ) : (
             <span>{getProfileInitials(user)}</span>
           )}

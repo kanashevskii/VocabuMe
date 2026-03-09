@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
+from PIL import Image
 from vocab.models import (
     AddWordDraft,
     PackPreparedWord,
@@ -47,6 +50,7 @@ from vocab.services import (
     refresh_draft_language_data,
     request_draft_image_generation,
     request_word_image_generation,
+    save_user_avatar,
     submit_choice_answer,
     submit_alphabet_answer,
     submit_learning_text_answer,
@@ -890,6 +894,23 @@ def test_apply_user_settings_updates_custom_avatar_url():
 
     assert user.custom_avatar_url == "https://example.com/avatar.png"
     assert payload["custom_avatar_url"] == "https://example.com/avatar.png"
+
+
+@pytest.mark.django_db
+def test_save_user_avatar_converts_to_webp_and_sets_avatar_path():
+    user = TelegramUser.objects.create(chat_id=1034, username="tester")
+    image = Image.new("RGB", (900, 900), color=(20, 40, 120))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+    buffer.content_type = "image/png"
+    buffer.size = len(buffer.getvalue())
+
+    save_user_avatar(user, buffer)
+
+    user.refresh_from_db()
+    assert user.avatar_path.endswith(".webp")
+    assert user.avatar_updated_at is not None
 
 
 @pytest.mark.django_db

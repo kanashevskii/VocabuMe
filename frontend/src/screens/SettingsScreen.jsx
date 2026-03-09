@@ -19,8 +19,11 @@ const REMINDER_TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
 
 export default function SettingsScreen({
   onChange,
+  onDeleteAvatar,
+  onUploadAvatar,
   onSave,
   settings,
+  uploadingAvatar,
 }) {
   if (!settings) {
     return null;
@@ -77,13 +80,40 @@ export default function SettingsScreen({
       <form className="settings-grid" onSubmit={onSave}>
         <label>
           <span>Аватар профиля</span>
-          <small>Ссылка на изображение. Если пусто, покажем инициалы.</small>
-          <input
-            type="url"
-            placeholder="https://..."
-            value={settings.custom_avatar_url || ""}
-            onChange={(event) => onChange("custom_avatar_url", event.target.value)}
-          />
+          <small>JPG, PNG или WEBP. До 5 MB. После загрузки сожмём в WEBP.</small>
+          <div className="avatar-settings-row">
+            {settings.avatar_url ? (
+              <img className="settings-avatar-preview" src={settings.avatar_url} alt="Аватар профиля" />
+            ) : (
+              <div className="settings-avatar-preview settings-avatar-placeholder">
+                <span>🙂</span>
+              </div>
+            )}
+            <div className="stack-form">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    onUploadAvatar(file);
+                  }
+                  event.target.value = "";
+                }}
+                disabled={uploadingAvatar}
+              />
+              {settings.avatar_url ? (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={onDeleteAvatar}
+                  disabled={uploadingAvatar}
+                >
+                  Удалить аватар
+                </button>
+              ) : null}
+            </div>
+          </div>
         </label>
         <label>
           <span>Изучаемый язык</span>

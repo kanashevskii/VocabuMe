@@ -28,6 +28,7 @@ urlpatterns = [
     path("api/packs/prepare", views.packs_prepare, name="packs-prepare"),
     path("api/packs/add", views.packs_add, name="packs-add"),
     path("api/settings", views.settings_view, name="settings"),
+    path("api/profile/avatar", views.profile_avatar, name="profile-avatar"),
     path("api/learn/question", views.learn_question, name="learn-question"),
     path("api/learn/answer", views.learn_answer, name="learn-answer"),
     path("api/study/cards", views.study_cards, name="study-cards"),

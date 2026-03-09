@@ -908,6 +908,29 @@ h3 {
   gap: 8px;
 }
 
+.avatar-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.settings-avatar-preview {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--line);
+}
+
+.settings-avatar-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--ink-soft);
+  font-size: 1.6rem;
+}
+
 .word-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1480,6 +1503,11 @@ textarea {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .avatar-settings-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .quiz-panel {

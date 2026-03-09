@@ -18,9 +18,10 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps
 except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     Image = None
+    ImageOps = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 from .alphabets import get_alphabet, get_random_alphabet_options
@@ -51,11 +52,14 @@ MEDIA_ROOT = PROJECT_ROOT / "media"
 IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
 USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
 DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
+PROFILE_AVATAR_DIR = MEDIA_ROOT / "profile_avatars"
 _IMAGE_OPTIMIZATION_LOCK = Lock()
 _IMAGE_OPTIMIZATION_IN_FLIGHT: set[str] = set()
 _PACK_PREPARATION_LOCK = Lock()
 _PACK_PREPARATION_IN_FLIGHT: set[str] = set()
 logger = logging.getLogger(__name__)
+MAX_AVATAR_BYTES = 5 * 1024 * 1024
+ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 EXERCISE_TYPE_LABELS = {
     "practice_en_ru": "Тест EN -> RU",
     "practice_ru_en": "Тест RU -> EN",
@@ -670,6 +674,20 @@ def _preferred_served_image(source: Path) -> Path:
     return source
 
 
+def get_profile_avatar_file(user: TelegramUser) -> Path | None:
+    if not user.avatar_path:
+        return None
+    raw_path = Path(user.avatar_path)
+    candidate = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (FileNotFoundError, OSError):
+        return None
+    if not resolved.is_relative_to(PROFILE_AVATAR_DIR.resolve()):
+        return None
+    return _preferred_served_image(resolved)
+
+
 def get_word_image_file(item: VocabularyItem) -> Path | None:
     candidates: list[Path] = []
 
@@ -703,11 +721,18 @@ def get_word_image_file(item: VocabularyItem) -> Path | None:
 
 
 def serialize_user(user: TelegramUser) -> dict:
+    avatar_file = get_profile_avatar_file(user)
     return {
         "id": user.id,
         "chat_id": user.chat_id,
         "username": user.username,
         "custom_avatar_url": user.custom_avatar_url,
+        "avatar_url": (
+            f"/api/profile/avatar?v={int(user.avatar_updated_at.timestamp())}"
+            if avatar_file is not None and user.avatar_updated_at
+            else ("/api/profile/avatar" if avatar_file is not None else "")
+        ),
+        "has_avatar": avatar_file is not None,
         "email": user.email,
         "auth_provider": user.auth_provider,
         "has_selected_studied_language": user.has_selected_studied_language,
@@ -1095,6 +1120,8 @@ def get_fake_words(
 def get_user_settings_payload(user: TelegramUser) -> dict:
     return {
         "custom_avatar_url": user.custom_avatar_url,
+        "avatar_url": serialize_user(user)["avatar_url"],
+        "has_avatar": bool(get_profile_avatar_file(user)),
         "exercise_goal": get_exercise_goal(user),
         "session_question_limit": get_session_question_limit(user),
         "enable_review_old_words": user.enable_review_old_words,
@@ -1187,6 +1214,55 @@ def set_user_repeat_threshold(user: TelegramUser, value: int) -> TelegramUser:
 
 def save_user(user: TelegramUser) -> TelegramUser:
     user.save()
+    return user
+
+
+def _remove_user_avatar_file(user: TelegramUser) -> None:
+    avatar_file = get_profile_avatar_file(user)
+    if avatar_file is None:
+        return
+    try:
+        avatar_file.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Failed to delete avatar file %s", avatar_file)
+
+
+def save_user_avatar(user: TelegramUser, uploaded_file) -> TelegramUser:
+    content_type = (getattr(uploaded_file, "content_type", "") or "").lower()
+    if content_type not in ALLOWED_AVATAR_CONTENT_TYPES:
+        raise ValueError("Разрешены только JPG, PNG или WEBP.")
+    if getattr(uploaded_file, "size", 0) > MAX_AVATAR_BYTES:
+        raise ValueError("Файл слишком большой. Максимум 5 MB.")
+
+    if Image is None:
+        raise ValueError("Обработка изображений временно недоступна.")
+
+    PROFILE_AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    _remove_user_avatar_file(user)
+    try:
+        uploaded_file.seek(0)
+        with Image.open(uploaded_file) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+            img.thumbnail((512, 512))
+            output_path = PROFILE_AVATAR_DIR / f"user_{user.id}.webp"
+            img.save(output_path, format="WEBP", quality=84, method=6)
+    except Exception as exc:
+        raise ValueError("Не удалось обработать изображение.") from exc
+
+    user.avatar_path = str(output_path.relative_to(PROJECT_ROOT))
+    user.avatar_updated_at = timezone.now()
+    user.custom_avatar_url = ""
+    user.save(update_fields=["avatar_path", "avatar_updated_at", "custom_avatar_url"])
+    return user
+
+
+def delete_user_avatar(user: TelegramUser) -> TelegramUser:
+    _remove_user_avatar_file(user)
+    user.avatar_path = ""
+    user.avatar_updated_at = None
+    user.save(update_fields=["avatar_path", "avatar_updated_at"])
     return user
 
 

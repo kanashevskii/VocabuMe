@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 
 import pytest
 from django.contrib.auth.hashers import make_password
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 
 from vocab.models import AppErrorLog, TelegramUser
 from vocab.services import create_web_login_token
@@ -543,6 +546,30 @@ def test_settings_post_updates_custom_avatar_url(client):
     assert response.status_code == 200
     user.refresh_from_db()
     assert user.custom_avatar_url == "https://example.com/avatar.png"
+
+
+@pytest.mark.django_db
+def test_profile_avatar_upload_updates_user_avatar(client):
+    user = TelegramUser.objects.create(chat_id=2019, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    image = Image.new("RGB", (128, 128), color=(120, 30, 60))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    upload = SimpleUploadedFile(
+        "avatar.png", buffer.getvalue(), content_type="image/png"
+    )
+
+    response = client.post("/api/profile/avatar", data={"avatar": upload})
+
+    assert response.status_code == 200
+    user.refresh_from_db()
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["user"]["avatar_url"].startswith("/api/profile/avatar")
+    assert user.avatar_path.endswith(".webp")
 
 
 @pytest.mark.django_db

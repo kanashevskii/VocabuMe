@@ -135,6 +135,7 @@ function App() {
   const [showLibraryAdd, setShowLibraryAdd] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [words, setWords] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1617,6 +1618,54 @@ function App() {
     }
   }
 
+  async function uploadAvatar(file) {
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.append("avatar", file);
+      const data = await api("/api/profile/avatar", {
+        method: "POST",
+        body: formData,
+      });
+      setAuth((current) => ({
+        ...current,
+        user: data.user || current.user,
+      }));
+      setSettings((current) => ({
+        ...(current || {}),
+        ...(data.settings || {}),
+      }));
+      setNotice("Аватар обновлён.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function deleteAvatar() {
+    setUploadingAvatar(true);
+    try {
+      const data = await api("/api/profile/avatar", {
+        method: "DELETE",
+        body: JSON.stringify({}),
+      });
+      setAuth((current) => ({
+        ...current,
+        user: data.user || current.user,
+      }));
+      setSettings((current) => ({
+        ...(current || {}),
+        ...(data.settings || {}),
+      }));
+      setNotice("Аватар удалён.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
   async function selectStudiedLanguage(courseCode, options = {}) {
     const hasSelectedGeorgianDisplayMode =
       settings?.has_selected_georgian_display_mode
@@ -2893,7 +2942,10 @@ function App() {
     return (
       <SettingsScreen
         settings={settings}
+        uploadingAvatar={uploadingAvatar}
+        onDeleteAvatar={() => void deleteAvatar()}
         onSave={saveSettings}
+        onUploadAvatar={(file) => void uploadAvatar(file)}
         onChange={(field, value) =>
           setSettings((current) => {
             if (
