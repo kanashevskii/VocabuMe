@@ -2226,14 +2226,36 @@ function App() {
   }
 
   function renderPacks() {
-    const displayPacks = [...packs].sort((left, right) => {
-      const leftPriority = left.id === "travel" ? 2 : 1;
-      const rightPriority = right.id === "travel" ? 2 : 1;
-      if (leftPriority !== rightPriority) {
-        return leftPriority - rightPriority;
-      }
-      return 0;
-    });
+    const difficultyRank = {
+      "Легкий": 0,
+      "Средний": 1,
+      "Сложный": 2,
+    };
+    const displayPacks = [...packs]
+      .map((pack) => ({
+        ...pack,
+        levels: [...pack.levels].sort((left, right) => {
+          const leftDifficulty = difficultyRank[left.difficulty] ?? 9;
+          const rightDifficulty = difficultyRank[right.difficulty] ?? 9;
+          if (leftDifficulty !== rightDifficulty) {
+            return leftDifficulty - rightDifficulty;
+          }
+          return left.title.localeCompare(right.title, "ru");
+        }),
+      }))
+      .sort((left, right) => {
+        const leftDifficulty = difficultyRank[left.difficulty] ?? 9;
+        const rightDifficulty = difficultyRank[right.difficulty] ?? 9;
+        if (leftDifficulty !== rightDifficulty) {
+          return leftDifficulty - rightDifficulty;
+        }
+        const leftPriority = left.id === "travel" ? 2 : 1;
+        const rightPriority = right.id === "travel" ? 2 : 1;
+        if (leftPriority !== rightPriority) {
+          return leftPriority - rightPriority;
+        }
+        return left.title.localeCompare(right.title, "ru");
+      });
     const selectedPack = displayPacks.find((pack) => pack.id === selectedPackId) || displayPacks[0] || null;
     const selectedLevel = selectedPack?.levels.find((level) => level.id === selectedPackLevelId) || selectedPack?.levels?.[0] || null;
     const selectedWordCount = selectedLevel
@@ -2352,7 +2374,7 @@ function App() {
             })}
           </div>
         ) : (
-          <div className="empty-state">Готовим первый набор...</div>
+          <div className="empty-state">Пока нет доступных наборов.</div>
         )}
       </section>
     );
