@@ -60,14 +60,16 @@ export default function AppTopbar({
         <button
           className={
             showLibraryAdd
-              ? "secondary-button header-action words-header-action active"
+              ? "secondary-button header-action"
               : "secondary-button header-action words-header-action"
           }
           type="button"
           onClick={onToggleAddWords}
-          aria-label="Добавить слова"
+          aria-label={showLibraryAdd ? "Закрыть добавление слов" : "Добавить слова"}
         >
-          <span className="header-action-mark">＋</span>
+          <span className={showLibraryAdd ? "" : "header-action-mark"}>
+            {showLibraryAdd ? "Закрыть" : "＋"}
+          </span>
         </button>
       ) : showProfileBadge ? (
         <button
