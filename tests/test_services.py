@@ -887,6 +887,10 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_english():
     assert sum(level["size"] for level in work_pack["levels"]) > 10
     bank_pack = next(pack for pack in packs if pack["id"] == "georgia_bank_en")
     assert len(bank_pack["levels"]) == 2
+    first_week_pack = next(pack for pack in packs if pack["id"] == "georgia_first_week_en")
+    scenario_ids = {level["id"] for level in first_week_pack["levels"]}
+    assert "market_and_shop" in scenario_ids
+    assert "post_and_parcels" in scenario_ids
 
 
 @pytest.mark.django_db
@@ -907,6 +911,10 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_georgian():
     assert sum(level["size"] for level in work_pack["levels"]) > 10
     bank_pack = next(pack for pack in packs if pack["id"] == "georgia_bank_ka")
     assert len(bank_pack["levels"]) == 2
+    first_week_pack = next(pack for pack in packs if pack["id"] == "georgia_first_week_ka")
+    scenario_ids = {level["id"] for level in first_week_pack["levels"]}
+    assert "market_and_shop" in scenario_ids
+    assert "post_and_parcels" in scenario_ids
 
 
 @pytest.mark.django_db
