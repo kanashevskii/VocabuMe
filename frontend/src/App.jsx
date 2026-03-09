@@ -2230,6 +2230,7 @@ function App() {
                     {displayPacks.map((pack) => {
                       const isActivePack = selectedPackId === pack.id;
                       const totalWords = pack.levels.reduce((sum, level) => sum + level.size, 0);
+                      const activeScenario = pack.levels.find((level) => level.id === selectedPackLevelId) || pack.levels[0];
 
                       return (
                         <article key={pack.id} className={isActivePack ? "pack-card active" : "pack-card"}>
@@ -2256,32 +2257,34 @@ function App() {
                           </div>
                           <div className="pack-card-meta">
                             <span className="pack-badge">
-                              {pack.levels.length === 1 ? "1 уровень" : `${pack.levels.length} уровней`}
+                              {pack.levels.length === 1 ? "1 сценарий" : `${pack.levels.length} сценария`}
                             </span>
                             <span className="pack-badge">{totalWords} слов и фраз</span>
                           </div>
                           {isActivePack && isPackExpanded ? (
                             <>
                               {pack.levels.length > 1 ? (
-                                <div className="pack-list pack-level-list">
+                                <div className="pack-scenario-list">
                                   {pack.levels.map((level) => (
                                     <button
                                       key={level.id}
-                                      className={selectedPackLevelId === level.id ? "segment-button active" : "segment-button"}
+                                      className={selectedPackLevelId === level.id ? "pack-scenario-card active" : "pack-scenario-card"}
                                       type="button"
                                       onClick={() => {
                                         setSelectedPackLevelId(level.id);
                                         setSelectedPackWords({});
                                       }}
                                     >
-                                      {level.title} · {level.size}
+                                      <strong>{level.title}</strong>
+                                      <small>{level.description}</small>
+                                      <span className="pack-scenario-meta">{level.size} слов и фраз</span>
                                     </button>
                                   ))}
                                 </div>
                               ) : null}
-                              <p className="inline-note pack-level-note">{selectedLevel?.description}</p>
+                              <p className="inline-note pack-level-note">{activeScenario?.description}</p>
                               <div className="pack-word-grid">
-                                {selectedLevel?.items.map((item) => {
+                                {activeScenario?.items.map((item) => {
                                   const checked = selectedPackWords[item.normalized_word] ?? !item.already_added;
                                   return (
                                     <label key={item.normalized_word} className={item.already_added ? "pack-word-row muted" : "pack-word-row"}>

@@ -851,6 +851,45 @@ h3 {
   margin-top: 2px;
 }
 
+.pack-scenario-list {
+  display: grid;
+  gap: 10px;
+}
+
+.pack-scenario-card {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--ink);
+}
+
+.pack-scenario-card strong {
+  font-size: 0.96rem;
+  line-height: 1.15;
+}
+
+.pack-scenario-card small,
+.pack-scenario-meta {
+  color: var(--ink-soft);
+  line-height: 1.3;
+}
+
+.pack-scenario-meta {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pack-scenario-card.active {
+  border-color: rgba(11, 115, 200, 0.26);
+  background: linear-gradient(180deg, rgba(11, 115, 200, 0.1), rgba(255, 255, 255, 0.92));
+}
+
 .pack-word-grid {
   display: grid;
   gap: 10px;
@@ -1553,6 +1592,11 @@ textarea {
   .pack-card-header .primary-button,
   .pack-card-header .secondary-button {
     width: 100%;
+  }
+
+  .pack-scenario-card {
+    padding: 11px 12px;
+    border-radius: 16px;
   }
 
   .pack-list .segment-button {
