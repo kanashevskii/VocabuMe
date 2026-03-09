@@ -51,23 +51,6 @@ function formatLearnCorrectAnswer(learnQuestion, learnResult) {
   return answer;
 }
 
-function formatLearnResultLabel(learnQuestion, learnResult) {
-  if (!learnResult) {
-    return "";
-  }
-  const correctAnswer = formatLearnCorrectAnswer(learnQuestion, learnResult);
-  if (learnResult.skipped) {
-    return `Правильный ответ: ${correctAnswer}`;
-  }
-  if (learnResult.correct && learnResult.accepted_with_typo) {
-    return `Верно, засчитано с опечаткой. Правильно пишется: ${correctAnswer}`;
-  }
-  if (learnResult.correct) {
-    return "Верно";
-  }
-  return `Правильный ответ: ${correctAnswer}`;
-}
-
 function mergeItemsById(current, incoming) {
   if (!incoming?.length) {
     return current;
@@ -116,6 +99,10 @@ function transliterateGeorgian(text) {
   return Array.from(text || "")
     .map((char) => GEORGIAN_TO_LATIN[char] || char)
     .join("");
+}
+
+function hasGeorgianScript(text) {
+  return /[\u10A0-\u10FF]/.test(text || "");
 }
 
 function App() {
@@ -445,6 +432,14 @@ function App() {
       primary,
       secondary: transliterateGeorgian(primary),
     };
+  }
+
+  function formatDisplayAnswer(text, courseCode = activeStudiedLanguage) {
+    const value = text || "";
+    if (courseCode !== "ka" || !showGeorgianLatin || !hasGeorgianScript(value)) {
+      return value;
+    }
+    return `${value} (${transliterateGeorgian(value)})`;
   }
 
   useEffect(() => {
@@ -1901,6 +1896,28 @@ function App() {
       : isListening
         ? (learnQuestion.exercise_type === "listening_word" ? "Введите слово 🎧" : "Введите перевод 🎧")
         : learnQuestion.item.word;
+    const promptTitleDisplay = formatDisplayAnswer(
+      promptTitle,
+      learnQuestion.item?.course_code,
+    );
+    const learnCorrectAnswerText = formatDisplayAnswer(
+      formatLearnCorrectAnswer(learnQuestion, learnResult),
+      learnQuestion.item?.course_code,
+    );
+    const learnResultText = learnResult
+      ? (() => {
+        if (learnResult.skipped) {
+          return `Правильный ответ: ${learnCorrectAnswerText}`;
+        }
+        if (learnResult.correct && learnResult.accepted_with_typo) {
+          return `Верно, засчитано с опечаткой. Правильно пишется: ${learnCorrectAnswerText}`;
+        }
+        if (learnResult.correct) {
+          return "Верно";
+        }
+        return `Правильный ответ: ${learnCorrectAnswerText}`;
+      })()
+      : "";
 
     return (
       <div className="screen-stack">
@@ -1913,7 +1930,7 @@ function App() {
             <span className="status-tag">{learnQuestionCount + 1} / {learnSessionLimit}</span>
           </div>
           <div className="prompt-card">
-            <strong>{promptTitle}</strong>
+            <strong>{promptTitleDisplay}</strong>
             {isSpeaking && learnQuestion.item?.transcription ? (
               <p className="transcription">/{learnQuestion.item.transcription}/</p>
             ) : null}
@@ -1931,7 +1948,7 @@ function App() {
                     disabled={Boolean(learnResult)}
                     onClick={() => void handleLearnChoiceAnswer(option)}
                   >
-                    {option}
+                    {formatDisplayAnswer(option, learnQuestion.item?.course_code)}
                   </button>
                 ))}
               </div>
@@ -1984,9 +2001,9 @@ function App() {
               <span>
                 {isSpeaking
                   ? learnResult.skipped
-                    ? `Правильный ответ: ${learnResult.correct_answer}`
+                    ? `Правильный ответ: ${formatDisplayAnswer(learnResult.correct_answer, learnQuestion.item?.course_code)}`
                     : `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
-                  : formatLearnResultLabel(learnQuestion, learnResult)}
+                  : learnResultText}
               </span>
               <button className="secondary-button" type="button" onClick={() => void advanceLearnSession()}>
                 Дальше
@@ -2563,12 +2580,13 @@ function App() {
               <div className="quiz-panel">
                 <div className="prompt-card">
                   <strong>/{alphabetQuestion.letter.transcription}/</strong>
+                  <span>{formatDisplayAnswer(alphabetQuestion.letter.symbol, alphabetQuestion.course_code)}</span>
                   <span>{alphabetQuestion.letter.hint}</span>
                 </div>
                 <div className="option-grid">
                   {alphabetQuestion.options.map((option) => (
                     <button key={option} className="option-button" type="button" onClick={() => handleAlphabetAnswer(option)}>
-                      {option}
+                      {formatDisplayAnswer(option, alphabetQuestion.course_code)}
                     </button>
                   ))}
                 </div>
@@ -2579,7 +2597,14 @@ function App() {
                 ) : null}
                 {alphabetResult ? (
                   <div className={alphabetResult.correct ? "result-box good" : "result-box bad"}>
-                    <span>{alphabetResult.correct ? "Верно" : `Правильный ответ: ${alphabetResult.correct_answer}`}</span>
+                    <span>
+                      {alphabetResult.correct
+                        ? "Верно"
+                        : `Правильный ответ: ${formatDisplayAnswer(
+                          alphabetResult.correct_answer,
+                          alphabetQuestion.course_code,
+                        )}`}
+                    </span>
                     <button className="secondary-button" type="button" onClick={() => void advanceAlphabetTest()}>
                       Дальше
                     </button>
