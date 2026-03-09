@@ -439,7 +439,10 @@ function App() {
     if (courseCode !== "ka" || !showGeorgianLatin || !hasGeorgianScript(value)) {
       return value;
     }
-    return `${value} (${transliterateGeorgian(value)})`;
+    return value.replace(
+      /[\u10A0-\u10FF]+(?:\s+[\u10A0-\u10FF]+)*/g,
+      (match) => `${match}/${transliterateGeorgian(match)}`,
+    );
   }
 
   useEffect(() => {
