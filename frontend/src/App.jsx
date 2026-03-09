@@ -3154,13 +3154,13 @@ function App() {
               </div>
             </section>
           ) : (
-            <section className="glass-card compact-section">
+            <section className="glass-card compact-section onboarding-premium-card">
               <p className="overline">Premium</p>
               <h3>Что дает Premium 🚀</h3>
               <p className="lead compact">
                 Premium открывает больше сценариев и убирает лимиты, чтобы учить язык под реальные задачи после переезда.
               </p>
-              <div className="simple-list">
+              <div className="simple-list onboarding-premium-list">
                 <div className="simple-row">
                   <strong>Безлимитные новые слова и фразы</strong>
                   <small>Без ограничения free-плана по дневному добавлению.</small>
@@ -3174,7 +3174,7 @@ function App() {
                   <small>Объяснения, дополнительные генерации и будущие dialogue drills.</small>
                 </div>
               </div>
-              <div className="pack-list">
+              <div className="pack-list onboarding-premium-prices">
                 <span className="pack-badge">
                   ${monetization.plans?.premium?.price?.monthly?.amount || "6.99"} / месяц
                 </span>
@@ -3182,7 +3182,7 @@ function App() {
                   ${monetization.plans?.premium?.price?.yearly?.amount || "39.99"} / год
                 </span>
               </div>
-              <div className="stack-form">
+              <div className="stack-form onboarding-premium-actions">
                 <button className="primary-button" type="button" onClick={() => void completeOnboarding({ openPacks: true })} disabled={busy}>
                   Начать бесплатно
                 </button>

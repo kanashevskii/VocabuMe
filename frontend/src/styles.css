@@ -700,6 +700,34 @@ h3 {
   margin-top: 8px;
 }
 
+.onboarding-premium-card {
+  gap: 18px;
+}
+
+.onboarding-premium-card .lead.compact {
+  max-width: 34ch;
+}
+
+.onboarding-premium-list {
+  margin-top: 2px;
+}
+
+.onboarding-premium-prices {
+  margin-top: 6px;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+
+.onboarding-premium-actions {
+  margin-top: 6px;
+  gap: 14px;
+}
+
+.onboarding-premium-actions .primary-button,
+.onboarding-premium-actions .secondary-button {
+  min-height: 52px;
+}
+
 .four-cols {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: center;
