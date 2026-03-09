@@ -196,6 +196,12 @@ def get_course_pack_definitions(course_code: str | None = None) -> list[dict]:
     return get_pack_definitions(active_course)
 
 
+def get_pack_item_translation(entry: dict) -> str:
+    return merge_translation_variants(
+        entry.get("translation"), *(entry.get("synonyms") or [])
+    )
+
+
 def get_course_progress_stats(user: TelegramUser, course_code: str | None = None) -> dict:
     active_course = normalize_course_code(course_code or get_active_course_code(user))
     progress = get_or_create_user_course_progress(user, active_course)
@@ -221,7 +227,7 @@ def normalize_translation_value(value: str) -> str:
     return normalized.strip(" \t\r\n.,;:!?\"'")
 
 
-def split_translation_variants(translation: str) -> list[str]:
+def _extract_translation_parts(translation: str) -> list[str]:
     source = (translation or "").strip()
     if not source:
         return []
@@ -248,13 +254,40 @@ def split_translation_variants(translation: str) -> list[str]:
     tail = "".join(current).strip()
     if tail:
         parts.append(tail)
+    return parts
 
+
+def split_translation_variants(translation: str) -> list[str]:
+    source = (translation or "").strip()
+    if not source:
+        return []
+
+    parts = _extract_translation_parts(source)
     normalized_variants: list[str] = []
     for candidate in [source, *parts]:
         normalized = normalize_translation_value(candidate)
         if normalized and normalized not in normalized_variants:
             normalized_variants.append(normalized)
     return normalized_variants
+
+
+def merge_translation_variants(*values: str | None) -> str:
+    merged: list[str] = []
+    normalized_seen: set[str] = set()
+
+    for value in values:
+        raw_value = (value or "").strip()
+        if not raw_value:
+            continue
+        parts = _extract_translation_parts(raw_value) or [raw_value]
+        for variant in parts:
+            variant = normalize_translation_value(variant)
+            if variant in normalized_seen:
+                continue
+            normalized_seen.add(variant)
+            merged.append(variant)
+
+    return " / ".join(merged)
 
 
 def is_translation_answer_correct(answer: str, translation: str) -> bool:
@@ -1219,10 +1252,11 @@ def _serialize_pack_level(
     for entry in level["items"]:
         normalized = clean_word(entry["word"])
         prepared = prepared_map.get(normalized)
+        translation = get_pack_item_translation(entry)
         items.append(
             {
                 "word": entry["word"],
-                "translation": entry["translation"],
+                "translation": translation,
                 "normalized_word": normalized,
                 "has_prepared_image": bool(prepared and prepared.image_path),
                 "prepared": bool(
@@ -1261,7 +1295,7 @@ def ensure_pack_placeholders(
             normalized_word=normalized,
             defaults={
                 "word": entry["word"],
-                "translation": entry["translation"],
+                "translation": get_pack_item_translation(entry),
             },
         )
 
@@ -1425,7 +1459,7 @@ def _prepare_pack_level_sync(
         pending_entries.append(
             {
                 "word": entry["word"],
-                "translation_hint": entry["translation"],
+                "translation_hint": get_pack_item_translation(entry),
                 "course_code": active_course,
             }
         )
@@ -1452,9 +1486,9 @@ def _prepare_pack_level_sync(
 
         if generated:
             cached.word = generated["word"]
-            cached.translation = (
-                generated.get("translation") or entry["translation_hint"]
-            )
+            cached.translation = merge_translation_variants(
+                generated.get("translation"), entry["translation_hint"]
+            ) or entry["translation_hint"]
             cached.transcription = generated.get("transcription", "") or ""
             cached.example = generated.get("example", "") or ""
             cached.example_translation = generated.get(
@@ -1572,7 +1606,7 @@ def add_pack_words_to_user(
             fallback_entries.append(
                 {
                     "word": entry["word"],
-                    "translation_hint": entry["translation"],
+                    "translation_hint": get_pack_item_translation(entry),
                     "course_code": active_course,
                 }
             )
@@ -1593,7 +1627,9 @@ def add_pack_words_to_user(
                 user,
                 {
                     "word": generated["word"],
-                    "translation": generated.get("translation")
+                    "translation": merge_translation_variants(
+                        generated.get("translation"), entry["translation_hint"]
+                    )
                     or entry["translation_hint"],
                     "transcription": generated.get("transcription", "") or "",
                     "example": generated.get("example", "") or "",
@@ -1603,7 +1639,10 @@ def add_pack_words_to_user(
                     or "unknown",
                     "image_path": resolve_shared_image_path(
                         entry["word"],
-                        generated.get("translation") or entry["translation_hint"],
+                        merge_translation_variants(
+                            generated.get("translation"), entry["translation_hint"]
+                        )
+                        or entry["translation_hint"],
                         "",
                         course_code=active_course,
                     ),

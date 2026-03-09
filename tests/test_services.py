@@ -40,6 +40,7 @@ from vocab.services import (
     get_user_settings_payload,
     is_single_typo_match,
     is_translation_answer_correct,
+    merge_translation_variants,
     parse_word_batch,
     recalculate_user_word_progress,
     refresh_draft_language_data,
@@ -117,6 +118,13 @@ def test_translation_helpers_handle_variants_and_typos():
     assert is_single_typo_match("aplpe", "apple") is False
     assert is_single_typo_match("appl", "apple") is True
     assert is_single_typo_match("apple", "apple") is False
+
+
+def test_merge_translation_variants_deduplicates_values():
+    assert (
+        merge_translation_variants("привет", "здравствуйте / привет", "здравствуйте")
+        == "привет / здравствуйте"
+    )
 
 
 @pytest.mark.django_db
@@ -706,15 +714,8 @@ def test_finalize_word_draft_creates_word_and_deletes_draft(monkeypatch):
 
 @pytest.mark.django_db
 def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch):
-    user = TelegramUser.objects.create(chat_id=1026, username="tester")
-    monkeypatch.setattr(
-        "vocab.services.get_pack_level",
-        lambda pack_id, level_id: {
-            "items": [
-                {"word": "apple", "translation": "яблоко"},
-                {"word": "pear", "translation": "груша"},
-            ]
-        },
+    user = TelegramUser.objects.create(
+        chat_id=1026, username="tester", active_studied_language="ka"
     )
     monkeypatch.setattr(
         "vocab.services.ensure_pack_preparation", lambda pack_id, level_id: None
@@ -728,32 +729,38 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
     monkeypatch.setattr("vocab.services.translate_to_ru", lambda text: "")
 
     from vocab.models import PackPreparedWord
+    from vocab.word_packs import get_pack_level
 
     PackPreparedWord.objects.create(
-        pack_id="pack",
-        level_id="level",
-        word="apple",
-        normalized_word="apple",
-        translation="яблоко",
-        transcription="/apple/",
-        example="An apple a day.",
-        example_translation="Яблоко в день.",
-        part_of_speech="noun",
+        course_code="ka",
+        pack_id="georgian_starter",
+        level_id="starter",
+        word="მადლობა",
+        normalized_word="მადლობა",
+        translation="спасибо / благодарю",
+        transcription="madloba",
+        example="მადლობა დახმარებისთვის.",
+        example_translation="Спасибо за помощь.",
+        part_of_speech="phrase",
         image_path="media/card_images/apple.jpg",
     )
 
-    result = add_pack_words_to_user(user, "pack", "level", ["apple", "pear"])
+    level = get_pack_level("georgian_starter", "starter")
+    assert level is not None
+    monkeypatch.setattr("vocab.services.get_pack_level", lambda pack_id, level_id: level)
+
+    result = add_pack_words_to_user(
+        user, "georgian_starter", "starter", ["მადლობა", "ნახვამდის"]
+    )
 
     assert len(result["created"]) == 2
     assert result["skipped"] == []
-    assert (
-        VocabularyItem.objects.filter(user=user, normalized_word="apple").exists()
-        is True
-    )
-    assert (
-        VocabularyItem.objects.filter(user=user, normalized_word="pear").exists()
-        is True
-    )
+    prepared_word = VocabularyItem.objects.get(user=user, normalized_word="მადლობა")
+    fallback_word = VocabularyItem.objects.get(user=user, normalized_word="ნახვამდის")
+    assert prepared_word.translation == "спасибо / благодарю"
+    assert is_translation_answer_correct("благодарю", prepared_word.translation) is True
+    assert fallback_word.translation == "пока / до свидания"
+    assert is_translation_answer_correct("до свидания", fallback_word.translation) is True
 
 
 @pytest.mark.django_db
@@ -851,6 +858,10 @@ def test_list_word_packs_returns_georgian_starter_for_ka_course():
     assert packs[0]["id"] == "georgian_starter"
     assert packs[0]["levels"][0]["id"] == "starter"
     assert len(packs[0]["levels"][0]["items"]) == 10
+    assert (
+        packs[0]["levels"][0]["items"][0]["translation"]
+        == "привет / здравствуйте"
+    )
 
 
 @pytest.mark.django_db
