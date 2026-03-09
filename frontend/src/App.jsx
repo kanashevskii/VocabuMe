@@ -1926,7 +1926,7 @@ function App() {
                 <p className="lead compact">Буквы, названия и транскрипция для текущего языка обучения.</p>
               </div>
             </div>
-            <div className="segment-wrap main-segment library-segment">
+            <div className="segment-wrap main-segment">
               {ALPHABET_MODES.map((item) => (
                 <button
                   key={item.id}
