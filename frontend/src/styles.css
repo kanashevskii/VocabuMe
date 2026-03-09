@@ -604,6 +604,7 @@ h3 {
 
 .today-side-stats {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1684,6 +1685,7 @@ textarea {
   }
 
   .today-side-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
 
