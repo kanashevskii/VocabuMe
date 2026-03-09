@@ -558,6 +558,13 @@ h3 {
   gap: 0;
 }
 
+.inline-note {
+  padding: 14px 16px;
+  font-size: 0.94rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .simple-row {
   padding: 14px 16px;
   display: grid;
