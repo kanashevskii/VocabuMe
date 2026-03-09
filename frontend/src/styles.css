@@ -602,6 +602,10 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.segment-wrap.main-segment {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .more-segment {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1315,6 +1319,10 @@ textarea {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .segment-wrap.main-segment {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .segment-button {
     min-height: 44px;
     padding: 0 10px;
@@ -1408,6 +1416,10 @@ textarea {
   .main-segment {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .segment-wrap.main-segment {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .more-segment {
