@@ -625,6 +625,30 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.library-segment {
+  gap: 10px;
+  padding: 10px;
+  border-radius: 28px;
+  background: rgba(233, 245, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  box-shadow: 0 16px 28px rgba(6, 49, 91, 0.12);
+}
+
+.library-segment .segment-button {
+  min-height: 56px;
+  border-radius: 22px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.library-segment .segment-button.active {
+  background: linear-gradient(180deg, #1679d1, #0b62b1);
+  color: white;
+  box-shadow: 0 12px 24px rgba(8, 103, 192, 0.22);
+}
+
 .more-segment {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1169,14 +1193,14 @@ textarea {
 .nav-grid-bottom {
   grid-row: 1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) 74px;
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
   padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
-  border-radius: 24px;
-  background: rgba(5, 47, 86, 0.88);
-  border: 1px solid var(--line-strong);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(233, 245, 255, 0.92), rgba(211, 231, 248, 0.86));
+  border: 1px solid rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(18px);
-  box-shadow: 0 18px 44px rgba(1, 21, 43, 0.32);
+  box-shadow: 0 18px 44px rgba(1, 21, 43, 0.2);
   min-height: 84px;
   align-items: stretch;
   position: static;
@@ -1191,32 +1215,44 @@ textarea {
 }
 
 .nav-pill {
-  height: 60px;
-  min-height: 60px;
-  max-height: 60px;
-  border-radius: 18px;
-  padding: 8px 8px;
+  height: 64px;
+  min-height: 64px;
+  max-height: 64px;
+  border-radius: 20px;
+  padding: 8px 6px;
   display: grid;
   place-items: center;
   align-content: center;
+  gap: 4px;
   overflow: hidden;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ink);
+  box-shadow: none;
+  transform: none;
+}
+
+.nav-pill.active {
+  background: rgba(255, 255, 255, 0.84);
+  border-color: rgba(9, 39, 66, 0.08);
+  color: var(--ink);
+  box-shadow: 0 10px 24px rgba(1, 21, 43, 0.1);
+}
+
+.nav-pill:hover {
+  transform: none;
+}
+
+.nav-icon {
+  font-size: 1.28rem;
+  line-height: 1;
 }
 
 .nav-label {
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   line-height: 1.05;
   font-weight: 700;
   text-align: center;
-}
-
-.nav-pill.compact-nav {
-  width: 74px;
-  min-width: 74px;
-  padding: 8px 0;
-}
-
-.nav-pill.compact-nav .nav-label {
-  font-size: 1.1rem;
 }
 
 @media (min-width: 721px) {
@@ -1379,16 +1415,20 @@ textarea {
     bottom: calc(6px + env(safe-area-inset-bottom, 0px));
     gap: 6px;
     padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
-    border-radius: 20px;
-    min-height: 74px;
+    border-radius: 22px;
+    min-height: 78px;
     z-index: 60;
   }
 
   .nav-pill {
-    height: 48px;
-    min-height: 48px;
-    max-height: 48px;
-    border-radius: 14px;
+    height: 54px;
+    min-height: 54px;
+    max-height: 54px;
+    border-radius: 16px;
+  }
+
+  .nav-icon {
+    font-size: 1.1rem;
   }
 }
 
@@ -1474,6 +1514,18 @@ textarea {
     font-size: 0.76rem;
     line-height: 1.05;
     text-align: center;
+  }
+
+  .library-segment {
+    gap: 8px;
+    padding: 8px;
+    border-radius: 24px;
+  }
+
+  .library-segment .segment-button {
+    min-height: 46px;
+    border-radius: 18px;
+    font-size: 0.78rem;
   }
 
   .quiz-panel {
@@ -1744,19 +1796,23 @@ textarea {
     gap: 4px;
     padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
     border-radius: 16px;
-    min-height: 60px;
+    min-height: 66px;
   }
 
   .nav-pill {
-    min-height: 38px;
-    height: 38px;
-    max-height: 38px;
+    min-height: 44px;
+    height: 44px;
+    max-height: 44px;
     border-radius: 10px;
     padding: 4px;
   }
 
+  .nav-icon {
+    font-size: 0.98rem;
+  }
+
   .nav-label {
-    font-size: 0.58rem;
+    font-size: 0.54rem;
   }
 
   .today-hero {
