@@ -2207,7 +2207,7 @@ function App() {
                 {addWordHint}
               </div>
               <textarea
-                rows={5}
+                rows={4}
                 value={addText}
                 onChange={(event) => setAddText(event.target.value)}
                 placeholder={addWordPlaceholder}
@@ -2260,62 +2260,57 @@ function App() {
                             </span>
                             <span className="pack-badge">{totalWords} фраз</span>
                           </div>
+                          {isActivePack && isPackExpanded ? (
+                            <>
+                              {pack.levels.length > 1 ? (
+                                <div className="pack-list pack-level-list">
+                                  {pack.levels.map((level) => (
+                                    <button
+                                      key={level.id}
+                                      className={selectedPackLevelId === level.id ? "segment-button active" : "segment-button"}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedPackLevelId(level.id);
+                                        setSelectedPackWords({});
+                                      }}
+                                    >
+                                      {level.title} · {level.size}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <p className="inline-note pack-level-note">{selectedLevel?.description}</p>
+                              <div className="pack-word-grid">
+                                {selectedLevel?.items.map((item) => {
+                                  const checked = selectedPackWords[item.normalized_word] ?? !item.already_added;
+                                  return (
+                                    <label key={item.normalized_word} className={item.already_added ? "pack-word-row muted" : "pack-word-row"}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={item.already_added}
+                                        onChange={(event) => setSelectedPackWords((current) => ({ ...current, [item.normalized_word]: event.target.checked }))}
+                                      />
+                                      <span className="pack-word-main">
+                                        <strong>{item.word}</strong>
+                                        <small>{item.translation}</small>
+                                      </span>
+                                      {item.already_added ? <em className="pack-word-state">Уже есть</em> : null}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                              <div className="button-row batch-save-row">
+                                <button className="primary-button" type="button" onClick={addSelectedPack} disabled={addBusy || !selectedWordCount}>
+                                  {addBusy ? "Добавляем..." : `Добавить ${selectedWordCount} фраз`}
+                                </button>
+                              </div>
+                            </>
+                          ) : null}
                         </article>
                       );
                     })}
                   </div>
-                  {selectedPack ? (
-                    <>
-                      {selectedPack.levels.length > 1 ? (
-                        <div className="pack-list pack-level-list">
-                          {selectedPack.levels.map((level) => (
-                            <button
-                              key={level.id}
-                              className={selectedPackLevelId === level.id ? "segment-button active" : "segment-button"}
-                              type="button"
-                              onClick={() => {
-                                setSelectedPackLevelId(level.id);
-                                setSelectedPackWords({});
-                              }}
-                            >
-                              {level.title} · {level.size}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                      {isPackExpanded ? (
-                        <>
-                          <p className="lead compact">{selectedPack?.description}</p>
-                          <p className="inline-note pack-level-note">{selectedLevel.description}</p>
-                          <div className="pack-word-grid">
-                            {selectedLevel.items.map((item) => {
-                              const checked = selectedPackWords[item.normalized_word] ?? !item.already_added;
-                              return (
-                                <label key={item.normalized_word} className={item.already_added ? "pack-word-row muted" : "pack-word-row"}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={item.already_added}
-                                    onChange={(event) => setSelectedPackWords((current) => ({ ...current, [item.normalized_word]: event.target.checked }))}
-                                  />
-                                  <span className="pack-word-main">
-                                    <strong>{item.word}</strong>
-                                    <small>{item.translation}</small>
-                                  </span>
-                                  {item.already_added ? <em className="pack-word-state">Уже есть</em> : null}
-                                </label>
-                              );
-                            })}
-                          </div>
-                          <div className="button-row batch-save-row">
-                            <button className="primary-button" type="button" onClick={addSelectedPack} disabled={addBusy || !selectedWordCount}>
-                              {addBusy ? "Добавляем..." : `Добавить ${selectedWordCount} фраз`}
-                            </button>
-                          </div>
-                        </>
-                      ) : null}
-                    </>
-                  ) : null}
                 </>
               ) : (
                 <div className="empty-state">Готовим первый набор...</div>

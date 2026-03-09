@@ -879,6 +879,8 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_english():
     assert "georgia_work_permit_en" in pack_ids
     assert "georgia_bank_en" in pack_ids
     assert "georgia_first_week_en" in pack_ids
+    work_pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_en")
+    assert work_pack["levels"][0]["size"] > 10
 
 
 @pytest.mark.django_db
@@ -893,6 +895,8 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_georgian():
     assert "georgia_work_permit_ka" in pack_ids
     assert "georgia_bank_ka" in pack_ids
     assert "georgia_first_week_ka" in pack_ids
+    work_pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_ka")
+    assert work_pack["levels"][0]["size"] > 10
 
 
 @pytest.mark.django_db
