@@ -372,18 +372,21 @@ function App() {
     };
   }, []);
 
-  const stats = useMemo(() => {
+  const progressStats = useMemo(() => {
     const progress = dashboard?.progress || auth.progress;
     return [
       { label: "📚 Словарь", value: progress?.total ?? 0 },
       { label: "✅ Выучено", value: progress?.learned ?? 0 },
-      { label: "🔥 Дней подряд", value: progress?.streak_days ?? 0 },
+      { label: "🔄 В процессе", value: progress?.learning ?? 0 },
       { label: "✨ Очки", value: progress?.total_points ?? 0 },
-      { label: "🔄 В процессе", value: progress?.learning ?? 0 }
+      { label: "🔥 Дней подряд", value: progress?.streak_days ?? 0 },
     ];
   }, [auth.progress, dashboard]);
 
-  const todayStats = useMemo(() => stats.slice(0, 3), [stats]);
+  const todayStats = useMemo(() => progressStats.slice(0, 2), [progressStats]);
+  const todayStreakStat = useMemo(() => progressStats[4] || null, [progressStats]);
+  const progressTopStats = useMemo(() => progressStats.slice(0, 3), [progressStats]);
+  const progressSecondaryStats = useMemo(() => progressStats.slice(3), [progressStats]);
   const todayAchievements = useMemo(() => {
     const list = dashboard?.progress?.achievements || auth.progress?.achievements || [];
     return list.slice(-3);
@@ -2986,6 +2989,7 @@ function App() {
         <TodayScreen
           progress={auth.progress}
           todayStats={todayStats}
+          todayStreakStat={todayStreakStat}
           todayAchievements={todayAchievements}
           hasMoreAchievements={hasMoreAchievements}
           hasWordsToLearn={(auth.progress?.learning ?? 0) > 0}
@@ -2998,7 +3002,13 @@ function App() {
     if (primaryTab === "learn") return renderLearn();
     if (primaryTab === "words") return renderLibrary();
     if (primaryTab === "progress") {
-      return <ProgressScreen progress={auth.progress} stats={stats} />;
+      return (
+        <ProgressScreen
+          progress={auth.progress}
+          progressTopStats={progressTopStats}
+          progressSecondaryStats={progressSecondaryStats}
+        />
+      );
     }
     return renderMore();
   }

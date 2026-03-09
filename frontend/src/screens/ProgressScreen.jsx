@@ -1,7 +1,8 @@
-export default function ProgressScreen({ progress, stats }) {
-  const progressTopStats = stats.slice(0, 3);
-  const progressSecondaryStats = stats.slice(3);
-
+export default function ProgressScreen({
+  progress,
+  progressSecondaryStats,
+  progressTopStats,
+}) {
   return (
     <div className="screen-stack">
       <section className="stats-grid progress-top-stats">

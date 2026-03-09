@@ -7,6 +7,7 @@ export default function TodayScreen({
   progress,
   todayAchievements,
   todayStats,
+  todayStreakStat,
 }) {
   const studiedToday = Boolean(progress?.studied_today);
   const learnedToday = progress?.learned_today ?? 0;
@@ -46,6 +47,15 @@ export default function TodayScreen({
           </article>
         ))}
       </section>
+
+      {todayStreakStat ? (
+        <section className="today-streak-row">
+          <article className="glass-card stat-card">
+            <span>{todayStreakStat.label}</span>
+            <strong>{todayStreakStat.value}</strong>
+          </article>
+        </section>
+      ) : null}
 
       <section className="glass-card compact-section today-achievements">
         <div className="section-head">
