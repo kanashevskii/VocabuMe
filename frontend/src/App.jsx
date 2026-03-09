@@ -2482,7 +2482,10 @@ function App() {
                                 setSelectedPackWords({});
                               }}
                             >
-                              <strong>{level.title}</strong>
+                              <span className="pack-scenario-head">
+                                <strong>{level.title}</strong>
+                                {selectedPackLevelId === level.id ? <span className="pack-scenario-selected">Выбрано</span> : null}
+                              </span>
                               <small>{level.description}</small>
                               <span className="pack-scenario-meta">
                                 {level.difficulty ? `${level.difficulty} · ` : ""}
