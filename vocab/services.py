@@ -129,9 +129,21 @@ STUDIED_LANGUAGE_LABELS_RU = {
     "en": "Английский",
     "ka": "Грузинский",
 }
+GEORGIAN_DISPLAY_MODE_LABELS_RU = {
+    "both": "Грузинский + латиница",
+    "native": "Только грузинский",
+}
 AVAILABLE_STUDIED_LANGUAGES = [
     {"code": code, "label": STUDIED_LANGUAGE_LABELS_RU.get(code, label)}
     for code, label in STUDIED_LANGUAGE_CHOICES
+]
+GEORGIAN_DISPLAY_MODE_OPTIONS = [
+    {
+        "code": code,
+        "label": GEORGIAN_DISPLAY_MODE_LABELS_RU[code],
+        "recommended": code == "both",
+    }
+    for code in ("both", "native")
 ]
 
 
@@ -601,6 +613,9 @@ def serialize_user(user: TelegramUser) -> dict:
         "has_selected_studied_language": user.has_selected_studied_language,
         "active_studied_language": get_active_course_code(user),
         "available_studied_languages": AVAILABLE_STUDIED_LANGUAGES,
+        "georgian_display_mode": user.georgian_display_mode,
+        "has_selected_georgian_display_mode": user.has_selected_georgian_display_mode,
+        "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
         "display_name": user.username or user.email or f"user{user.chat_id}",
         "joined_at": user.joined_at.isoformat() if user.joined_at else None,
     }
@@ -988,6 +1003,9 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "reminder_timezone": user.reminder_timezone,
         "active_studied_language": get_active_course_code(user),
         "available_studied_languages": AVAILABLE_STUDIED_LANGUAGES,
+        "georgian_display_mode": user.georgian_display_mode,
+        "has_selected_georgian_display_mode": user.has_selected_georgian_display_mode,
+        "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
     }
 
 
@@ -995,6 +1013,7 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     previous_goal = user.repeat_threshold
     previous_course = get_active_course_code(user)
     selected_language_in_payload = "active_studied_language" in payload
+    selected_georgian_display_mode = "georgian_display_mode" in payload
     exercise_goal = payload.get(
         "exercise_goal", payload.get("repeat_threshold", user.repeat_threshold)
     )
@@ -1026,8 +1045,16 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     user.active_studied_language = normalize_course_code(
         payload.get("active_studied_language", user.active_studied_language)
     )
+    georgian_display_mode = str(
+        payload.get("georgian_display_mode", user.georgian_display_mode)
+    ).strip().lower()
+    if georgian_display_mode not in GEORGIAN_DISPLAY_MODE_LABELS_RU:
+        georgian_display_mode = "both"
+    user.georgian_display_mode = georgian_display_mode
     if selected_language_in_payload:
         user.has_selected_studied_language = True
+    if selected_georgian_display_mode or user.active_studied_language == "ka":
+        user.has_selected_georgian_display_mode = True
     user.save()
     get_or_create_user_course_progress(user, user.active_studied_language)
     if user.repeat_threshold != previous_goal:

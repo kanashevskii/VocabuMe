@@ -7,6 +7,11 @@ STUDIED_LANGUAGE_CHOICES = (
     ("ka", "Georgian"),
 )
 DEFAULT_STUDIED_LANGUAGE = "en"
+GEORGIAN_DISPLAY_MODE_CHOICES = (
+    ("both", "Georgian + Latin"),
+    ("native", "Georgian only"),
+)
+DEFAULT_GEORGIAN_DISPLAY_MODE = "both"
 
 
 def generate_web_login_token() -> str:
@@ -24,6 +29,12 @@ class TelegramUser(models.Model):
         max_length=10,
         choices=STUDIED_LANGUAGE_CHOICES,
         default=DEFAULT_STUDIED_LANGUAGE,
+    )
+    has_selected_georgian_display_mode = models.BooleanField(default=False)
+    georgian_display_mode = models.CharField(
+        max_length=20,
+        choices=GEORGIAN_DISPLAY_MODE_CHOICES,
+        default=DEFAULT_GEORGIAN_DISPLAY_MODE,
     )
     repeat_threshold = models.PositiveIntegerField(default=4)
     session_question_limit = models.PositiveIntegerField(default=12)

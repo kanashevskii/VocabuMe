@@ -382,6 +382,28 @@ def test_alphabet_audio_returns_mp3_for_current_course(client, monkeypatch, tmp_
 
 
 @pytest.mark.django_db
+def test_settings_view_includes_georgian_display_mode_fields(client):
+    user = TelegramUser.objects.create(
+        chat_id=2011,
+        username="tester",
+        active_studied_language="ka",
+        georgian_display_mode="both",
+        has_selected_georgian_display_mode=True,
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    payload = response.json()["settings"]
+    assert payload["georgian_display_mode"] == "both"
+    assert payload["has_selected_georgian_display_mode"] is True
+    assert payload["georgian_display_mode_options"][0]["code"] == "both"
+
+
+@pytest.mark.django_db
 def test_learn_answer_rejects_unknown_exercise_type(client):
     user = TelegramUser.objects.create(chat_id=2006, username="tester")
     session = client.session

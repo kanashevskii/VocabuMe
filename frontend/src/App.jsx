@@ -76,6 +76,48 @@ function mergeItemsById(current, incoming) {
   return [...incoming, ...current.filter((item) => !seen.has(item.id))];
 }
 
+const GEORGIAN_TO_LATIN = {
+  "ა": "a",
+  "ბ": "b",
+  "გ": "g",
+  "დ": "d",
+  "ე": "e",
+  "ვ": "v",
+  "ზ": "z",
+  "თ": "t",
+  "ი": "i",
+  "კ": "k'",
+  "ლ": "l",
+  "მ": "m",
+  "ნ": "n",
+  "ო": "o",
+  "პ": "p'",
+  "ჟ": "zh",
+  "რ": "r",
+  "ს": "s",
+  "ტ": "t'",
+  "უ": "u",
+  "ფ": "p",
+  "ქ": "k",
+  "ღ": "gh",
+  "ყ": "q'",
+  "შ": "sh",
+  "ჩ": "ch",
+  "ც": "ts",
+  "ძ": "dz",
+  "წ": "ts'",
+  "ჭ": "ch'",
+  "ხ": "kh",
+  "ჯ": "j",
+  "ჰ": "h",
+};
+
+function transliterateGeorgian(text) {
+  return Array.from(text || "")
+    .map((char) => GEORGIAN_TO_LATIN[char] || char)
+    .join("");
+}
+
 function App() {
   const [config, setConfig] = useState({ bot_username: "", webapp_url: "" });
   const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null, progress: null });
@@ -142,6 +184,7 @@ function App() {
   const [alphabetSessionLimit, setAlphabetSessionLimit] = useState(12);
   const [alphabetSessionDone, setAlphabetSessionDone] = useState(false);
   const [alphabetAudioLoadingSymbol, setAlphabetAudioLoadingSymbol] = useState("");
+  const [georgianDisplayModePrompt, setGeorgianDisplayModePrompt] = useState(null);
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
@@ -164,6 +207,16 @@ function App() {
   const canRecordSpeech = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const activeStudiedLanguage = settings?.active_studied_language || auth.progress?.course_code || "en";
   const supportsIrregularPractice = activeStudiedLanguage === "en";
+  const georgianDisplayMode =
+    settings?.georgian_display_mode || auth.user?.georgian_display_mode || "both";
+  const showGeorgianLatin = activeStudiedLanguage === "ka" && georgianDisplayMode === "both";
+  const georgianDisplayModeOptions =
+    settings?.georgian_display_mode_options
+    || auth.user?.georgian_display_mode_options
+    || [
+      { code: "both", label: "Грузинский + латиница", recommended: true },
+      { code: "native", label: "Только грузинский", recommended: false },
+    ];
 
   useEffect(() => {
     const handleWindowError = (event) => {
@@ -311,7 +364,7 @@ function App() {
   const currentTitle = useMemo(() => {
     if (primaryTab === "today") return "Сегодня";
     if (primaryTab === "learn") return "Практика";
-    if (primaryTab === "words") return showLibraryAdd ? "Добавить" : libraryMode === "cards" ? "Карточки" : "Все слова";
+    if (primaryTab === "words") return showLibraryAdd ? "Добавить" : libraryMode === "cards" ? "Карточки" : "Список";
     if (primaryTab === "progress") return "Прогресс";
     return primaryTab === "more" ? "Настройки" : "Практика";
   }, [primaryTab, libraryMode, showLibraryAdd]);
@@ -381,6 +434,17 @@ function App() {
         noticeTimerRef.current = null;
       }, nextNotice.ttl);
     }
+  }
+
+  function formatDisplayLine(text, courseCode = activeStudiedLanguage) {
+    const primary = text || "";
+    if (courseCode !== "ka" || !showGeorgianLatin || !primary) {
+      return { primary, secondary: "" };
+    }
+    return {
+      primary,
+      secondary: transliterateGeorgian(primary),
+    };
   }
 
   useEffect(() => {
@@ -1410,6 +1474,16 @@ function App() {
 
   async function saveSettings(event) {
     event.preventDefault();
+    if (
+      settings?.active_studied_language === "ka"
+      && !settings?.has_selected_georgian_display_mode
+    ) {
+      setGeorgianDisplayModePrompt({
+        source: "settings",
+        previousCourseCode: auth.user?.active_studied_language || "en",
+      });
+      return;
+    }
     setBusy(true);
     try {
       await api("/api/settings", {
@@ -1425,13 +1499,37 @@ function App() {
     }
   }
 
-  async function selectStudiedLanguage(courseCode) {
+  async function selectStudiedLanguage(courseCode, options = {}) {
+    const hasSelectedGeorgianDisplayMode =
+      settings?.has_selected_georgian_display_mode
+      ?? auth.user?.has_selected_georgian_display_mode
+      ?? false;
+    if (
+      courseCode === "ka"
+      && !hasSelectedGeorgianDisplayMode
+      && !options.georgianDisplayMode
+    ) {
+      setGeorgianDisplayModePrompt({
+        source: options.source || "onboarding",
+        previousCourseCode:
+          settings?.active_studied_language
+          || auth.user?.active_studied_language
+          || "en",
+      });
+      return;
+    }
     setBusy(true);
     try {
       await api("/api/settings", {
         method: "POST",
-        body: JSON.stringify({ active_studied_language: courseCode }),
+        body: JSON.stringify({
+          active_studied_language: courseCode,
+          ...(options.georgianDisplayMode
+            ? { georgian_display_mode: options.georgianDisplayMode }
+            : {}),
+        }),
       });
+      setGeorgianDisplayModePrompt(null);
       setPrimaryTab("today");
       await Promise.all([
         loadDashboard(),
@@ -1445,6 +1543,38 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function confirmGeorgianDisplayMode(mode) {
+    if (!georgianDisplayModePrompt) {
+      return;
+    }
+    if (georgianDisplayModePrompt.source === "settings") {
+      setSettings((current) => ({
+        ...current,
+        active_studied_language: "ka",
+        georgian_display_mode: mode,
+        has_selected_georgian_display_mode: true,
+      }));
+      setGeorgianDisplayModePrompt(null);
+      setNotice("Режим отображения сохранится после нажатия «Сохранить настройки».");
+      return;
+    }
+    await selectStudiedLanguage("ka", {
+      georgianDisplayMode: mode,
+      source: georgianDisplayModePrompt.source,
+    });
+  }
+
+  function cancelGeorgianDisplayModePrompt() {
+    if (georgianDisplayModePrompt?.source === "settings") {
+      setSettings((current) => ({
+        ...current,
+        active_studied_language:
+          georgianDisplayModePrompt.previousCourseCode || "en",
+      }));
+    }
+    setGeorgianDisplayModePrompt(null);
   }
 
   function openLearn() {
@@ -1601,7 +1731,12 @@ function App() {
                 <span>{cardIndex + 1} / {cardQueue.length}</span>
                 <span>{currentCard.part_of_speech || "word"}</span>
               </div>
-              <h2 className="study-word">{currentCard.word}</h2>
+              <h2 className="study-word">{formatDisplayLine(currentCard.word, currentCard.course_code).primary}</h2>
+              {formatDisplayLine(currentCard.word, currentCard.course_code).secondary ? (
+                <p className="word-romanization">
+                  {formatDisplayLine(currentCard.word, currentCard.course_code).secondary}
+                </p>
+              ) : null}
               <p className="transcription">/{currentCard.transcription || "no IPA"}/</p>
               <p className="example">{currentCard.example}</p>
               <audio controls src={`/api/audio/${currentCard.id}`} className="audio-player" />
@@ -1909,6 +2044,11 @@ function App() {
               <div className="word-item-head">
                 <div>
                   <strong>{item.word}</strong>
+                  {formatDisplayLine(item.word, item.course_code).secondary ? (
+                    <p className="word-item-romanization">
+                      {formatDisplayLine(item.word, item.course_code).secondary}
+                    </p>
+                  ) : null}
                   <p className="word-item-example">{item.example}</p>
                 </div>
                 <span className={item.is_learned ? "status-tag good" : "status-tag"}>
@@ -2151,6 +2291,11 @@ function App() {
                 <div className="word-item-head">
                   <div>
                     <strong>{draft.word}</strong>
+                    {formatDisplayLine(draft.word, draft.course_code).secondary ? (
+                      <p className="word-item-romanization">
+                        {formatDisplayLine(draft.word, draft.course_code).secondary}
+                      </p>
+                    ) : null}
                     <p>{draft.example}</p>
                   </div>
                   <span className="status-tag">{draft.part_of_speech || "word"}</span>
@@ -2202,6 +2347,11 @@ function App() {
           <div className="draft-card">
             <div className="prompt-card">
               <strong>{addDraft.word}</strong>
+              {formatDisplayLine(addDraft.word, addDraft.course_code).secondary ? (
+                <span className="word-romanization inline-romanization">
+                  {formatDisplayLine(addDraft.word, addDraft.course_code).secondary}
+                </span>
+              ) : null}
               <span>{addDraft.part_of_speech || "word"}</span>
             </div>
             <div className="stack-form">
@@ -2242,6 +2392,11 @@ function App() {
               </div>
               <div className="study-side">
                 <strong>{addDraft.word}</strong>
+                {formatDisplayLine(addDraft.word, addDraft.course_code).secondary ? (
+                  <span className="word-romanization inline-romanization">
+                    {formatDisplayLine(addDraft.word, addDraft.course_code).secondary}
+                  </span>
+                ) : null}
                 <span>{addTranslationInput || addDraft.translation}</span>
                 <span>{addDraft.part_of_speech || "word"}</span>
                 {addDraft.example ? <span>{addDraft.example}</span> : null}
@@ -2457,7 +2612,31 @@ function App() {
         settings={settings}
         onSave={saveSettings}
         onChange={(field, value) =>
-          setSettings((current) => ({ ...current, [field]: value }))
+          setSettings((current) => {
+            if (
+              field === "active_studied_language"
+              && value === "ka"
+              && !current.has_selected_georgian_display_mode
+            ) {
+              setGeorgianDisplayModePrompt({
+                source: "settings",
+                previousCourseCode: current.active_studied_language || "en",
+              });
+              return {
+                ...current,
+                active_studied_language: "ka",
+                georgian_display_mode: current.georgian_display_mode || "both",
+              };
+            }
+            if (field === "georgian_display_mode") {
+              return {
+                ...current,
+                georgian_display_mode: value,
+                has_selected_georgian_display_mode: true,
+              };
+            }
+            return { ...current, [field]: value };
+          })
         }
       />
     );
@@ -2514,7 +2693,72 @@ function App() {
     );
   }
 
+  if (georgianDisplayModePrompt && !needsStudiedLanguageSelection) {
+    return (
+      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
+        <main className="auth-stage">
+          {notice ? <div className="notice">{notice.message}</div> : null}
+            <section className="glass-card compact-section">
+              <p className="overline">Грузинский</p>
+              <h3>Как показывать грузинский? ✨</h3>
+              <p className="lead compact">
+                Для старта рекомендуем показывать и грузинское письмо, и латиницу. Позже это всегда можно изменить в настройках.
+              </p>
+            <div className="stack-form">
+              {georgianDisplayModeOptions.map((item) => (
+                <button
+                  key={item.code}
+                  className={item.recommended ? "primary-button" : "secondary-button"}
+                  type="button"
+                  onClick={() => void confirmGeorgianDisplayMode(item.code)}
+                  disabled={busy}
+                >
+                  {item.label}{item.recommended ? " (Рекомендуется)" : ""}
+                </button>
+              ))}
+              <button className="secondary-button" type="button" onClick={cancelGeorgianDisplayModePrompt} disabled={busy}>
+                Отмена
+              </button>
+            </div>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
   if (needsStudiedLanguageSelection) {
+    if (georgianDisplayModePrompt) {
+      return (
+        <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
+          <main className="auth-stage">
+            {notice ? <div className="notice">{notice.message}</div> : null}
+            <section className="glass-card compact-section">
+              <p className="overline">Грузинский</p>
+              <h3>Как показывать грузинский? ✨</h3>
+              <p className="lead compact">
+                Для старта рекомендуем показывать и грузинское письмо, и латиницу. Позже это всегда можно изменить в настройках.
+              </p>
+              <div className="stack-form">
+                {georgianDisplayModeOptions.map((item) => (
+                  <button
+                    key={item.code}
+                    className={item.recommended ? "primary-button" : "secondary-button"}
+                    type="button"
+                    onClick={() => void confirmGeorgianDisplayMode(item.code)}
+                    disabled={busy}
+                  >
+                    {item.label}{item.recommended ? " (Рекомендуется)" : ""}
+                  </button>
+                ))}
+                <button className="secondary-button" type="button" onClick={cancelGeorgianDisplayModePrompt} disabled={busy}>
+                  Назад
+                </button>
+              </div>
+            </section>
+          </main>
+        </div>
+      );
+    }
     return (
       <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
         <main className="auth-stage">
@@ -2532,7 +2776,7 @@ function App() {
                   key={item.code}
                   className="segment-button active"
                   type="button"
-                  onClick={() => selectStudiedLanguage(item.code)}
+                  onClick={() => void selectStudiedLanguage(item.code, { source: "onboarding" })}
                   disabled={busy}
                 >
                   {busy ? "Сохраняем..." : item.label}

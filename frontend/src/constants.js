@@ -1,14 +1,14 @@
 export const PRIMARY_TABS = [
   { id: "today", label: "Сегодня" },
   { id: "learn", label: "Практика" },
-  { id: "words", label: "Слова" },
+  { id: "words", label: "Словарь" },
   { id: "progress", label: "Прогресс" },
   { id: "more", label: "⚙️", compact: true },
 ];
 
 export const LIBRARY_MODES = [
   { id: "cards", label: "Карточки" },
-  { id: "words", label: "Все слова" },
+  { id: "words", label: "Список" },
 ];
 
 export const IRREGULAR_MODES = [

@@ -37,6 +37,7 @@ from vocab.services import (
     get_pending_exercise_types,
     get_required_exercise_types,
     get_session_question_limit,
+    get_user_settings_payload,
     is_single_typo_match,
     is_translation_answer_correct,
     parse_word_batch,
@@ -703,12 +704,17 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
 def test_apply_user_settings_switches_active_studied_language():
     user = TelegramUser.objects.create(chat_id=1030, username="tester")
 
-    apply_user_settings(user, {"active_studied_language": "ka"})
+    apply_user_settings(
+        user,
+        {"active_studied_language": "ka", "georgian_display_mode": "both"},
+    )
     user.refresh_from_db()
 
     assert get_active_course_code(user) == "ka"
     assert user.has_selected_studied_language is True
     assert UserCourseProgress.objects.filter(user=user, course_code="ka").exists()
+    assert user.georgian_display_mode == "both"
+    assert user.has_selected_georgian_display_mode is True
 
 
 @pytest.mark.django_db
@@ -757,6 +763,24 @@ def test_build_user_progress_is_isolated_per_course():
     assert payload_en["total"] == 1
     assert payload_en["learned"] == 1
     assert payload_en["practice_correct"] == 2
+
+
+@pytest.mark.django_db
+def test_get_user_settings_payload_includes_georgian_display_mode_options():
+    user = TelegramUser.objects.create(
+        chat_id=1032,
+        username="tester",
+        active_studied_language="ka",
+        georgian_display_mode="native",
+        has_selected_georgian_display_mode=True,
+    )
+
+    payload = get_user_settings_payload(user)
+
+    assert payload["georgian_display_mode"] == "native"
+    assert payload["has_selected_georgian_display_mode"] is True
+    assert payload["georgian_display_mode_options"][0]["code"] == "both"
+    assert payload["georgian_display_mode_options"][0]["recommended"] is True
 
 
 @pytest.mark.django_db

@@ -25,6 +25,11 @@ export default function SettingsScreen({
       { code: "en", label: "Английский" },
       { code: "ka", label: "Грузинский" },
     ];
+  const georgianDisplayModeOptions =
+    settings.georgian_display_mode_options || [
+      { code: "both", label: "Грузинский + латиница", recommended: true },
+      { code: "native", label: "Только грузинский", recommended: false },
+    ];
 
   return (
     <section className="glass-card compact-section">
@@ -47,6 +52,26 @@ export default function SettingsScreen({
             ))}
           </select>
         </label>
+        {settings.active_studied_language === "ka" ? (
+          <label>
+            <span>Показ грузинского</span>
+            <small>
+              Для старта рекомендуем показывать и грузинское письмо, и латиницу.
+            </small>
+            <select
+              value={settings.georgian_display_mode}
+              onChange={(event) =>
+                onChange("georgian_display_mode", event.target.value)
+              }
+            >
+              {georgianDisplayModeOptions.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.label}{item.recommended ? " (рекомендуется)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label>
           <span>Упражнений до статуса "выучено"</span>
           <small>

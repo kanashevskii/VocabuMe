@@ -173,6 +173,17 @@ a {
   font-weight: 700;
 }
 
+.word-romanization,
+.word-item-romanization {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.inline-romanization {
+  display: block;
+}
+
 h1,
 h2,
 h3 {
