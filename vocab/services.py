@@ -1382,7 +1382,19 @@ def prepare_all_word_packs() -> None:
             _prepare_pack_level_sync(pack["id"], level["id"], course_code="en")
 
 
+def has_active_user_image_generation() -> bool:
+    return AddWordDraft.objects.filter(image_generation_in_progress=True).exists() or (
+        VocabularyItem.objects.filter(image_generation_in_progress=True).exists()
+    )
+
+
 def prepare_next_pack_word() -> PackPreparedWord | None:
+    if has_active_user_image_generation():
+        logger.info(
+            "Skipping pack preparation because user image generation is in progress"
+        )
+        return None
+
     for pack in get_course_pack_definitions("en"):
         for level in pack["levels"]:
             ensure_pack_placeholders(pack["id"], level["id"], course_code="en")

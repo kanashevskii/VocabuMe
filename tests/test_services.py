@@ -34,6 +34,7 @@ from vocab.services import (
     list_word_packs,
     list_alphabet_page,
     is_prepared_pack_item_ready,
+    prepare_next_pack_word,
     get_pending_exercise_types,
     get_required_exercise_types,
     get_session_question_limit,
@@ -660,6 +661,24 @@ def test_request_draft_image_generation_reuses_shared_image_path():
 
     assert updated.image_path == "media/card_images/shared.jpg"
     assert updated.image_generation_in_progress is False
+
+
+@pytest.mark.django_db
+def test_prepare_next_pack_word_skips_when_user_image_generation_is_active():
+    user = TelegramUser.objects.create(chat_id=5022, username="tester")
+    AddWordDraft.objects.create(
+        user=user,
+        source_text="apple",
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        translation_confirmed=True,
+        image_generation_in_progress=True,
+    )
+
+    prepared = prepare_next_pack_word()
+
+    assert prepared is None
 
 
 @pytest.mark.django_db
