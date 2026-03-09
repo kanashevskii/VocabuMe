@@ -1271,12 +1271,16 @@ def _serialize_pack_level(
             }
         )
     prepared_count = sum(1 for item in items if item["prepared"])
+    added_count = sum(1 for item in items if item["already_added"])
     return {
         "id": level["id"],
         "title": level["title"],
         "description": level["description"],
         "size": len(level["items"]),
         "prepared_count": prepared_count,
+        "added_count": added_count,
+        "has_added_words": added_count > 0,
+        "is_fully_added": added_count == len(items) if items else False,
         "items": items,
     }
 
@@ -1348,12 +1352,18 @@ def list_word_packs(
             )
             for level in pack["levels"]
         ]
+        added_count = sum(level["added_count"] for level in levels)
+        total_size = sum(level["size"] for level in levels)
         packs.append(
             {
                 "id": pack["id"],
                 "title": pack["title"],
                 "emoji": pack["emoji"],
                 "description": pack["description"],
+                "size": total_size,
+                "added_count": added_count,
+                "has_added_words": added_count > 0,
+                "is_fully_added": added_count == total_size if total_size else False,
                 "levels": levels,
             }
         )

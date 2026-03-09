@@ -2260,6 +2260,9 @@ function App() {
                               {pack.levels.length === 1 ? "1 сценарий" : `${pack.levels.length} сценария`}
                             </span>
                             <span className="pack-badge">{totalWords} слов и фраз</span>
+                            {pack.has_added_words ? (
+                              <span className="pack-badge pack-badge-success">Добавлен</span>
+                            ) : null}
                           </div>
                           {isActivePack && isPackExpanded ? (
                             <>
@@ -2277,7 +2280,10 @@ function App() {
                                     >
                                       <strong>{level.title}</strong>
                                       <small>{level.description}</small>
-                                      <span className="pack-scenario-meta">{level.size} слов и фраз</span>
+                                      <span className="pack-scenario-meta">
+                                        {level.size} слов и фраз
+                                        {level.has_added_words ? " · Добавлен" : ""}
+                                      </span>
                                     </button>
                                   ))}
                                 </div>

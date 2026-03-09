@@ -802,6 +802,12 @@ h3 {
   font-weight: 700;
 }
 
+.pack-badge-success {
+  background: rgba(15, 138, 87, 0.12);
+  border-color: rgba(15, 138, 87, 0.18);
+  color: var(--success);
+}
+
 .practice-overview-card {
   display: grid;
   gap: 12px;

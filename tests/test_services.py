@@ -908,6 +908,32 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_georgian():
 
 
 @pytest.mark.django_db
+def test_list_word_packs_marks_pack_and_scenario_as_added_when_any_word_exists():
+    user = TelegramUser.objects.create(
+        chat_id=1038, username="tester", active_studied_language="en"
+    )
+    VocabularyItem.objects.create(
+        user=user,
+        course_code="en",
+        word="work permit",
+        normalized_word="work permit",
+        translation="разрешение на работу",
+        transcription="",
+        example="",
+        example_translation="",
+    )
+
+    packs = list_word_packs(user)
+    pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_en")
+    scenario = next(level for level in pack["levels"] if level["id"] == "job_documents")
+
+    assert pack["has_added_words"] is True
+    assert pack["added_count"] >= 1
+    assert scenario["has_added_words"] is True
+    assert scenario["added_count"] >= 1
+
+
+@pytest.mark.django_db
 def test_list_alphabet_page_returns_english_letters_by_default():
     user = TelegramUser.objects.create(chat_id=1033, username="tester")
 
