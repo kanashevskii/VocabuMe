@@ -1607,11 +1607,11 @@ textarea {
     position: fixed;
     left: 6px;
     right: 6px;
-    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     gap: 5px;
     padding: 4px 4px 2px;
     border-radius: 20px;
-    min-height: 54px;
+    min-height: 50px;
     z-index: 60;
   }
 
@@ -1992,7 +1992,7 @@ textarea {
     gap: 4px;
     padding: 4px 4px 2px;
     border-radius: 16px;
-    min-height: 60px;
+    min-height: 50px;
   }
 
   .nav-pill {
