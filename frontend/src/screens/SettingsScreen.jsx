@@ -9,6 +9,13 @@ const REMINDER_INTERVAL_OPTIONS = [
   { value: 14, label: "Раз в 2 недели" },
   { value: 30, label: "Раз в 30 дней" },
 ];
+const REMINDER_TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
+  const hours = String(Math.floor(index / 4)).padStart(2, "0");
+  const minutes = String((index % 4) * 15).padStart(2, "0");
+  const value = `${hours}:${minutes}`;
+
+  return { value, label: value };
+});
 
 export default function SettingsScreen({
   onChange,
@@ -51,6 +58,17 @@ export default function SettingsScreen({
       { code: "both", label: "Грузинский + латиница", recommended: true },
       { code: "native", label: "Только грузинский", recommended: false },
     ];
+  const reminderTimeOptions = REMINDER_TIME_OPTIONS.some(
+    (item) => item.value === settings.reminder_time,
+  )
+    ? REMINDER_TIME_OPTIONS
+    : [
+        ...REMINDER_TIME_OPTIONS,
+        {
+          value: settings.reminder_time,
+          label: settings.reminder_time,
+        },
+      ];
 
   return (
     <section className="glass-card compact-section">
@@ -156,11 +174,17 @@ export default function SettingsScreen({
         </label>
         <label>
           <span>Время напоминания</span>
-          <input
-            type="time"
+          <small>24-часовой формат.</small>
+          <select
             value={settings.reminder_time}
             onChange={(event) => onChange("reminder_time", event.target.value)}
-          />
+          >
+            {reminderTimeOptions.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           <span>Часовой пояс</span>
