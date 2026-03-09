@@ -2270,13 +2270,13 @@ function App() {
 
     return (
       <section className="glass-card compact-section pack-section">
-        <div className="section-head">
+        <div className="section-head pack-section-head">
           <div>
             <p className="overline">Наборы</p>
             <h3>Готовые наборы ✈️</h3>
             <p className="lead compact">Выбери готовый набор по ситуации.</p>
           </div>
-          <button className="secondary-button" type="button" onClick={openAddWords}>
+          <button className="secondary-button pack-manual-button" type="button" onClick={openAddWords}>
             Добавить вручную
           </button>
         </div>
@@ -2289,27 +2289,25 @@ function App() {
 
               return (
                 <article key={pack.id} className={isActivePack ? "pack-card active" : "pack-card"}>
-                  <div className="pack-card-header">
-                    <div className="pack-card-copy">
-                      <div className="pack-card-title-row">
-                        <span className="pack-card-emoji">{pack.emoji}</span>
-                        <strong>{pack.title}</strong>
-                      </div>
-                      <p className="pack-card-description">{pack.description}</p>
+                  <div className="pack-card-copy">
+                    <div className="pack-card-title-row">
+                      <span className="pack-card-emoji">{pack.emoji}</span>
+                      <strong>{pack.title}</strong>
                     </div>
-                    <button
-                      className={isActivePack && isPackExpanded ? "secondary-button" : "primary-button"}
-                      type="button"
-                      onClick={() => {
-                        setSelectedPackId(pack.id);
-                        setSelectedPackLevelId(pack.levels[0]?.id || "");
-                        setSelectedPackWords({});
-                        setIsPackExpanded((current) => (isActivePack ? !current : true));
-                      }}
-                    >
-                      {isActivePack && isPackExpanded ? "Скрыть" : "Открыть"}
-                    </button>
+                    <p className="pack-card-description">{pack.description}</p>
                   </div>
+                  <button
+                    className={isActivePack && isPackExpanded ? "secondary-button pack-open-button" : "primary-button pack-open-button"}
+                    type="button"
+                    onClick={() => {
+                      setSelectedPackId(pack.id);
+                      setSelectedPackLevelId(pack.levels[0]?.id || "");
+                      setSelectedPackWords({});
+                      setIsPackExpanded((current) => (isActivePack ? !current : true));
+                    }}
+                  >
+                    {isActivePack && isPackExpanded ? "Скрыть" : "Открыть"}
+                  </button>
                   <div className="pack-card-meta">
                     {pack.difficulty ? (
                       <span className="pack-badge pack-badge-difficulty">{pack.difficulty}</span>

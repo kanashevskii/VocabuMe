@@ -134,7 +134,8 @@ a {
 
 .topbar {
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: 16px 20px;
+  border-radius: 30px;
 }
 
 .desktop-scroll-topbar {
@@ -143,18 +144,28 @@ a {
 }
 
 .topbar-brand {
-  gap: 12px;
+  gap: 14px;
+  min-width: 0;
+}
+
+.topbar-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 .logo-mark {
   position: relative;
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
   background: white;
   overflow: hidden;
   flex: 0 0 auto;
-  box-shadow: inset 0 0 0 4px rgba(11, 115, 200, 0.08);
+  border: 3px solid rgba(11, 115, 200, 0.18);
+  box-shadow:
+    inset 0 0 0 4px rgba(11, 115, 200, 0.08),
+    0 10px 24px rgba(8, 103, 192, 0.14);
 }
 
 .logo-mark img {
@@ -206,8 +217,9 @@ h3 {
 }
 
 .app-title {
-  font-size: 0.94rem;
+  font-size: 0.84rem;
   font-weight: 700;
+  line-height: 1.05;
 }
 
 .lead {
@@ -400,6 +412,13 @@ h3 {
   gap: 8px;
   font-size: 0.92rem;
   font-weight: 700;
+}
+
+.words-header-action {
+  min-width: 64px;
+  width: 64px;
+  padding: 0;
+  border-radius: 22px;
 }
 
 .header-action.active {
@@ -739,39 +758,46 @@ h3 {
 
 .pack-section {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+  padding: 20px;
+}
+
+.pack-section-head {
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.pack-manual-button {
+  min-width: 160px;
+  min-height: 76px;
+  padding: 12px 18px;
+  line-height: 1.1;
 }
 
 .pack-card-list {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .pack-card {
   display: grid;
-  gap: 12px;
-  padding: 16px 18px;
-  border-radius: 24px;
-  border: 1px solid rgba(11, 115, 200, 0.14);
-  background: rgba(255, 255, 255, 0.8);
+  gap: 14px;
+  padding: 20px;
+  border-radius: 26px;
+  border: 1px solid rgba(11, 115, 200, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 28px rgba(7, 57, 101, 0.08);
 }
 
 .pack-card.active {
   border-color: rgba(11, 115, 200, 0.28);
-  background: linear-gradient(180deg, rgba(11, 115, 200, 0.1), rgba(255, 255, 255, 0.92));
-  box-shadow: 0 14px 30px rgba(11, 115, 200, 0.08);
-}
-
-.pack-card-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: start;
+  background: linear-gradient(180deg, rgba(11, 115, 200, 0.08), rgba(255, 255, 255, 0.95));
+  box-shadow: 0 16px 34px rgba(11, 115, 200, 0.1);
 }
 
 .pack-card-copy {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -779,7 +805,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 1.02rem;
+  font-size: 1.12rem;
   line-height: 1.2;
 }
 
@@ -790,14 +816,22 @@ h3 {
 
 .pack-card-description {
   margin: 0;
-  color: var(--ink-soft);
-  line-height: 1.45;
+  color: var(--ink);
+  line-height: 1.38;
+  font-size: 0.98rem;
+}
+
+.pack-open-button {
+  width: 100%;
+  min-height: 56px;
+  border-radius: 22px;
+  font-size: 1.02rem;
 }
 
 .pack-card-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
 .pack-badge {
@@ -809,7 +843,7 @@ h3 {
   background: rgba(11, 115, 200, 0.08);
   color: var(--ink);
   border: 1px solid rgba(11, 115, 200, 0.12);
-  font-size: 0.86rem;
+  font-size: 0.88rem;
   font-weight: 700;
 }
 
@@ -1235,9 +1269,8 @@ textarea {
   }
 
   .logo-mark {
-    width: 48px;
-    height: 48px;
-    border-radius: 16px;
+    width: 52px;
+    height: 52px;
   }
 
   h1 {
@@ -1303,6 +1336,11 @@ textarea {
     min-width: 108px;
     padding: 0 12px;
     font-size: 0.84rem;
+  }
+
+  .words-header-action {
+    min-width: 52px;
+    width: 52px;
   }
 
   .action-grid,
@@ -1611,23 +1649,29 @@ textarea {
     gap: 8px;
   }
 
+  .pack-section {
+    padding: 16px;
+  }
+
+  .pack-manual-button {
+    min-width: 138px;
+    min-height: 64px;
+    padding: 10px 14px;
+  }
+
   .pack-card {
-    padding: 14px;
-    border-radius: 20px;
-  }
-
-  .pack-card-header {
-    grid-template-columns: 1fr;
-  }
-
-  .pack-card-header .primary-button,
-  .pack-card-header .secondary-button {
-    width: 100%;
+    padding: 16px;
+    border-radius: 22px;
   }
 
   .pack-scenario-card {
     padding: 11px 12px;
     border-radius: 16px;
+  }
+
+  .pack-open-button {
+    min-height: 50px;
+    font-size: 0.96rem;
   }
 
   .pack-list .segment-button {

@@ -18,7 +18,7 @@ export default function AppTopbar({
     <header className={`glass-card topbar ${extraClass}`.trim()}>
       <div className="topbar-brand">
         <LogoMark />
-        <div>
+        <div className="topbar-copy">
           <p className="overline">VocabuMe</p>
           <strong className="app-title">{currentTitle}</strong>
         </div>
@@ -43,15 +43,14 @@ export default function AppTopbar({
         <button
           className={
             showLibraryAdd
-              ? "secondary-button header-action active"
-              : "secondary-button header-action"
+              ? "secondary-button header-action words-header-action active"
+              : "secondary-button header-action words-header-action"
           }
           type="button"
           onClick={onToggleAddWords}
           aria-label="Добавить слова"
         >
           <span className="header-action-mark">＋</span>
-          <span>Добавить</span>
         </button>
       ) : !isMiniApp ? (
         <button
