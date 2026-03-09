@@ -4,11 +4,13 @@ TRAVEL_PACKS = [
         "title": "Travel",
         "emoji": "✈️",
         "description": "Слова и фразы для поездок, аэропорта, отеля и перемещений.",
+        "difficulty": "Средний",
         "levels": [
             {
                 "id": "airport_boarding",
                 "title": "Аэропорт и посадка",
                 "description": "Все, что нужно для рейса, регистрации и посадки.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "passport", "translation": "паспорт"},
                     {"word": "ticket", "translation": "билет"},
@@ -26,6 +28,7 @@ TRAVEL_PACKS = [
                 "id": "hotel_stay",
                 "title": "Отель и проживание",
                 "description": "Заселение, бронь, проживание и бытовые вопросы в отеле.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "hotel", "translation": "отель"},
                     {"word": "reservation", "translation": "бронь", "synonyms": ["бронирование"]},
@@ -45,6 +48,7 @@ TRAVEL_PACKS = [
                 "id": "city_transport",
                 "title": "Маршрут и город",
                 "description": "Навигация, транспорт и перемещения по новому городу.",
+                "difficulty": "Средний",
                 "items": [
                     {"word": "map", "translation": "карта"},
                     {"word": "tourist", "translation": "турист"},
@@ -77,11 +81,13 @@ ENGLISH_RELOCATION_PACKS = [
         "title": "English: работа и документы в Грузии",
         "emoji": "📄",
         "description": "Фразы и слова для трудоустройства, документов и общения с работодателем.",
+        "difficulty": "Средний",
         "levels": [
             {
                 "id": "job_documents",
                 "title": "Документы и анкета",
                 "description": "Подать документы, заполнить форму и договориться о следующем шаге.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "work permit", "translation": "разрешение на работу"},
                     {"word": "passport copy", "translation": "копия паспорта"},
@@ -97,6 +103,7 @@ ENGLISH_RELOCATION_PACKS = [
                 "id": "contract_and_terms",
                 "title": "Договор и условия",
                 "description": "Обсуждение условий, подписи и деталей выхода на работу.",
+                "difficulty": "Средний",
                 "items": [
                     {"word": "employment contract", "translation": "трудовой договор"},
                     {"word": "signature", "translation": "подпись"},
@@ -115,11 +122,13 @@ ENGLISH_RELOCATION_PACKS = [
         "title": "English: банк и счет в Грузии",
         "emoji": "🏦",
         "description": "Лексика для открытия счета, карты и общения в отделении банка.",
+        "difficulty": "Средний",
         "levels": [
             {
                 "id": "open_account",
                 "title": "Открытие счета",
                 "description": "Самые нужные слова и фразы для старта и открытия счета.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "bank account", "translation": "банковский счет"},
                     {"word": "debit card", "translation": "дебетовая карта"},
@@ -135,6 +144,7 @@ ENGLISH_RELOCATION_PACKS = [
                 "id": "statements_and_transfers",
                 "title": "Выписка и переводы",
                 "description": "Запрос выписки, реквизитов и обсуждение комиссий.",
+                "difficulty": "Средний",
                 "items": [
                     {"word": "statement", "translation": "выписка"},
                     {"word": "cash deposit", "translation": "внесение наличных"},
@@ -152,11 +162,13 @@ ENGLISH_RELOCATION_PACKS = [
         "title": "Новая страна: первая неделя",
         "emoji": "🧭",
         "description": "Бытовые фразы для связи, адреса, транспорта и первых дел после переезда.",
+        "difficulty": "Легкий",
         "levels": [
             {
                 "id": "connection_and_address",
                 "title": "Связь и адрес",
                 "description": "SIM, доставка, адрес и базовые бытовые действия в первые дни.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "SIM card", "translation": "сим-карта"},
                     {"word": "address registration", "translation": "регистрация адреса"},
@@ -171,6 +183,7 @@ ENGLISH_RELOCATION_PACKS = [
                 "id": "housing_and_city",
                 "title": "Жилье и город",
                 "description": "Аренда, транспорт, магазин и повседневные просьбы по городу.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "rental agreement", "translation": "договор аренды"},
                     {"word": "utility bill", "translation": "счет за коммунальные услуги"},
@@ -192,11 +205,13 @@ GEORGIAN_TEST_PACKS = [
         "title": "Базовый грузинский",
         "emoji": "🇬🇪",
         "description": "Тестовый набор из самых базовых слов и фраз для первых дней.",
+        "difficulty": "Легкий",
         "levels": [
             {
                 "id": "starter",
                 "title": "Первые 10",
                 "description": "Приветствие, вежливость и простые бытовые фразы.",
+                "difficulty": "Легкий",
                 "items": [
                     {
                         "word": "გამარჯობა",
@@ -252,11 +267,13 @@ GEORGIAN_RELOCATION_PACKS = [
         "title": "Грузинский: работа и документы",
         "emoji": "📄",
         "description": "Фразы для документов, работодателя и бытовых вопросов по работе в Грузии.",
+        "difficulty": "Средний",
         "levels": [
             {
                 "id": "job_documents",
                 "title": "Документы и анкета",
                 "description": "Подача документов и базовые вопросы по оформлению на работу.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "სამუშაო", "translation": "работа"},
                     {"word": "საბუთები", "translation": "документы"},
@@ -272,6 +289,7 @@ GEORGIAN_RELOCATION_PACKS = [
                 "id": "contract_and_terms",
                 "title": "Договор и условия",
                 "description": "Подпись, зарплата, график и детали выхода на работу.",
+                "difficulty": "Средний",
                 "items": [
                     {"word": "კონტრაქტი", "translation": "договор"},
                     {"word": "ხელმოწერა", "translation": "подпись"},
@@ -290,11 +308,13 @@ GEORGIAN_RELOCATION_PACKS = [
         "title": "Грузинский: банк и счет",
         "emoji": "🏦",
         "description": "Самые нужные слова и фразы для банка и открытия счета в Грузии.",
+        "difficulty": "Средний",
         "levels": [
             {
                 "id": "open_account",
                 "title": "Открытие счета",
                 "description": "Первый визит в банк, открытие счета и документы.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "ბანკი", "translation": "банк"},
                     {"word": "ანგარიში", "translation": "счет"},
@@ -309,6 +329,7 @@ GEORGIAN_RELOCATION_PACKS = [
                 "id": "statements_and_transfers",
                 "title": "Выписка и переводы",
                 "description": "Выписка, переводы, комиссии и вопросы по банковской карте.",
+                "difficulty": "Средний",
                 "items": [
                     {"word": "ნაღდი ფული", "translation": "наличные"},
                     {"word": "ამონაწერი", "translation": "выписка"},
@@ -328,11 +349,13 @@ GEORGIAN_RELOCATION_PACKS = [
         "title": "Новая страна: первая неделя",
         "emoji": "🧭",
         "description": "Бытовые фразы для связи, адреса, транспорта и первых шагов после переезда.",
+        "difficulty": "Легкий",
         "levels": [
             {
                 "id": "connection_and_address",
                 "title": "Связь и адрес",
                 "description": "SIM, адрес, доставка и первые бытовые действия после переезда.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "სიმ ბარათი", "translation": "сим-карта"},
                     {"word": "მისამართი", "translation": "адрес"},
@@ -347,6 +370,7 @@ GEORGIAN_RELOCATION_PACKS = [
                 "id": "housing_and_city",
                 "title": "Жилье и город",
                 "description": "Аренда, транспорт, магазин и базовые городские ситуации.",
+                "difficulty": "Легкий",
                 "items": [
                     {"word": "ქირა", "translation": "аренда"},
                     {"word": "ავტობუსის გაჩერება", "translation": "автобусная остановка"},

@@ -808,6 +808,12 @@ h3 {
   color: var(--success);
 }
 
+.pack-badge-difficulty {
+  background: rgba(11, 115, 200, 0.12);
+  border-color: rgba(11, 115, 200, 0.18);
+  color: var(--bg-deep);
+}
+
 .practice-overview-card {
   display: grid;
   gap: 12px;

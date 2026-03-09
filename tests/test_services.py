@@ -880,8 +880,10 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_english():
     assert "georgia_bank_en" in pack_ids
     assert "georgia_first_week_en" in pack_ids
     work_pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_en")
+    assert work_pack["difficulty"] == "Средний"
     assert len(work_pack["levels"]) == 2
     assert work_pack["levels"][0]["id"] == "job_documents"
+    assert work_pack["levels"][0]["difficulty"] == "Легкий"
     assert sum(level["size"] for level in work_pack["levels"]) > 10
     bank_pack = next(pack for pack in packs if pack["id"] == "georgia_bank_en")
     assert len(bank_pack["levels"]) == 2

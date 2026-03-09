@@ -2256,6 +2256,9 @@ function App() {
                             </button>
                           </div>
                           <div className="pack-card-meta">
+                            {pack.difficulty ? (
+                              <span className="pack-badge pack-badge-difficulty">{pack.difficulty}</span>
+                            ) : null}
                             <span className="pack-badge">
                               {pack.levels.length === 1 ? "1 сценарий" : `${pack.levels.length} сценария`}
                             </span>
@@ -2281,6 +2284,7 @@ function App() {
                                       <strong>{level.title}</strong>
                                       <small>{level.description}</small>
                                       <span className="pack-scenario-meta">
+                                        {level.difficulty ? `${level.difficulty} · ` : ""}
                                         {level.size} слов и фраз
                                         {level.has_added_words ? " · Добавлен" : ""}
                                       </span>
