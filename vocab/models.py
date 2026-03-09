@@ -78,6 +78,7 @@ class UserCourseProgress(models.Model):
     listening_correct = models.PositiveIntegerField(default=0)
     speaking_correct = models.PositiveIntegerField(default=0)
     review_correct = models.PositiveIntegerField(default=0)
+    total_points = models.PositiveIntegerField(default=0)
 
     class Meta:
         unique_together = ("user", "course_code")

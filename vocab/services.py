@@ -221,6 +221,7 @@ def get_course_progress_stats(user: TelegramUser, course_code: str | None = None
         "listening": progress.listening_correct or 0,
         "speaking": progress.speaking_correct or 0,
         "review": progress.review_correct or 0,
+        "points": progress.total_points or 0,
     }
 
 
@@ -609,6 +610,7 @@ def build_user_progress(user: TelegramUser) -> dict:
         "listening_correct": course_progress.listening_correct,
         "speaking_correct": course_progress.speaking_correct,
         "review_correct": course_progress.review_correct,
+        "total_points": course_progress.total_points,
         "course_code": active_course,
     }
 
@@ -2138,7 +2140,8 @@ def increment_user_metric(user: TelegramUser, field_name: str) -> TelegramUser:
     progress = get_or_create_user_course_progress(user)
     current_value = getattr(progress, field_name, 0) or 0
     setattr(progress, field_name, current_value + 1)
-    progress.save(update_fields=[field_name])
+    progress.total_points = (progress.total_points or 0) + 1
+    progress.save(update_fields=[field_name, "total_points"])
     return user
 
 
@@ -2362,10 +2365,12 @@ def submit_choice_answer(
             increment_user_metric(user, "practice_correct")
 
     update_learning_streak(user)
+    points_earned = 1 if correct else 0
     return {
         "correct": correct,
         "item": serialize_word(updated),
         "correct_answer": correct_answer,
+        "points_earned": points_earned,
         "progress": build_user_progress(user),
     }
 
@@ -2410,6 +2415,7 @@ def submit_listening_answer(
         "item": serialize_word(updated),
         "correct_answer": expected,
         "accepted_with_typo": accepted_with_typo,
+        "points_earned": 1 if correct else 0,
         "progress": build_user_progress(user),
     }
 
@@ -2441,6 +2447,7 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
             "transcript": transcript,
             "item": serialize_word(updated),
             "correct_answer": item.word,
+            "points_earned": 1,
             "progress": build_user_progress(user),
         }
 
@@ -2452,6 +2459,7 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
             "transcript": transcript,
             "item": serialize_word(item),
             "correct_answer": item.word,
+            "points_earned": 0,
             "progress": build_user_progress(user),
         }
 
@@ -2462,6 +2470,7 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
         "transcript": transcript,
         "item": serialize_word(item),
         "correct_answer": item.word,
+        "points_earned": 0,
         "progress": build_user_progress(user),
     }
 
@@ -2520,6 +2529,7 @@ def submit_learning_text_answer(
         "item": serialize_word(updated),
         "correct_answer": expected,
         "accepted_with_typo": accepted_with_typo,
+        "points_earned": 1 if correct else 0,
         "progress": build_user_progress(user),
         "exercise_type": exercise_type,
     }
@@ -2589,6 +2599,7 @@ def submit_alphabet_answer(
         "correct": correct,
         "correct_answer": letter["symbol"],
         "letter": letter,
+        "points_earned": 1 if correct else 0,
         "progress": build_user_progress(user),
     }
 
@@ -2619,7 +2630,8 @@ def update_irregular_progress(
     if correct:
         course_progress = get_or_create_user_course_progress(user, active_course)
         course_progress.irregular_correct += 1
-        course_progress.save(update_fields=["irregular_correct"])
+        course_progress.total_points = (course_progress.total_points or 0) + 1
+        course_progress.save(update_fields=["irregular_correct", "total_points"])
     return progress
 
 

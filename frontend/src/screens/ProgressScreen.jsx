@@ -1,6 +1,6 @@
 export default function ProgressScreen({ progress, stats }) {
   const progressTopStats = stats.slice(0, 3);
-  const progressStreakStat = stats[3];
+  const progressSecondaryStats = stats.slice(3);
 
   return (
     <div className="screen-stack">
@@ -12,12 +12,14 @@ export default function ProgressScreen({ progress, stats }) {
           </article>
         ))}
       </section>
-      {progressStreakStat ? (
+      {progressSecondaryStats.length ? (
         <section className="stats-grid progress-secondary-stats">
-          <article className="glass-card stat-card">
-            <span>{progressStreakStat.label}</span>
-            <strong>{progressStreakStat.value}</strong>
-          </article>
+          {progressSecondaryStats.map((item) => (
+            <article key={item.label} className="glass-card stat-card">
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </article>
+          ))}
         </section>
       ) : null}
       <section className="glass-card compact-section">

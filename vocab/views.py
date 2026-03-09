@@ -1050,6 +1050,7 @@ def irregular_answer(request: HttpRequest) -> JsonResponse:
             "ok": True,
             "correct": correct,
             "correct_answer": correct_pair,
+            "points_earned": 1 if correct else 0,
             "progress": build_user_progress(user),
         }
     )

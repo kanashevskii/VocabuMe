@@ -40,6 +40,19 @@ function getSessionPraise(correct, total) {
   return `🌱 Начало положено. Следующая сессия уже будет увереннее.`;
 }
 
+function formatPointsLabel(points) {
+  const value = Math.abs(Number(points) || 0);
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) {
+    return "очко";
+  }
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return "очка";
+  }
+  return "очков";
+}
+
 function formatLearnCorrectAnswer(learnQuestion, learnResult) {
   const answer = learnResult?.correct_answer || "";
   if (!learnQuestion || !learnResult) {
@@ -355,6 +368,7 @@ function App() {
     return [
       { label: "📚 Словарь", value: progress?.total ?? 0 },
       { label: "✅ Выучено", value: progress?.learned ?? 0 },
+      { label: "✨ Очки", value: progress?.total_points ?? 0 },
       { label: "🔄 В процессе", value: progress?.learning ?? 0 },
       { label: "🔥 Серия", value: progress?.streak_days ?? 0 }
     ];
@@ -1987,6 +2001,7 @@ function App() {
       formatLearnCorrectAnswer(learnQuestion, learnResult),
       learnQuestion.item?.course_code,
     );
+    const learnPointsEarned = learnResult?.points_earned || 0;
     const learnResultText = learnResult
       ? (() => {
         if (learnResult.skipped) {
@@ -2081,13 +2096,20 @@ function App() {
           ) : null}
           {learnResult ? (
             <div className={isSpeaking ? statusClass : learnResult.correct ? "result-box good" : "result-box bad"}>
-              <span>
-                {isSpeaking
-                  ? learnResult.skipped
-                    ? `Правильный ответ: ${formatDisplayAnswer(learnResult.correct_answer, learnQuestion.item?.course_code)}`
-                    : `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
-                  : learnResultText}
-              </span>
+              <div className="result-copy">
+                <span>
+                  {isSpeaking
+                    ? learnResult.skipped
+                      ? `Правильный ответ: ${formatDisplayAnswer(learnResult.correct_answer, learnQuestion.item?.course_code)}`
+                      : `${learnResult.message} Транскрибация: ${learnResult.transcript || "—"}.`
+                    : learnResultText}
+                </span>
+                {learnPointsEarned ? (
+                  <span className="points-burst">
+                    ✨ +{learnPointsEarned} {formatPointsLabel(learnPointsEarned)} · всего {learnResult.progress?.total_points || 0}
+                  </span>
+                ) : null}
+              </div>
               <button className="secondary-button" type="button" onClick={() => void advanceLearnSession()}>
                 Дальше
               </button>
@@ -2655,7 +2677,14 @@ function App() {
                 ) : null}
                 {irregularResult ? (
                   <div className={irregularResult.correct ? "result-box good" : "result-box bad"}>
-                    <span>{irregularResult.correct ? "Верно" : `Правильный ответ: ${irregularResult.correct_answer}`}</span>
+                    <div className="result-copy">
+                      <span>{irregularResult.correct ? "Верно" : `Правильный ответ: ${irregularResult.correct_answer}`}</span>
+                      {irregularResult.points_earned ? (
+                        <span className="points-burst">
+                          🎉 +{irregularResult.points_earned} {formatPointsLabel(irregularResult.points_earned)} · всего {irregularResult.progress?.total_points || 0}
+                        </span>
+                      ) : null}
+                    </div>
                     <button className="secondary-button" type="button" onClick={() => void advanceIrregularTest()}>
                       Дальше
                     </button>
@@ -2666,7 +2695,7 @@ function App() {
                 <div className="stack-form">
                   <div className="empty-state">
                     {irregularSessionDone
-                    ? `Тест завершён. Верно ${irregularCorrectCount} из ${irregularQuestionCount || irregularSessionLimit}. ${getSessionPraise(irregularCorrectCount, irregularQuestionCount || irregularSessionLimit)}`
+                    ? `Тест завершён. Верно ${irregularCorrectCount} из ${irregularQuestionCount || irregularSessionLimit}. ✨ +${irregularCorrectCount} ${formatPointsLabel(irregularCorrectCount)}. ${getSessionPraise(irregularCorrectCount, irregularQuestionCount || irregularSessionLimit)}`
                     : "Сейчас нет вопроса по глаголам."}
                   </div>
                 {irregularSessionDone ? (
@@ -2754,14 +2783,21 @@ function App() {
                 ) : null}
                 {alphabetResult ? (
                   <div className={alphabetResult.correct ? "result-box good" : "result-box bad"}>
-                    <span>
-                      {alphabetResult.correct
-                        ? "Верно"
-                        : `Правильный ответ: ${formatDisplayAnswer(
-                          alphabetResult.correct_answer,
-                          alphabetQuestion.course_code,
-                        )}`}
-                    </span>
+                    <div className="result-copy">
+                      <span>
+                        {alphabetResult.correct
+                          ? "Верно"
+                          : `Правильный ответ: ${formatDisplayAnswer(
+                            alphabetResult.correct_answer,
+                            alphabetQuestion.course_code,
+                          )}`}
+                      </span>
+                      {alphabetResult.points_earned ? (
+                        <span className="points-burst">
+                          🌟 +{alphabetResult.points_earned} {formatPointsLabel(alphabetResult.points_earned)} · всего {alphabetResult.progress?.total_points || 0}
+                        </span>
+                      ) : null}
+                    </div>
                     <button className="secondary-button" type="button" onClick={() => void advanceAlphabetTest()}>
                       Дальше
                     </button>
@@ -2772,7 +2808,7 @@ function App() {
               <div className="stack-form">
                 <div className="empty-state">
                   {alphabetSessionDone
-                    ? `Тест завершён. Верно ${alphabetCorrectCount} из ${alphabetQuestionCount || alphabetSessionLimit}. ${getSessionPraise(alphabetCorrectCount, alphabetQuestionCount || alphabetSessionLimit)}`
+                    ? `Тест завершён. Верно ${alphabetCorrectCount} из ${alphabetQuestionCount || alphabetSessionLimit}. 🌟 +${alphabetCorrectCount} ${formatPointsLabel(alphabetCorrectCount)}. ${getSessionPraise(alphabetCorrectCount, alphabetQuestionCount || alphabetSessionLimit)}`
                     : "Сейчас нет вопроса по алфавиту."}
                 </div>
                 {alphabetSessionDone ? (

@@ -542,6 +542,8 @@ def test_submit_learning_text_answer_accepts_georgian_latin_input():
     assert result["correct"] is True
     assert result["correct_answer"] == "მადლობა"
     assert result["accepted_with_typo"] is False
+    assert result["points_earned"] == 1
+    assert result["progress"]["total_points"] == 1
 
 
 @pytest.mark.django_db
@@ -563,6 +565,7 @@ def test_submit_learning_text_answer_reverse_mode_accepts_typo():
     assert result["correct"] is True
     assert result["accepted_with_typo"] is True
     assert progress.practice_correct == 1
+    assert progress.total_points == 1
 
 
 @pytest.mark.django_db
@@ -602,7 +605,9 @@ def test_evaluate_speaking_answer_marks_correct_attempt():
     progress = get_or_create_user_course_progress(user)
 
     assert result["status"] == "correct"
+    assert result["points_earned"] == 1
     assert progress.speaking_correct == 1
+    assert progress.total_points == 1
     assert "speaking" in item.completed_exercise_types
 
 
@@ -1037,7 +1042,9 @@ def test_submit_alphabet_answer_marks_correct_progress_for_active_course():
     assert result["correct"] is True
     assert result["correct_answer"] == "A"
     assert result["letter"]["transcription"] == "eɪ"
+    assert result["points_earned"] == 1
     assert progress.practice_correct == 1
+    assert progress.total_points == 1
 
 
 @pytest.mark.django_db
