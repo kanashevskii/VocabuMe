@@ -332,10 +332,10 @@ function App() {
   const stats = useMemo(() => {
     const progress = dashboard?.progress || auth.progress;
     return [
-      { label: "📚 Words", value: progress?.total ?? 0 },
-      { label: "✅ Learned", value: progress?.learned ?? 0 },
-      { label: "🔄 Learning", value: progress?.learning ?? 0 },
-      { label: "🔥 Streak", value: progress?.streak_days ?? 0 }
+      { label: "📚 Словарь", value: progress?.total ?? 0 },
+      { label: "✅ Выучено", value: progress?.learned ?? 0 },
+      { label: "🔄 В процессе", value: progress?.learning ?? 0 },
+      { label: "🔥 Серия", value: progress?.streak_days ?? 0 }
     ];
   }, [auth.progress, dashboard]);
 
