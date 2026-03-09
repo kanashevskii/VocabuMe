@@ -1,5 +1,15 @@
 import { TIMEZONE_OPTIONS } from "../constants";
 
+const REMINDER_INTERVAL_OPTIONS = [
+  { value: 1, label: "Каждый день" },
+  { value: 2, label: "Раз в 2 дня" },
+  { value: 3, label: "Раз в 3 дня" },
+  { value: 5, label: "Раз в 5 дней" },
+  { value: 7, label: "Раз в неделю" },
+  { value: 14, label: "Раз в 2 недели" },
+  { value: 30, label: "Раз в 30 дней" },
+];
+
 export default function SettingsScreen({
   onChange,
   onSave,
@@ -25,6 +35,17 @@ export default function SettingsScreen({
       { code: "en", label: "Английский" },
       { code: "ka", label: "Грузинский" },
     ];
+  const reminderIntervalOptions = REMINDER_INTERVAL_OPTIONS.some(
+    (item) => item.value === settings.reminder_interval_days,
+  )
+    ? REMINDER_INTERVAL_OPTIONS
+    : [
+        ...REMINDER_INTERVAL_OPTIONS,
+        {
+          value: settings.reminder_interval_days,
+          label: `Раз в ${settings.reminder_interval_days} дн.`,
+        },
+      ];
   const georgianDisplayModeOptions =
     settings.georgian_display_mode_options || [
       { code: "both", label: "Грузинский + латиница", recommended: true },
@@ -118,16 +139,20 @@ export default function SettingsScreen({
           />
         </label>
         <label>
-          <span>Интервал напоминаний</span>
-          <input
-            type="number"
-            min="1"
-            max="30"
+          <span>Как часто напоминать</span>
+          <small>Выбери понятный ритм, например каждый день или раз в неделю.</small>
+          <select
             value={settings.reminder_interval_days}
             onChange={(event) =>
               onChange("reminder_interval_days", Number(event.target.value))
             }
-          />
+          >
+            {reminderIntervalOptions.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           <span>Время напоминания</span>
