@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from io import BytesIO
 
 import pytest
 from PIL import Image
+from django.utils import timezone
 from vocab.models import (
     AddWordDraft,
     PaymentAttempt,
@@ -25,6 +27,7 @@ from vocab.services import (
     build_listening_question,
     build_user_progress,
     build_speaking_question,
+    clear_stale_image_generation_flags,
     consume_web_login_token,
     create_bot_payment_attempt,
     create_checkout_session,
@@ -64,6 +67,7 @@ from vocab.services import (
     submit_listening_answer,
     split_translation_variants,
     sync_word_learning_state,
+    serialize_word,
     user_has_premium,
     is_course_word_answer_correct,
 )
@@ -168,6 +172,31 @@ def test_create_checkout_session_returns_invoice_link(monkeypatch):
         PaymentAttempt.objects.get(invoice_payload=result["invoice_payload"]).plan.code
         == "premium_yearly"
     )
+
+
+@pytest.mark.django_db
+def test_serialize_word_clears_stale_image_generation_flag():
+    user = TelegramUser.objects.create(chat_id=10003, username="tester")
+    item = VocabularyItem.objects.create(
+        user=user,
+        word="former",
+        normalized_word="former",
+        translation="бывший",
+        transcription="",
+        example="He is a former champion.",
+        example_translation="Он бывший чемпион.",
+        image_generation_in_progress=True,
+    )
+    VocabularyItem.objects.filter(id=item.id).update(
+        updated_at=timezone.now() - timedelta(minutes=25)
+    )
+    item.refresh_from_db()
+
+    payload = serialize_word(item)
+
+    item.refresh_from_db()
+    assert payload["image_generation_in_progress"] is False
+    assert item.image_generation_in_progress is False
 
 
 def test_parse_word_batch_supports_translation_hints_and_bullets():

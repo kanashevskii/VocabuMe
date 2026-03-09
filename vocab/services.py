@@ -69,6 +69,7 @@ _PACK_PREPARATION_IN_FLIGHT: set[str] = set()
 logger = logging.getLogger(__name__)
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
 ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+IMAGE_GENERATION_STALE_MINUTES = 20
 EXERCISE_TYPE_LABELS = {
     "practice_en_ru": "Тест EN -> RU",
     "practice_ru_en": "Тест RU -> EN",
@@ -204,6 +205,45 @@ def get_or_create_user_course_progress(
         user=user, course_code=normalized
     )
     return progress
+
+
+def _image_generation_stale_before() -> datetime:
+    return timezone.now() - timedelta(minutes=IMAGE_GENERATION_STALE_MINUTES)
+
+
+def clear_stale_image_generation_flags() -> dict[str, int]:
+    stale_before = _image_generation_stale_before()
+    cleared_words = VocabularyItem.objects.filter(
+        image_generation_in_progress=True,
+        updated_at__lt=stale_before,
+    ).update(image_generation_in_progress=False)
+    cleared_drafts = AddWordDraft.objects.filter(
+        image_generation_in_progress=True,
+        updated_at__lt=stale_before,
+    ).update(image_generation_in_progress=False)
+    cleared_packs = PackPreparedWord.objects.filter(
+        image_generation_in_progress=True,
+        prepared_at__lt=stale_before,
+    ).update(image_generation_in_progress=False)
+    return {
+        "words": cleared_words,
+        "drafts": cleared_drafts,
+        "packs": cleared_packs,
+    }
+
+
+def _clear_stale_word_flag(item: VocabularyItem) -> VocabularyItem:
+    if item.image_generation_in_progress and item.updated_at < _image_generation_stale_before():
+        item.image_generation_in_progress = False
+        item.save(update_fields=["image_generation_in_progress", "updated_at"])
+    return item
+
+
+def _clear_stale_draft_flag(draft: AddWordDraft) -> AddWordDraft:
+    if draft.image_generation_in_progress and draft.updated_at < _image_generation_stale_before():
+        draft.image_generation_in_progress = False
+        draft.save(update_fields=["image_generation_in_progress", "updated_at"])
+    return draft
 
 
 def sync_subscription_plans() -> list[SubscriptionPlan]:
@@ -1013,6 +1053,7 @@ def serialize_user(user: TelegramUser) -> dict:
 
 
 def serialize_word(item: VocabularyItem) -> dict:
+    item = _clear_stale_word_flag(item)
     image_file = get_word_image_file(item)
     return {
         "id": item.id,
@@ -1038,6 +1079,7 @@ def serialize_word(item: VocabularyItem) -> dict:
 def list_words(
     user: TelegramUser, search: str = "", status: str = "all", limit: int = 100
 ) -> list[VocabularyItem]:
+    clear_stale_image_generation_flags()
     qs = VocabularyItem.objects.filter(
         user=user, course_code=get_active_course_code(user)
     ).order_by("-updated_at", "-id")
@@ -1670,6 +1712,7 @@ def ensure_pack_placeholders(
 def list_word_packs(
     user: TelegramUser | None = None, course_code: str | None = None
 ) -> list[dict]:
+    clear_stale_image_generation_flags()
     active_course = normalize_course_code(
         course_code or (get_active_course_code(user) if user else None)
     )
@@ -1745,6 +1788,7 @@ def has_active_user_image_generation() -> bool:
 
 
 def prepare_next_pack_word() -> PackPreparedWord | None:
+    clear_stale_image_generation_flags()
     if has_active_user_image_generation():
         logger.info(
             "Skipping pack preparation because user image generation is in progress"
@@ -2043,6 +2087,7 @@ def add_pack_words_to_user(
 
 
 def serialize_draft(draft: AddWordDraft) -> dict:
+    draft = _clear_stale_draft_flag(draft)
     image_file = get_draft_image_file(draft)
     return {
         "id": draft.id,
@@ -2206,6 +2251,7 @@ def _run_draft_image_generation(draft_id: int, version: int) -> None:
 def request_draft_image_generation(
     draft: AddWordDraft, force_regenerate: bool = False
 ) -> AddWordDraft:
+    clear_stale_image_generation_flags()
     reused_path = (
         ""
         if force_regenerate
@@ -2289,6 +2335,7 @@ def _run_word_image_generation(item_id: int, version: int) -> None:
 def request_word_image_generation(
     item: VocabularyItem, force_regenerate: bool = False
 ) -> VocabularyItem:
+    clear_stale_image_generation_flags()
     reused_path = (
         ""
         if force_regenerate
