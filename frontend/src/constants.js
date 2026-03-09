@@ -8,8 +8,8 @@ export const PRIMARY_TABS = [
 
 export const LIBRARY_MODES = [
   { id: "cards", label: "Карточки" },
-  { id: "words", label: "Список" },
   { id: "packs", label: "Наборы" },
+  { id: "words", label: "Список" },
 ];
 
 export const IRREGULAR_MODES = [

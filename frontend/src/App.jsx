@@ -1839,7 +1839,7 @@ function App() {
         ) : (
           <div className="stack-form">
             <div className="empty-state">Пока нет карточек. Добавь новые слова для изучения.</div>
-            <button className="primary-button add-words-ghost" type="button" onClick={openAddWords}>
+            <button className="primary-button add-words-ghost" type="button" onClick={openPacks}>
               ＋ Добавить слова
             </button>
           </div>
@@ -1882,7 +1882,7 @@ function App() {
                   {learnSessionDone ? "Начать новую сессию" : "Начать сессию"}
                 </button>
               ) : null}
-              <button className="secondary-button" type="button" onClick={openAddWords}>
+              <button className="secondary-button" type="button" onClick={openPacks}>
                 ＋ Добавить слова
               </button>
             </div>
@@ -2823,7 +2823,7 @@ function App() {
           todayAchievements={todayAchievements}
           hasMoreAchievements={hasMoreAchievements}
           hasWordsToLearn={(auth.progress?.learning ?? 0) > 0}
-          onOpenAddWords={openAddWords}
+          onOpenAddWords={openPacks}
           onOpenLearn={() => openLearn("practice")}
           onOpenProgress={() => setPrimaryTab("progress")}
         />
@@ -3054,7 +3054,7 @@ function App() {
             void closeAddWords();
             return;
           }
-          openAddWords();
+          openPacks();
         }}
         primaryTab={primaryTab}
         showHeaderBack={showHeaderBack}
@@ -3084,7 +3084,7 @@ function App() {
               void closeAddWords();
               return;
             }
-            openAddWords();
+            openPacks();
           }}
           primaryTab={primaryTab}
           showHeaderBack={showHeaderBack}
