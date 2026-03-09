@@ -21,8 +21,8 @@ This order is now optimized for the fastest path to first paid subscriptions, no
 | P4 | `done` | Enforce backend and frontend code quality tooling | Tooling should stabilize code after the first architectural cleanup. | Formatting, linting, and type-checking commands exist and run cleanly in local development. |
 | P5 | `done` | Refactor React app shell and shared frontend logic | Frontend cleanup should follow stabilized backend contracts and test coverage. | Large components are split, mobile navigation/layout rules hold on Telegram-sized viewports, and loading/error states are consistent. |
 | P18 | `done` | Language expansion decision and rollout | Georgian needs to become a first-class product dimension before premium logic and paid content are layered on top. | English and Georgian are supported as explicit study tracks with the minimal required data-model, service, UI, and test changes to safely extend later. |
-| P13 | `next` | Monetization model and paywall design | The fastest route to first subscriptions starts with a concrete paid offer and a clear free-vs-premium boundary, but that offer should sit on the intended language architecture. | Free vs premium limits are approved, paywall triggers are documented, and target pricing is fixed for MVP launch. |
-| P22 | `queued` | Georgia practical relocation scenarios | Users will not buy a vague relocation product; they need immediate concrete value around real Georgia-first tasks. | First approved scenario packs exist for `work permit`, `bank account`, and related everyday relocation tasks in English and Georgian. |
+| P13 | `done` | Monetization model and paywall design | The fastest route to first subscriptions starts with a concrete paid offer and a clear free-vs-premium boundary, but that offer should sit on the intended language architecture. | Free vs premium limits are approved, paywall triggers are documented, and target pricing is fixed for MVP launch. |
+| P22 | `next` | Georgia practical relocation scenarios | Users will not buy a vague relocation product; they need immediate concrete value around real Georgia-first tasks. | First approved scenario packs exist for `work permit`, `bank account`, and related everyday relocation tasks in English and Georgian. |
 | P16 | `queued` | Onboarding and premium conversion flow | First-run experience must explain the relocation promise and route the user toward the paid offer quickly. | First-run onboarding exists, teaches the core loop, and leads cleanly into the selected premium offer. |
 | P14 | `queued` | Subscription and Telegram payments | After offer and onboarding are defined, payment flow becomes the shortest path to first revenue. | Subscription models, payment flow, entitlement checks, and expiration handling work end to end. |
 | P15 | `queued` | Free-tier limits and entitlement enforcement | The paywall only converts if limits are enforced consistently after payment logic exists. | Daily/plan-based limits are enforced consistently across bot, Mini App, and website. |
@@ -50,7 +50,7 @@ Working rule for P12+:
 | Priority | Status | Task | Why later | Exit criteria |
 | --- | --- | --- | --- | --- |
 | P12 | `done` | Product positioning decision | Monetization and feature roadmap depend on a clear market wedge. | One primary positioning is chosen and documented: `English AI trainer`, `Language for relocation`, or another explicitly approved option. |
-| P13 | `queued` | Monetization model and paywall design | Payments and premium gates should follow a chosen product narrative, not precede it. | Free vs premium limits are approved, paywall triggers are documented, and target pricing is fixed for MVP launch. |
+| P13 | `done` | Monetization model and paywall design | Payments and premium gates should follow a chosen product narrative, not precede it. | Free vs premium limits are approved, paywall triggers are documented, and target pricing is fixed for MVP launch. |
 | P14 | `queued` | Subscription and Telegram payments | Billing should implement an approved offer, not a placeholder one. | Subscription models, payment flow, entitlement checks, and expiration handling work end to end. |
 | P15 | `queued` | Free-tier limits and entitlement enforcement | Limits only make sense after the paid offer and onboarding promise are defined. | Daily/plan-based limits are enforced consistently across bot, Mini App, and website. |
 | P16 | `queued` | Onboarding and premium conversion flow | Onboarding copy, tutorial, and paywall should reflect the chosen positioning and pricing. | First-run onboarding exists, teaches the core loop, and leads cleanly into the selected premium offer. |
@@ -210,6 +210,15 @@ Decision so far:
   - unlimited new additions
   - unlimited premium relocation packs
   - expanded AI capabilities
+- Additional approved launch assumptions:
+  - free users keep unlimited review, existing-card practice, reminders, alphabet practice, and irregular verbs
+  - free users get up to `2` relocation starter packs before premium pack gates appear
+  - first meaningful premium offer moment is a soft paywall after the first successful scenario/practice value moment
+  - hard paywalls are triggered by the daily new-item cap, premium scenario pack access, and extra image regeneration cap
+
+Implementation notes:
+- Source-of-truth constants now live in [vocab/monetization.py](/Users/eduard/PycharmProjects/englishbot/vocab/monetization.py).
+- Settings payload now exposes the approved monetization catalog so later onboarding/paywall/payment work can reuse one backend contract instead of duplicating pricing or limits in the frontend.
 
 ### P14. Subscription and Telegram payments
 

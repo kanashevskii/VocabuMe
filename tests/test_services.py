@@ -844,6 +844,9 @@ def test_get_user_settings_payload_includes_georgian_display_mode_options():
     assert payload["has_selected_georgian_display_mode"] is True
     assert payload["georgian_display_mode_options"][0]["code"] == "both"
     assert payload["georgian_display_mode_options"][0]["recommended"] is True
+    assert payload["monetization"]["default_free_plan_code"] == "free"
+    assert payload["monetization"]["plans"]["free"]["entitlements"]["max_new_items_per_day"] == 10
+    assert payload["monetization"]["plans"]["premium"]["price"]["monthly"]["amount"] == "6.99"
 
 
 @pytest.mark.django_db

@@ -35,6 +35,7 @@ from .models import (
     VocabularyItem,
     WebLoginToken,
 )
+from .monetization import get_monetization_payload
 from .openai_utils import (
     build_visual_prompt,
     generate_card_image,
@@ -1101,6 +1102,7 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "georgian_display_mode": user.georgian_display_mode,
         "has_selected_georgian_display_mode": user.has_selected_georgian_display_mode,
         "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
+        "monetization": get_monetization_payload(),
     }
 
 
