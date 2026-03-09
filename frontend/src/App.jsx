@@ -127,6 +127,7 @@ function App() {
   const [regeneratingWordId, setRegeneratingWordId] = useState(null);
   const [addText, setAddText] = useState("");
   const [packs, setPacks] = useState([]);
+  const [packsLoading, setPacksLoading] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState("travel");
   const [selectedPackLevelId, setSelectedPackLevelId] = useState("a1_a2");
   const [selectedPackWords, setSelectedPackWords] = useState({});
@@ -704,7 +705,7 @@ function App() {
     if (!auth.authenticated) {
       return;
     }
-    Promise.all([loadDashboard(), loadStudyCardsOnly()])
+    Promise.all([loadDashboard(), loadStudyCardsOnly(), loadPacks()])
       .catch((error) => setNotice(error.message));
   }, [auth.authenticated, deferredSearch, statusFilter, irregularPage, alphabetPage]);
 
@@ -741,7 +742,7 @@ function App() {
   }, [auth.authenticated, words, cardQueue]);
 
   useEffect(() => {
-    if (!auth.authenticated || !showLibraryAdd) {
+    if (!auth.authenticated || (!showLibraryAdd && libraryMode !== "packs")) {
       return;
     }
     setSelectedPackId("");
@@ -750,7 +751,7 @@ function App() {
     setIsPackExpanded(false);
     void loadPacks();
     void preparePacksInBackground();
-  }, [auth.authenticated, showLibraryAdd, activeStudiedLanguage]);
+  }, [auth.authenticated, showLibraryAdd, libraryMode, activeStudiedLanguage]);
 
   useEffect(() => {
     if (!needsOnboarding) {
@@ -897,16 +898,21 @@ function App() {
   }
 
   async function loadPacks() {
-    const data = await api("/api/packs");
-    const nextPacks = data.packs || [];
-    setPacks(nextPacks);
-    if (!nextPacks.length) {
-      return;
+    setPacksLoading(true);
+    try {
+      const data = await api("/api/packs");
+      const nextPacks = data.packs || [];
+      setPacks(nextPacks);
+      if (!nextPacks.length) {
+        return;
+      }
+      const nextPack = nextPacks.find((pack) => pack.id === selectedPackId) || nextPacks[0];
+      const nextLevel = nextPack.levels.find((level) => level.id === selectedPackLevelId) || nextPack.levels[0];
+      setSelectedPackId(nextPack.id);
+      setSelectedPackLevelId(nextLevel?.id || "");
+    } finally {
+      setPacksLoading(false);
     }
-    const nextPack = nextPacks.find((pack) => pack.id === selectedPackId) || nextPacks[0];
-    const nextLevel = nextPack.levels.find((level) => level.id === selectedPackLevelId) || nextPack.levels[0];
-    setSelectedPackId(nextPack.id);
-    setSelectedPackLevelId(nextLevel?.id || "");
   }
 
   async function handleAddWords(event) {
@@ -2373,9 +2379,9 @@ function App() {
               );
             })}
           </div>
-        ) : (
-          <div className="empty-state">Пока нет доступных наборов.</div>
-        )}
+        ) : packsLoading ? (
+          <div className="empty-state">Загружаем наборы...</div>
+        ) : null}
       </section>
     );
   }
