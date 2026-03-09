@@ -61,7 +61,7 @@ class Command(BaseCommand):
                         [
                             [
                                 InlineKeyboardButton(
-                                    "🚀 Открыть Lingua Voyage",
+                                    "🚀 Открыть VocabuMe",
                                     web_app=WebAppInfo(url=webapp_url),
                                 )
                             ]
@@ -69,7 +69,7 @@ class Command(BaseCommand):
                     )
                 await bot.send_message(
                     chat_id=user.chat_id,
-                    text="🕒 Пора продолжить занятие. Открой Lingua Voyage и пройди короткую практику.",
+                    text="🕒 Пора продолжить занятие. Открой VocabuMe и пройди короткую практику.",
                     reply_markup=reply_markup,
                 )
                 await self._mark_sent(user, today_local)

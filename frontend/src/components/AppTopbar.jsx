@@ -19,7 +19,7 @@ export default function AppTopbar({
       <div className="topbar-brand">
         <LogoMark />
         <div>
-          <p className="overline">Lingua Voyage</p>
+          <p className="overline">VocabuMe</p>
           <strong className="app-title">{currentTitle}</strong>
         </div>
       </div>

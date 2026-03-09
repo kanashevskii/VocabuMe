@@ -1,6 +1,6 @@
-# Lingua Voyage
+# VocabuMe
 
-Lingua Voyage is an English learning product that now runs in three connected surfaces:
+VocabuMe is an English learning product that now runs in three connected surfaces:
 - Telegram bot
 - Telegram Mini App
 - Website with Telegram-based sign-in
@@ -12,15 +12,15 @@ Links:
 
 ## Usage terms
 
-Lingua Voyage is provided for personal, non-commercial use only.
+VocabuMe is provided for personal, non-commercial use only.
 
 Commercial use, resale, sublicensing, paid access, white-label use, use inside commercial products, or any other commercial exploitation is prohibited without prior written permission from the author.
 
-If you want to use Lingua Voyage commercially, obtain explicit written permission first.
+If you want to use VocabuMe commercially, obtain explicit written permission first.
 
 ## Current product scope
 
-Lingua Voyage supports:
+VocabuMe supports:
 - adding words and phrases in batch
 - flashcards
 - multiple-choice practice

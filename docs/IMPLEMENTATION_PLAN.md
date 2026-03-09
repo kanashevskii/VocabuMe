@@ -1,6 +1,6 @@
-# Lingua Voyage Implementation Plan
+# VocabuMe Implementation Plan
 
-This file is the execution backlog for bringing Lingua Voyage to a senior/staff engineering baseline.
+This file is the execution backlog for bringing VocabuMe to a senior/staff engineering baseline.
 
 Working rule:
 - Execute one task at a time.
@@ -173,7 +173,7 @@ Current sequencing note:
 ### P12. Product positioning decision
 
 Open questions to agree before work starts:
-- Is Lingua Voyage primarily staying in `English learning`, or are we explicitly moving toward `language for relocation`?
+- Is VocabuMe primarily staying in `English learning`, or are we explicitly moving toward `language for relocation`?
 - If we keep English, what is the wedge: `AI trainer`, `simple Telegram-first SRS`, `English for IT`, `English for beginners`, or another niche?
 - If we move toward relocation, which first market do we want to own: `Georgian`, `Armenian`, `Turkish`, or a broader relocation-first bundle?
 - Are we optimizing for a broad market, or for a smaller but easier-to-convert niche?
@@ -424,7 +424,7 @@ Implementation approach after agreement:
 Growth-loop framing:
 - Treat referral as only one part of the growth system, not the whole system.
 - The target is a true loop: `User -> Action -> Exposure -> New Users -> Repeat`.
-- Telegram-native candidates for Lingua Voyage:
+- Telegram-native candidates for VocabuMe:
   - `share progress`
   - `share word`
   - `challenge invite`
@@ -437,6 +437,6 @@ Recommended rollout order:
 4. later: `challenge loop` and `group learning`
 
 Minimum viable loop set:
-- Shareable word card with deep link back to Lingua Voyage.
+- Shareable word card with deep link back to VocabuMe.
 - Shareable progress card with streak / learned words / CTA.
 - Referral bonus tied to a clear activation event.
