@@ -719,9 +719,13 @@ function App() {
     if (!auth.authenticated || !showLibraryAdd) {
       return;
     }
+    setSelectedPackId("");
+    setSelectedPackLevelId("");
+    setSelectedPackWords({});
+    setIsPackExpanded(false);
     void loadPacks();
     void preparePacksInBackground();
-  }, [auth.authenticated, showLibraryAdd]);
+  }, [auth.authenticated, showLibraryAdd, activeStudiedLanguage]);
 
   useEffect(() => {
     if (!loginToken || auth.authenticated) {
