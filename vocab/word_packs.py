@@ -94,6 +94,84 @@ TRAVEL_PACKS = [
     }
 ]
 
+ENGLISH_RELOCATION_PACKS = [
+    {
+        "id": "georgia_work_permit_en",
+        "title": "Грузия: работа и документы",
+        "emoji": "📄",
+        "description": "Фразы и слова для трудоустройства, документов и общения с работодателем.",
+        "levels": [
+            {
+                "id": "starter",
+                "title": "Старт",
+                "description": "Базовые фразы для работы, договора и документов.",
+                "items": [
+                    {"word": "work permit", "translation": "разрешение на работу"},
+                    {"word": "employment contract", "translation": "трудовой договор"},
+                    {"word": "job offer", "translation": "предложение о работе"},
+                    {"word": "passport copy", "translation": "копия паспорта"},
+                    {"word": "tax ID", "translation": "налоговый номер"},
+                    {"word": "application form", "translation": "форма заявления"},
+                    {"word": "signature", "translation": "подпись"},
+                    {"word": "start date", "translation": "дата начала работы"},
+                    {"word": "salary", "translation": "зарплата"},
+                    {"word": "I need help with my documents.", "translation": "Мне нужна помощь с документами."},
+                ],
+            }
+        ],
+    },
+    {
+        "id": "georgia_bank_en",
+        "title": "Грузия: банк и счет",
+        "emoji": "🏦",
+        "description": "Лексика для открытия счета, карты и общения в отделении банка.",
+        "levels": [
+            {
+                "id": "starter",
+                "title": "Старт",
+                "description": "Самые нужные слова и фразы для банка в первые дни.",
+                "items": [
+                    {"word": "bank account", "translation": "банковский счет"},
+                    {"word": "debit card", "translation": "дебетовая карта"},
+                    {"word": "statement", "translation": "выписка"},
+                    {"word": "cash deposit", "translation": "внесение наличных"},
+                    {"word": "withdraw money", "translation": "снять деньги"},
+                    {"word": "mobile banking", "translation": "мобильный банк"},
+                    {"word": "proof of address", "translation": "подтверждение адреса"},
+                    {"word": "I want to open a bank account.", "translation": "Я хочу открыть банковский счет."},
+                    {"word": "What documents do I need?", "translation": "Какие документы мне нужны?"},
+                    {"word": "How long does it take?", "translation": "Сколько это занимает времени?"},
+                ],
+            }
+        ],
+    },
+    {
+        "id": "georgia_first_week_en",
+        "title": "Грузия: первая неделя",
+        "emoji": "🧭",
+        "description": "Бытовые фразы для связи, адреса, транспорта и первых дел после переезда.",
+        "levels": [
+            {
+                "id": "starter",
+                "title": "Старт",
+                "description": "Повседневная практическая лексика для первых дней в Грузии.",
+                "items": [
+                    {"word": "SIM card", "translation": "сим-карта"},
+                    {"word": "rental agreement", "translation": "договор аренды"},
+                    {"word": "utility bill", "translation": "счет за коммунальные услуги"},
+                    {"word": "address registration", "translation": "регистрация адреса"},
+                    {"word": "bus stop", "translation": "автобусная остановка"},
+                    {"word": "top up balance", "translation": "пополнить баланс"},
+                    {"word": "monthly pass", "translation": "месячный проездной"},
+                    {"word": "I live at this address.", "translation": "Я живу по этому адресу."},
+                    {"word": "Please write it down.", "translation": "Пожалуйста, напишите это."},
+                    {"word": "I am new in Georgia.", "translation": "Я недавно в Грузии."},
+                ],
+            }
+        ],
+    },
+]
+
 GEORGIAN_TEST_PACKS = [
     {
         "id": "georgian_starter",
@@ -154,9 +232,87 @@ GEORGIAN_TEST_PACKS = [
     }
 ]
 
+GEORGIAN_RELOCATION_PACKS = [
+    {
+        "id": "georgia_work_permit_ka",
+        "title": "Грузинский: работа и документы",
+        "emoji": "📄",
+        "description": "Фразы для документов, работодателя и бытовых вопросов по работе в Грузии.",
+        "levels": [
+            {
+                "id": "starter",
+                "title": "Старт",
+                "description": "База для документов и общения по работе.",
+                "items": [
+                    {"word": "სამუშაო", "translation": "работа"},
+                    {"word": "კონტრაქტი", "translation": "договор"},
+                    {"word": "საბუთები", "translation": "документы"},
+                    {"word": "პასპორტი", "translation": "паспорт"},
+                    {"word": "ხელმოწერა", "translation": "подпись"},
+                    {"word": "ხელფასი", "translation": "зарплата"},
+                    {"word": "განაცხადი", "translation": "заявление"},
+                    {"word": "დახმარება მჭირდება", "translation": "мне нужна помощь"},
+                    {"word": "სად უნდა მოვაწერო ხელი?", "translation": "Где я должен подписать?"},
+                    {"word": "ეს დოკუმენტი მჭირდება", "translation": "Мне нужен этот документ."},
+                ],
+            }
+        ],
+    },
+    {
+        "id": "georgia_bank_ka",
+        "title": "Грузинский: банк и счет",
+        "emoji": "🏦",
+        "description": "Самые нужные слова и фразы для банка и открытия счета в Грузии.",
+        "levels": [
+            {
+                "id": "starter",
+                "title": "Старт",
+                "description": "Фразы для карты, счета и документов в банке.",
+                "items": [
+                    {"word": "ბანკი", "translation": "банк"},
+                    {"word": "ანგარიში", "translation": "счет"},
+                    {"word": "ბარათი", "translation": "карта"},
+                    {"word": "ნაღდი ფული", "translation": "наличные"},
+                    {"word": "ამონაწერი", "translation": "выписка"},
+                    {"word": "პინ კოდი", "translation": "пин-код"},
+                    {"word": "მინდა ანგარიშის გახსნა", "translation": "Я хочу открыть счет."},
+                    {"word": "რა საბუთებია საჭირო?", "translation": "Какие документы нужны?"},
+                    {"word": "ბარათი როდის იქნება მზად?", "translation": "Когда карта будет готова?"},
+                    {"word": "მობილური ბანკინგი", "translation": "мобильный банк"},
+                ],
+            }
+        ],
+    },
+    {
+        "id": "georgia_first_week_ka",
+        "title": "Грузинский: первая неделя",
+        "emoji": "🧭",
+        "description": "Бытовые фразы для связи, адреса, транспорта и первых шагов после переезда.",
+        "levels": [
+            {
+                "id": "starter",
+                "title": "Старт",
+                "description": "Практичные слова и фразы для первых дней в Грузии.",
+                "items": [
+                    {"word": "სიმ ბარათი", "translation": "сим-карта"},
+                    {"word": "მისამართი", "translation": "адрес"},
+                    {"word": "ქირა", "translation": "аренда"},
+                    {"word": "ავტობუსის გაჩერება", "translation": "автобусная остановка"},
+                    {"word": "ბალანსის შევსება", "translation": "пополнение баланса"},
+                    {"word": "თვიური აბონემენტი", "translation": "месячный проездной"},
+                    {"word": "აქ ვცხოვრობ", "translation": "Я живу здесь."},
+                    {"word": "ეს მისამართი დამიწერეთ, გთხოვთ", "translation": "Пожалуйста, напишите мне этот адрес."},
+                    {"word": "ახლახან ჩამოვედი საქართველოში", "translation": "Я недавно приехал в Грузию."},
+                    {"word": "სად შეიძლება ამის ყიდვა?", "translation": "Где можно это купить?"},
+                ],
+            }
+        ],
+    },
+]
+
 COURSE_PACKS = {
-    "en": TRAVEL_PACKS,
-    "ka": GEORGIAN_TEST_PACKS,
+    "en": [*TRAVEL_PACKS, *ENGLISH_RELOCATION_PACKS],
+    "ka": [*GEORGIAN_TEST_PACKS, *GEORGIAN_RELOCATION_PACKS],
 }
 
 

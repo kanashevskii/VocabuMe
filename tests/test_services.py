@@ -856,15 +856,43 @@ def test_list_word_packs_returns_georgian_starter_for_ka_course():
     )
 
     packs = list_word_packs(user)
+    starter_pack = next(pack for pack in packs if pack["id"] == "georgian_starter")
 
-    assert len(packs) == 1
-    assert packs[0]["id"] == "georgian_starter"
-    assert packs[0]["levels"][0]["id"] == "starter"
-    assert len(packs[0]["levels"][0]["items"]) == 10
+    assert len(packs) >= 1
+    assert starter_pack["levels"][0]["id"] == "starter"
+    assert len(starter_pack["levels"][0]["items"]) == 10
     assert (
-        packs[0]["levels"][0]["items"][0]["translation"]
+        starter_pack["levels"][0]["items"][0]["translation"]
         == "привет / здравствуйте"
     )
+
+
+@pytest.mark.django_db
+def test_list_word_packs_includes_georgia_relocation_scenarios_for_english():
+    user = TelegramUser.objects.create(
+        chat_id=1036, username="tester", active_studied_language="en"
+    )
+
+    packs = list_word_packs(user)
+    pack_ids = {pack["id"] for pack in packs}
+
+    assert "georgia_work_permit_en" in pack_ids
+    assert "georgia_bank_en" in pack_ids
+    assert "georgia_first_week_en" in pack_ids
+
+
+@pytest.mark.django_db
+def test_list_word_packs_includes_georgia_relocation_scenarios_for_georgian():
+    user = TelegramUser.objects.create(
+        chat_id=1037, username="tester", active_studied_language="ka"
+    )
+
+    packs = list_word_packs(user)
+    pack_ids = {pack["id"] for pack in packs}
+
+    assert "georgia_work_permit_ka" in pack_ids
+    assert "georgia_bank_ka" in pack_ids
+    assert "georgia_first_week_ka" in pack_ids
 
 
 @pytest.mark.django_db
