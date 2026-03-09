@@ -1194,14 +1194,14 @@ textarea {
   grid-row: 1;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  gap: 8px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
   border-radius: 28px;
   background: linear-gradient(180deg, rgba(233, 245, 255, 0.92), rgba(211, 231, 248, 0.86));
   border: 1px solid rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(18px);
   box-shadow: 0 18px 44px rgba(1, 21, 43, 0.2);
-  min-height: 84px;
+  min-height: 72px;
   align-items: stretch;
   position: static;
   z-index: 10;
@@ -1215,15 +1215,15 @@ textarea {
 }
 
 .nav-pill {
-  height: 64px;
-  min-height: 64px;
-  max-height: 64px;
-  border-radius: 20px;
-  padding: 8px 6px;
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  border-radius: 18px;
+  padding: 6px 4px;
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 4px;
+  gap: 2px;
   overflow: hidden;
   background: transparent;
   border: 1px solid transparent;
@@ -1244,12 +1244,12 @@ textarea {
 }
 
 .nav-icon {
-  font-size: 1.28rem;
+  font-size: 1.18rem;
   line-height: 1;
 }
 
 .nav-label {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   line-height: 1.05;
   font-weight: 700;
   text-align: center;
@@ -1414,16 +1414,16 @@ textarea {
     right: 6px;
     bottom: calc(6px + env(safe-area-inset-bottom, 0px));
     gap: 6px;
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
     border-radius: 22px;
-    min-height: 78px;
+    min-height: 70px;
     z-index: 60;
   }
 
   .nav-pill {
-    height: 54px;
-    min-height: 54px;
-    max-height: 54px;
+    height: 50px;
+    min-height: 50px;
+    max-height: 50px;
     border-radius: 16px;
   }
 
@@ -1796,13 +1796,13 @@ textarea {
     gap: 4px;
     padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
     border-radius: 16px;
-    min-height: 66px;
+    min-height: 60px;
   }
 
   .nav-pill {
-    min-height: 44px;
-    height: 44px;
-    max-height: 44px;
+    min-height: 40px;
+    height: 40px;
+    max-height: 40px;
     border-radius: 10px;
     padding: 4px;
   }
