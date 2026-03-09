@@ -769,7 +769,11 @@ def test_apply_user_settings_switches_active_studied_language():
 
     apply_user_settings(
         user,
-        {"active_studied_language": "ka", "georgian_display_mode": "both"},
+        {
+            "active_studied_language": "ka",
+            "georgian_display_mode": "both",
+            "has_completed_onboarding": True,
+        },
     )
     user.refresh_from_db()
 
@@ -778,6 +782,7 @@ def test_apply_user_settings_switches_active_studied_language():
     assert UserCourseProgress.objects.filter(user=user, course_code="ka").exists()
     assert user.georgian_display_mode == "both"
     assert user.has_selected_georgian_display_mode is True
+    assert user.has_completed_onboarding is True
 
 
 @pytest.mark.django_db
@@ -842,6 +847,7 @@ def test_get_user_settings_payload_includes_georgian_display_mode_options():
 
     assert payload["georgian_display_mode"] == "native"
     assert payload["has_selected_georgian_display_mode"] is True
+    assert payload["has_completed_onboarding"] is False
     assert payload["georgian_display_mode_options"][0]["code"] == "both"
     assert payload["georgian_display_mode_options"][0]["recommended"] is True
     assert payload["monetization"]["default_free_plan_code"] == "free"

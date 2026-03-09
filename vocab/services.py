@@ -707,6 +707,7 @@ def serialize_user(user: TelegramUser) -> dict:
         "email": user.email,
         "auth_provider": user.auth_provider,
         "has_selected_studied_language": user.has_selected_studied_language,
+        "has_completed_onboarding": user.has_completed_onboarding,
         "active_studied_language": get_active_course_code(user),
         "available_studied_languages": AVAILABLE_STUDIED_LANGUAGES,
         "georgian_display_mode": user.georgian_display_mode,
@@ -1103,6 +1104,7 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "has_selected_georgian_display_mode": user.has_selected_georgian_display_mode,
         "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
         "monetization": get_monetization_payload(),
+        "has_completed_onboarding": user.has_completed_onboarding,
     }
 
 
@@ -1152,6 +1154,8 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
         user.has_selected_studied_language = True
     if selected_georgian_display_mode or user.active_studied_language == "ka":
         user.has_selected_georgian_display_mode = True
+    if "has_completed_onboarding" in payload:
+        user.has_completed_onboarding = bool(payload.get("has_completed_onboarding"))
     user.save()
     get_or_create_user_course_progress(user, user.active_studied_language)
     if user.repeat_threshold != previous_goal:

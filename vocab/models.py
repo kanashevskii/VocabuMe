@@ -36,6 +36,7 @@ class TelegramUser(models.Model):
         choices=GEORGIAN_DISPLAY_MODE_CHOICES,
         default=DEFAULT_GEORGIAN_DISPLAY_MODE,
     )
+    has_completed_onboarding = models.BooleanField(default=False)
     repeat_threshold = models.PositiveIntegerField(default=4)
     session_question_limit = models.PositiveIntegerField(default=12)
     enable_review_old_words = models.BooleanField(default=True)

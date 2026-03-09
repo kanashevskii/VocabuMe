@@ -172,6 +172,7 @@ function App() {
   const [alphabetSessionDone, setAlphabetSessionDone] = useState(false);
   const [alphabetAudioLoadingSymbol, setAlphabetAudioLoadingSymbol] = useState("");
   const [georgianDisplayModePrompt, setGeorgianDisplayModePrompt] = useState(null);
+  const [onboardingStep, setOnboardingStep] = useState("intro");
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
@@ -190,6 +191,11 @@ function App() {
   const webApp = window.Telegram?.WebApp;
   const needsStudiedLanguageSelection =
     auth.authenticated && auth.user && !auth.user.has_selected_studied_language;
+  const needsOnboarding =
+    auth.authenticated
+    && auth.user
+    && auth.user.has_selected_studied_language
+    && !auth.user.has_completed_onboarding;
   const isMiniApp = Boolean(webApp?.initData);
   const canRecordSpeech = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const activeStudiedLanguage = settings?.active_studied_language || auth.progress?.course_code || "en";
@@ -204,6 +210,20 @@ function App() {
       { code: "both", label: "Грузинский + латиница", recommended: true },
       { code: "native", label: "Только грузинский", recommended: false },
     ];
+  const monetization = settings?.monetization || {
+    plans: {
+      premium: {
+        price: {
+          monthly: { amount: "6.99", currency: "USD" },
+          yearly: { amount: "39.99", currency: "USD" },
+        },
+      },
+    },
+  };
+  const activeLanguageLabel =
+    settings?.available_studied_languages?.find((item) => item.code === activeStudiedLanguage)?.label
+    || auth.user?.available_studied_languages?.find((item) => item.code === activeStudiedLanguage)?.label
+    || (activeStudiedLanguage === "ka" ? "Грузинский" : "Английский");
 
   useEffect(() => {
     const handleWindowError = (event) => {
@@ -726,6 +746,12 @@ function App() {
     void loadPacks();
     void preparePacksInBackground();
   }, [auth.authenticated, showLibraryAdd, activeStudiedLanguage]);
+
+  useEffect(() => {
+    if (!needsOnboarding) {
+      setOnboardingStep("intro");
+    }
+  }, [needsOnboarding, activeStudiedLanguage]);
 
   useEffect(() => {
     if (!loginToken || auth.authenticated) {
@@ -1566,6 +1592,36 @@ function App() {
       georgianDisplayMode: mode,
       source: georgianDisplayModePrompt.source,
     });
+  }
+
+  async function completeOnboarding(options = {}) {
+    setBusy(true);
+    try {
+      await api("/api/settings", {
+        method: "POST",
+        body: JSON.stringify({ has_completed_onboarding: true }),
+      });
+      setAuth((current) => ({
+        ...current,
+        user: current.user
+          ? { ...current.user, has_completed_onboarding: true }
+          : current.user,
+      }));
+      setSettings((current) => (
+        current ? { ...current, has_completed_onboarding: true } : current
+      ));
+      setOnboardingStep("intro");
+      if (options.openPacks) {
+        openAddWords();
+      } else {
+        setPrimaryTab("today");
+      }
+      setNotice("Готово. Можно начинать.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function cancelGeorgianDisplayModePrompt() {
@@ -2847,6 +2903,79 @@ function App() {
               ))}
             </div>
           </section>
+        </main>
+      </div>
+    );
+  }
+
+  if (needsOnboarding) {
+    return (
+      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
+        <main className="auth-stage">
+          {notice ? <div className="notice">{notice.message}</div> : null}
+          {onboardingStep === "intro" ? (
+            <section className="glass-card compact-section">
+              <p className="overline">Старт</p>
+              <h3>VocabuMe для жизни в новой стране ✨</h3>
+              <p className="lead compact">
+                Ты выбрал {activeLanguageLabel.toLowerCase()}. Дальше можно учить язык через
+                готовые сценарии: банк, документы, первая неделя, рынок, почта.
+              </p>
+              <div className="stack-form">
+                <div className="inline-note">
+                  1. Открой нужный сценарий.
+                  <br />
+                  2. Добавь слова и фразы в словарь.
+                  <br />
+                  3. Пройди практику и закрепи их.
+                </div>
+                <button className="primary-button" type="button" onClick={() => setOnboardingStep("premium")} disabled={busy}>
+                  Дальше
+                </button>
+                <button className="secondary-button" type="button" onClick={() => void completeOnboarding({ openPacks: true })} disabled={busy}>
+                  Сразу открыть наборы
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section className="glass-card compact-section">
+              <p className="overline">Premium</p>
+              <h3>Что дает Premium 🚀</h3>
+              <p className="lead compact">
+                Premium открывает больше сценариев и убирает лимиты, чтобы учить язык под реальные задачи после переезда.
+              </p>
+              <div className="simple-list">
+                <div className="simple-row">
+                  <strong>Безлимитные новые слова и фразы</strong>
+                  <small>Без ограничения free-плана по дневному добавлению.</small>
+                </div>
+                <div className="simple-row">
+                  <strong>Все relocation-сценарии</strong>
+                  <small>Работа, банк, документы, почта, магазин и другие practical packs.</small>
+                </div>
+                <div className="simple-row">
+                  <strong>Расширенные AI-возможности</strong>
+                  <small>Объяснения, дополнительные генерации и будущие dialogue drills.</small>
+                </div>
+              </div>
+              <div className="pack-list">
+                <span className="pack-badge">
+                  ${monetization.plans?.premium?.price?.monthly?.amount || "6.99"} / месяц
+                </span>
+                <span className="pack-badge">
+                  ${monetization.plans?.premium?.price?.yearly?.amount || "39.99"} / год
+                </span>
+              </div>
+              <div className="stack-form">
+                <button className="primary-button" type="button" onClick={() => void completeOnboarding({ openPacks: true })} disabled={busy}>
+                  Начать бесплатно
+                </button>
+                <button className="secondary-button" type="button" onClick={() => setOnboardingStep("intro")} disabled={busy}>
+                  Назад
+                </button>
+              </div>
+            </section>
+          )}
         </main>
       </div>
     );

@@ -23,8 +23,8 @@ This order is now optimized for the fastest path to first paid subscriptions, no
 | P18 | `done` | Language expansion decision and rollout | Georgian needs to become a first-class product dimension before premium logic and paid content are layered on top. | English and Georgian are supported as explicit study tracks with the minimal required data-model, service, UI, and test changes to safely extend later. |
 | P13 | `done` | Monetization model and paywall design | The fastest route to first subscriptions starts with a concrete paid offer and a clear free-vs-premium boundary, but that offer should sit on the intended language architecture. | Free vs premium limits are approved, paywall triggers are documented, and target pricing is fixed for MVP launch. |
 | P22 | `done` | Georgia practical relocation scenarios | Users will not buy a vague relocation product; they need immediate concrete value around real Georgia-first tasks. | First approved scenario packs exist for `work permit`, `bank account`, and related everyday relocation tasks in English and Georgian. |
-| P16 | `next` | Onboarding and premium conversion flow | First-run experience must explain the relocation promise and route the user toward the paid offer quickly. | First-run onboarding exists, teaches the core loop, and leads cleanly into the selected premium offer. |
-| P14 | `queued` | Subscription and Telegram payments | After offer and onboarding are defined, payment flow becomes the shortest path to first revenue. | Subscription models, payment flow, entitlement checks, and expiration handling work end to end. |
+| P16 | `done` | Onboarding and premium conversion flow | First-run experience must explain the relocation promise and route the user toward the paid offer quickly. | First-run onboarding exists, teaches the core loop, and leads cleanly into the selected premium offer. |
+| P14 | `next` | Subscription and Telegram payments | After offer and onboarding are defined, payment flow becomes the shortest path to first revenue. | Subscription models, payment flow, entitlement checks, and expiration handling work end to end. |
 | P15 | `queued` | Free-tier limits and entitlement enforcement | The paywall only converts if limits are enforced consistently after payment logic exists. | Daily/plan-based limits are enforced consistently across bot, Mini App, and website. |
 | P17 | `queued` | Product analytics and conversion tracking | We need to see where users convert or drop before spending more effort on scaling. | Core events, funnel checkpoints, and subscription conversion metrics are implemented and documented. |
 | P20 | `queued` | Landing page and acquisition assets | Once the product can sell, it needs a focused acquisition surface aligned to the Georgia relocation wedge. | Marketing landing, screenshots, store-like copy, and CTA flow are aligned with the approved product direction. |
@@ -258,6 +258,13 @@ Implementation approach after agreement:
 - Design first-session path.
 - Add tutorial state.
 - Add paywall entry points tied to approved funnel moments.
+
+Notes:
+- Completed initial Mini App first-run flow.
+- After language selection, new users now see:
+  - an onboarding intro explaining the relocation-learning loop
+  - a soft premium screen with approved pricing and premium value framing
+- Completion is persisted via `has_completed_onboarding`, so this is a real stateful gate and can be reused by `P14` instead of being replaced.
 
 ### P17. Product analytics and conversion tracking
 
