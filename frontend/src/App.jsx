@@ -377,9 +377,9 @@ function App() {
     return [
       { label: "📚 Словарь", value: progress?.total ?? 0 },
       { label: "✅ Выучено", value: progress?.learned ?? 0 },
+      { label: "🔥 Дней подряд", value: progress?.streak_days ?? 0 },
       { label: "✨ Очки", value: progress?.total_points ?? 0 },
-      { label: "🔄 В процессе", value: progress?.learning ?? 0 },
-      { label: "🔥 Серия", value: progress?.streak_days ?? 0 }
+      { label: "🔄 В процессе", value: progress?.learning ?? 0 }
     ];
   }, [auth.progress, dashboard]);
 
