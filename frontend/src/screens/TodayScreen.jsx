@@ -24,9 +24,17 @@ export default function TodayScreen({
                 : "🌱 Сегодня ты ещё не занимался. Давай начнём."}
             </p>
           </div>
-          <div className="today-side-stat">
-            <span>Сегодня выучено</span>
-            <strong>{learnedToday}</strong>
+          <div className="today-side-stats">
+            <div className="today-side-stat">
+              <span>Сегодня выучено</span>
+              <strong>{learnedToday}</strong>
+            </div>
+            {todayStreakStat ? (
+              <div className="today-side-stat">
+                <span>{todayStreakStat.label}</span>
+                <strong>{todayStreakStat.value}</strong>
+              </div>
+            ) : null}
           </div>
         </div>
         <button
@@ -37,15 +45,6 @@ export default function TodayScreen({
           {hasWordsToLearn ? "▶️ Продолжить" : "＋ Добавить слова"}
         </button>
       </section>
-
-      {todayStreakStat ? (
-        <section className="today-streak-row">
-          <article className="glass-card stat-card">
-            <span>{todayStreakStat.label}</span>
-            <strong>{todayStreakStat.value}</strong>
-          </article>
-        </section>
-      ) : null}
 
       <section className="glass-card compact-section today-achievements">
         <div className="section-head">
