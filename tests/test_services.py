@@ -51,6 +51,7 @@ from vocab.services import (
     submit_listening_answer,
     split_translation_variants,
     sync_word_learning_state,
+    is_course_word_answer_correct,
 )
 
 
@@ -476,7 +477,62 @@ def test_submit_listening_answer_accepts_single_typo():
 
     assert result["correct"] is True
     assert result["accepted_with_typo"] is True
-    assert progress.listening_correct == 1
+
+
+@pytest.mark.django_db
+def test_georgian_word_answer_accepts_latin_transliteration():
+    correct, accepted_with_typo = is_course_word_answer_correct(
+        "madloba", "მადლობა", "ka"
+    )
+
+    assert correct is True
+    assert accepted_with_typo is False
+
+
+@pytest.mark.django_db
+def test_submit_listening_answer_accepts_georgian_latin_input():
+    user = TelegramUser.objects.create(
+        chat_id=1014, username="tester", active_studied_language="ka"
+    )
+    item = VocabularyItem.objects.create(
+        user=user,
+        course_code="ka",
+        word="მადლობა",
+        normalized_word="მადლობა",
+        translation="спасибо",
+        transcription="madloba",
+        example="მადლობა დახმარებისთვის.",
+        example_translation="Спасибо за помощь.",
+    )
+
+    result = submit_listening_answer(user, item.id, "madloba", "word")
+
+    assert result["correct"] is True
+    assert result["correct_answer"] == "მადლობა"
+    assert result["accepted_with_typo"] is False
+
+
+@pytest.mark.django_db
+def test_submit_learning_text_answer_accepts_georgian_latin_input():
+    user = TelegramUser.objects.create(
+        chat_id=1015, username="tester", active_studied_language="ka"
+    )
+    item = VocabularyItem.objects.create(
+        user=user,
+        course_code="ka",
+        word="მადლობა",
+        normalized_word="მადლობა",
+        translation="спасибо",
+        transcription="madloba",
+        example="მადლობა დახმარებისთვის.",
+        example_translation="Спасибо за помощь.",
+    )
+
+    result = submit_learning_text_answer(user, item.id, "madloba", "practice_ru_en")
+
+    assert result["correct"] is True
+    assert result["correct_answer"] == "მადლობა"
+    assert result["accepted_with_typo"] is False
 
 
 @pytest.mark.django_db

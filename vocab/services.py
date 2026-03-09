@@ -306,6 +306,68 @@ def is_single_typo_match(answer: str, expected: str) -> bool:
     return True
 
 
+GEORGIAN_TO_LATIN = {
+    "ა": "a",
+    "ბ": "b",
+    "გ": "g",
+    "დ": "d",
+    "ე": "e",
+    "ვ": "v",
+    "ზ": "z",
+    "თ": "t",
+    "ი": "i",
+    "კ": "k",
+    "ლ": "l",
+    "მ": "m",
+    "ნ": "n",
+    "ო": "o",
+    "პ": "p",
+    "ჟ": "zh",
+    "რ": "r",
+    "ს": "s",
+    "ტ": "t",
+    "უ": "u",
+    "ფ": "p",
+    "ქ": "k",
+    "ღ": "gh",
+    "ყ": "q",
+    "შ": "sh",
+    "ჩ": "ch",
+    "ც": "ts",
+    "ძ": "dz",
+    "წ": "ts",
+    "ჭ": "ch",
+    "ხ": "kh",
+    "ჯ": "j",
+    "ჰ": "h",
+}
+
+
+def transliterate_georgian_to_latin(value: str) -> str:
+    return "".join(GEORGIAN_TO_LATIN.get(char, char) for char in (value or "").lower())
+
+
+def normalize_learning_answer(value: str, course_code: str | None = None) -> str:
+    cleaned = clean_word(value)
+    if normalize_course_code(course_code) == "ka":
+        return transliterate_georgian_to_latin(cleaned)
+    return cleaned
+
+
+def is_course_word_answer_correct(
+    answer: str, expected: str, course_code: str | None = None
+) -> tuple[bool, bool]:
+    normalized_answer = normalize_learning_answer(answer, course_code)
+    normalized_expected = normalize_learning_answer(expected, course_code)
+    if not normalized_answer or not normalized_expected:
+        return False, False
+    if normalized_answer == normalized_expected:
+        return True, False
+    if is_single_typo_match(normalized_answer, normalized_expected):
+        return True, True
+    return False, False
+
+
 def upsert_telegram_user(chat_id: int, username: str | None = None) -> TelegramUser:
     user, created = TelegramUser.objects.get_or_create(
         chat_id=chat_id,
@@ -2250,10 +2312,9 @@ def submit_listening_answer(
     expected = item.word if mode == "word" else item.translation
     accepted_with_typo = False
     if mode == "word":
-        correct = answer.strip().lower() == expected.lower()
-        if not correct and is_single_typo_match(answer, expected):
-            correct = True
-            accepted_with_typo = True
+        correct, accepted_with_typo = is_course_word_answer_correct(
+            answer, expected, item.course_code
+        )
     else:
         correct = is_translation_answer_correct(answer, expected)
     updated = update_word_progress(
@@ -2285,8 +2346,8 @@ def evaluate_speaking_answer(user: TelegramUser, item_id: int, transcript: str) 
     item = VocabularyItem.objects.get(
         id=item_id, user=user, course_code=get_active_course_code(user)
     )
-    expected = clean_word(item.word)
-    spoken = clean_word(transcript)
+    expected = normalize_learning_answer(item.word, item.course_code)
+    spoken = normalize_learning_answer(transcript, item.course_code)
     similarity = SequenceMatcher(None, spoken, expected).ratio() if spoken else 0.0
 
     if spoken == expected:
@@ -2331,7 +2392,6 @@ def submit_learning_text_answer(
     item = VocabularyItem.objects.get(
         id=item_id, user=user, course_code=get_active_course_code(user)
     )
-    normalized = answer.strip().lower()
     accepted_with_typo = False
     if exercise_type == "practice_en_ru":
         expected = item.translation
@@ -2343,10 +2403,9 @@ def submit_learning_text_answer(
             increment_user_metric(user, "practice_correct")
     elif exercise_type == "practice_ru_en":
         expected = item.word
-        correct = normalized == item.word.lower()
-        if not correct and is_single_typo_match(answer, item.word):
-            correct = True
-            accepted_with_typo = True
+        correct, accepted_with_typo = is_course_word_answer_correct(
+            answer, item.word, item.course_code
+        )
         updated = update_word_progress(
             item.id, correct=correct, exercise_type=exercise_type
         )
@@ -2354,10 +2413,9 @@ def submit_learning_text_answer(
             increment_user_metric(user, "practice_correct")
     elif exercise_type == "listening_word":
         expected = item.word
-        correct = normalized == item.word.lower()
-        if not correct and is_single_typo_match(answer, item.word):
-            correct = True
-            accepted_with_typo = True
+        correct, accepted_with_typo = is_course_word_answer_correct(
+            answer, item.word, item.course_code
+        )
         updated = update_word_progress(
             item.id, correct=correct, exercise_type=exercise_type
         )
