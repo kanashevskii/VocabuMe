@@ -1091,7 +1091,7 @@ select {
 
 textarea {
   resize: vertical;
-  min-height: 140px;
+  min-height: 98px;
 }
 
 .settings-grid {
