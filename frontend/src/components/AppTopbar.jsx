@@ -1,5 +1,18 @@
 import { LogoMark } from "./AuthPanel";
 
+function getProfileInitials(user) {
+  const source = (user?.display_name || user?.username || user?.email || "").trim();
+  if (!source) {
+    return "U";
+  }
+  const cleaned = source.replace(/^@/, "");
+  const parts = cleaned.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }
+  return cleaned.slice(0, 2).toUpperCase();
+}
+
 export default function AppTopbar({
   busy,
   currentTitle,
@@ -8,12 +21,16 @@ export default function AppTopbar({
   onBack,
   onClose,
   onLogout,
+  onOpenProfile,
   onToggleAddWords,
   primaryTab,
   showHeaderBack,
   showHeaderClose,
   showLibraryAdd,
+  user,
 }) {
+  const showProfileBadge = primaryTab === "today" && !showHeaderBack && !showHeaderClose;
+
   return (
     <header className={`glass-card topbar ${extraClass}`.trim()}>
       <div className="topbar-brand">
@@ -51,6 +68,20 @@ export default function AppTopbar({
           aria-label="Добавить слова"
         >
           <span className="header-action-mark">＋</span>
+        </button>
+      ) : showProfileBadge ? (
+        <button
+          className="profile-badge"
+          type="button"
+          onClick={onOpenProfile}
+          aria-label="Открыть профиль и настройки"
+          title="Профиль и настройки"
+        >
+          {user?.custom_avatar_url ? (
+            <img src={user.custom_avatar_url} alt={user.display_name || user.username || "Профиль"} />
+          ) : (
+            <span>{getProfileInitials(user)}</span>
+          )}
         </button>
       ) : !isMiniApp ? (
         <button

@@ -76,6 +76,16 @@ export default function SettingsScreen({
       <h3>Настройки ⚙️</h3>
       <form className="settings-grid" onSubmit={onSave}>
         <label>
+          <span>Аватар профиля</span>
+          <small>Ссылка на изображение. Если пусто, покажем инициалы.</small>
+          <input
+            type="url"
+            placeholder="https://..."
+            value={settings.custom_avatar_url || ""}
+            onChange={(event) => onChange("custom_avatar_url", event.target.value)}
+          />
+        </label>
+        <label>
           <span>Изучаемый язык</span>
           <small>Выбери язык, который изучаешь сейчас. Прогресс хранится отдельно.</small>
           <select

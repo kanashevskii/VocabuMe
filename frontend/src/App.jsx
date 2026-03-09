@@ -2138,6 +2138,11 @@ function App() {
               <option value="learned">Выучено</option>
             </select>
           </div>
+          <div className="button-row">
+            <button className="secondary-button" type="button" onClick={openPacks}>
+              + Добавить записи
+            </button>
+          </div>
         </div>
         <div className="word-list">
           {words.map((item) => (
@@ -2225,7 +2230,14 @@ function App() {
               ) : null}
             </article>
           ))}
-          {!words.length ? <div className="glass-card empty-card">No words found.</div> : null}
+          {!words.length ? (
+            <div className="glass-card empty-card">
+              <p>Пока записей нет.</p>
+              <button className="secondary-button" type="button" onClick={openPacks}>
+                Открыть наборы
+              </button>
+            </div>
+          ) : null}
         </div>
       </>
     );
@@ -3047,6 +3059,7 @@ function App() {
             : closeLearnSession
         }
         onLogout={logoutWeb}
+        onOpenProfile={() => setPrimaryTab("settings")}
         onToggleAddWords={() => {
           if (showLibraryAdd) {
             void closeAddWords();
@@ -3058,6 +3071,7 @@ function App() {
         showHeaderBack={showHeaderBack}
         showHeaderClose={showHeaderClose}
         showLibraryAdd={showLibraryAdd}
+        user={auth.user}
       />
 
       {notice ? <div className="notice">{notice.message}</div> : null}
@@ -3077,6 +3091,7 @@ function App() {
               : closeLearnSession
           }
           onLogout={logoutWeb}
+          onOpenProfile={() => setPrimaryTab("settings")}
           onToggleAddWords={() => {
             if (showLibraryAdd) {
               void closeAddWords();
@@ -3088,6 +3103,7 @@ function App() {
           showHeaderBack={showHeaderBack}
           showHeaderClose={showHeaderClose}
           showLibraryAdd={showLibraryAdd}
+          user={auth.user}
         />
         {renderScreen()}
       </main>

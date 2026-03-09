@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Iterable
+from urllib.parse import urlparse
 import logging
 import random
 import re
@@ -704,6 +705,7 @@ def serialize_user(user: TelegramUser) -> dict:
         "id": user.id,
         "chat_id": user.chat_id,
         "username": user.username,
+        "custom_avatar_url": user.custom_avatar_url,
         "email": user.email,
         "auth_provider": user.auth_provider,
         "has_selected_studied_language": user.has_selected_studied_language,
@@ -1090,6 +1092,7 @@ def get_fake_words(
 
 def get_user_settings_payload(user: TelegramUser) -> dict:
     return {
+        "custom_avatar_url": user.custom_avatar_url,
         "exercise_goal": get_exercise_goal(user),
         "session_question_limit": get_session_question_limit(user),
         "enable_review_old_words": user.enable_review_old_words,
@@ -1113,6 +1116,14 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     previous_course = get_active_course_code(user)
     selected_language_in_payload = "active_studied_language" in payload
     selected_georgian_display_mode = "georgian_display_mode" in payload
+    custom_avatar_url = str(
+        payload.get("custom_avatar_url", user.custom_avatar_url)
+    ).strip()
+    if custom_avatar_url:
+        parsed_avatar = urlparse(custom_avatar_url)
+        if parsed_avatar.scheme not in {"http", "https"} or not parsed_avatar.netloc:
+            raise ValueError("custom_avatar_url must be a valid http(s) URL")
+    user.custom_avatar_url = custom_avatar_url
     exercise_goal = payload.get(
         "exercise_goal", payload.get("repeat_threshold", user.repeat_threshold)
     )

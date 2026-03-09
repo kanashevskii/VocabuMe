@@ -21,6 +21,7 @@ def generate_web_login_token() -> str:
 class TelegramUser(models.Model):
     chat_id = models.BigIntegerField(unique=True)
     username = models.CharField(max_length=255, null=True, blank=True)
+    custom_avatar_url = models.URLField(max_length=500, blank=True, default="")
     email = models.EmailField(unique=True, null=True, blank=True)
     password_hash = models.CharField(max_length=255, blank=True, default="")
     auth_provider = models.CharField(max_length=20, default="telegram")

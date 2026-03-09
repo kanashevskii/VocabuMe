@@ -875,6 +875,19 @@ def test_get_user_settings_payload_includes_georgian_display_mode_options():
 
 
 @pytest.mark.django_db
+def test_apply_user_settings_updates_custom_avatar_url():
+    user = TelegramUser.objects.create(chat_id=1033, username="tester")
+
+    apply_user_settings(user, {"custom_avatar_url": "https://example.com/avatar.png"})
+
+    user.refresh_from_db()
+    payload = get_user_settings_payload(user)
+
+    assert user.custom_avatar_url == "https://example.com/avatar.png"
+    assert payload["custom_avatar_url"] == "https://example.com/avatar.png"
+
+
+@pytest.mark.django_db
 def test_list_word_packs_returns_georgian_starter_for_ka_course():
     user = TelegramUser.objects.create(
         chat_id=1032, username="tester", active_studied_language="ka"

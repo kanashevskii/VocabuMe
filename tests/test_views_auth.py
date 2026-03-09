@@ -528,6 +528,24 @@ def test_settings_post_updates_and_clamps_values(client):
 
 
 @pytest.mark.django_db
+def test_settings_post_updates_custom_avatar_url(client):
+    user = TelegramUser.objects.create(chat_id=2018, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.post(
+        "/api/settings",
+        data=json.dumps({"custom_avatar_url": "https://example.com/avatar.png"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    user.refresh_from_db()
+    assert user.custom_avatar_url == "https://example.com/avatar.png"
+
+
+@pytest.mark.django_db
 def test_settings_post_rejects_invalid_payload(client):
     user = TelegramUser.objects.create(chat_id=2013, username="tester")
     session = client.session
