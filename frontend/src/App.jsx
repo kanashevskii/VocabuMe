@@ -118,10 +118,16 @@ function hasGeorgianScript(text) {
   return /[\u10A0-\u10FF]/.test(text || "");
 }
 
+function makeAchievementKey(text, courseCode = "en") {
+  return `${courseCode}:${text}`;
+}
+
 function App() {
   const [config, setConfig] = useState({ bot_username: "", webapp_url: "" });
   const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null, progress: null });
   const [notice, setNoticeState] = useState(null);
+  const [achievementToast, setAchievementToast] = useState(null);
+  const [achievementQueue, setAchievementQueue] = useState([]);
   const [busy, setBusy] = useState(false);
   const [primaryTab, setPrimaryTab] = useState("today");
   const [libraryMode, setLibraryMode] = useState("cards");
@@ -200,6 +206,8 @@ function App() {
   const mediaStreamRef = useRef(null);
   const speakingChunksRef = useRef([]);
   const noticeTimerRef = useRef(null);
+  const achievementTimerRef = useRef(null);
+  const knownAchievementKeysRef = useRef(null);
   const deferredSearch = useDeferredValue(search);
 
   const webApp = window.Telegram?.WebApp;
@@ -382,6 +390,7 @@ function App() {
   const hasMoreAchievements =
     (dashboard?.progress?.achievements || auth.progress?.achievements || []).length >
     todayAchievements.length;
+  const currentProgress = dashboard?.progress || auth.progress;
 
   const currentTitle = useMemo(() => {
     if (primaryTab === "today") return "Сегодня";
@@ -688,6 +697,15 @@ function App() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (achievementTimerRef.current) {
+        window.clearTimeout(achievementTimerRef.current);
+        achievementTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     bootstrap().catch((error) => {
       setNotice(error.message);
       setAuth({ loading: false, authenticated: false, user: null, progress: null });
@@ -717,11 +735,58 @@ function App() {
 
   useEffect(() => {
     if (!auth.authenticated) {
+      knownAchievementKeysRef.current = null;
+      setAchievementToast(null);
+      setAchievementQueue([]);
       return;
     }
     Promise.all([loadDashboard(), loadStudyCardsOnly(), loadPacks()])
       .catch((error) => setNotice(error.message));
   }, [auth.authenticated, deferredSearch, statusFilter, irregularPage, alphabetPage]);
+
+  useEffect(() => {
+    if (!auth.authenticated || !currentProgress) {
+      return;
+    }
+    const currentKeys = (currentProgress.achievements || []).map((item) =>
+      makeAchievementKey(item, currentProgress.course_code),
+    );
+    if (!knownAchievementKeysRef.current) {
+      knownAchievementKeysRef.current = currentKeys;
+      return;
+    }
+    const previous = new Set(knownAchievementKeysRef.current);
+    const newAchievements = (currentProgress.achievements || []).filter(
+      (item) => !previous.has(makeAchievementKey(item, currentProgress.course_code)),
+    );
+    knownAchievementKeysRef.current = currentKeys;
+    if (!newAchievements.length) {
+      return;
+    }
+    setAchievementQueue((current) => [
+      ...current,
+      ...newAchievements.map((item) => ({
+        key: makeAchievementKey(item, currentProgress.course_code),
+        text: item,
+      })),
+    ]);
+  }, [auth.authenticated, currentProgress]);
+
+  useEffect(() => {
+    if (achievementToast || !achievementQueue.length) {
+      return;
+    }
+    const [nextToast, ...rest] = achievementQueue;
+    setAchievementQueue(rest);
+    setAchievementToast(nextToast);
+    if (achievementTimerRef.current) {
+      window.clearTimeout(achievementTimerRef.current);
+    }
+    achievementTimerRef.current = window.setTimeout(() => {
+      setAchievementToast(null);
+      achievementTimerRef.current = null;
+    }, 3200);
+  }, [achievementQueue, achievementToast]);
 
   useEffect(() => {
     if (supportsIrregularPractice) {
@@ -3111,6 +3176,15 @@ function App() {
       />
 
       {notice ? <div className="notice">{notice.message}</div> : null}
+      {achievementToast ? (
+        <div className="achievement-toast" key={achievementToast.key}>
+          <div className="achievement-toast-badge">🏆</div>
+          <div className="achievement-toast-copy">
+            <span className="achievement-toast-overline">Новая ачивка</span>
+            <strong>{achievementToast.text}</strong>
+          </div>
+        </div>
+      ) : null}
 
       <main className="app-stage" ref={stageRef}>
         <AppTopbar
