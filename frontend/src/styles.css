@@ -1438,7 +1438,7 @@ textarea {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 0;
+  gap: 2px;
   overflow: hidden;
   background: transparent;
   border: 1px solid transparent;
@@ -1459,17 +1459,21 @@ textarea {
 }
 
 .nav-icon {
+  min-height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 1.02rem;
   line-height: 1;
-  display: block;
 }
 
 .nav-label {
   font-size: 0.66rem;
-  line-height: 1;
+  line-height: 1.05;
   font-weight: 700;
   text-align: center;
   display: block;
+  white-space: nowrap;
 }
 
 @media (min-width: 721px) {
@@ -1652,9 +1656,11 @@ textarea {
     max-height: 40px;
     border-radius: 12px;
     padding: 2px 2px 1px;
+    gap: 1px;
   }
 
   .nav-icon {
+    min-height: 15px;
     font-size: 0.94rem;
   }
 }
@@ -2006,6 +2012,7 @@ textarea {
 
   .nav-label {
     font-size: 0.66rem;
+    line-height: 1.05;
   }
 }
 
