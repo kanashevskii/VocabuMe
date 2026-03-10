@@ -2093,12 +2093,6 @@ function App() {
                 <strong>Сессия завершена.</strong> Верно: {learnCorrectCount} из {learnQuestionCount || learnSessionLimit}.
               </div>
             ) : null}
-            {(listeningTemporarilyDisabled || speakingTemporarilyDisabled) ? (
-              <div className="inline-note status-note">
-                {listeningTemporarilyDisabled ? `Без аудирования${listeningPauseLabel ? ` еще ${listeningPauseLabel}` : ""}. ` : ""}
-                {speakingTemporarilyDisabled ? `Без говорения${speakingPauseLabel ? ` еще ${speakingPauseLabel}` : ""}.` : ""}
-              </div>
-            ) : null}
             <div className="button-row">
               {hasWordsToLearn ? (
                 <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
@@ -2107,26 +2101,6 @@ function App() {
               ) : null}
               <button className="secondary-button" type="button" onClick={openPacks}>
                 ＋ Добавить слова
-              </button>
-            </div>
-            <div className="button-row practice-filter-row">
-              <button
-                className={listeningTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
-                type="button"
-                onClick={() => void setTemporaryPracticePause("listening", !listeningTemporarilyDisabled)}
-              >
-                {listeningTemporarilyDisabled
-                  ? `Слушать снова${listeningPauseLabel ? ` · ${listeningPauseLabel}` : ""}`
-                  : "Не могу слушать · 15 мин"}
-              </button>
-              <button
-                className={speakingTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
-                type="button"
-                onClick={() => void setTemporaryPracticePause("speaking", !speakingTemporarilyDisabled)}
-              >
-                {speakingTemporarilyDisabled
-                  ? `Говорить снова${speakingPauseLabel ? ` · ${speakingPauseLabel}` : ""}`
-                  : "Не могу говорить · 15 мин"}
               </button>
             </div>
           </section>
@@ -2287,6 +2261,17 @@ function App() {
           {isListening ? (
             <form className="stack-form quiz-panel-tight" onSubmit={handleLearnListeningSubmit}>
               <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
+              <div className="button-row practice-filter-row">
+                <button
+                  className={listeningTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
+                  type="button"
+                  onClick={() => void setTemporaryPracticePause("listening", !listeningTemporarilyDisabled)}
+                >
+                  {listeningTemporarilyDisabled
+                    ? `Слушать снова${listeningPauseLabel ? ` · ${listeningPauseLabel}` : ""}`
+                    : "Не могу слушать · 15 мин"}
+                </button>
+              </div>
               <input value={learnTextAnswer} onChange={(event) => setLearnTextAnswer(event.target.value)} placeholder="Твой ответ" />
               <div className="button-row">
                 <button className="primary-button" type="submit">Проверить</button>
@@ -2299,6 +2284,17 @@ function App() {
           {isSpeaking ? (
             <div className="quiz-panel quiz-panel-tight">
               <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
+              <div className="button-row practice-filter-row">
+                <button
+                  className={speakingTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
+                  type="button"
+                  onClick={() => void setTemporaryPracticePause("speaking", !speakingTemporarilyDisabled)}
+                >
+                  {speakingTemporarilyDisabled
+                    ? `Говорить снова${speakingPauseLabel ? ` · ${speakingPauseLabel}` : ""}`
+                    : "Не могу говорить · 15 мин"}
+                </button>
+              </div>
               <div className="button-row">
                 <button
                   className={isRecording ? "secondary-button" : "primary-button"}
