@@ -84,6 +84,17 @@ function mergeItemsById(current, incoming) {
   return [...incoming, ...current.filter((item) => !seen.has(item.id))];
 }
 
+function withFreshAvatarUrl(payload) {
+  if (!payload?.avatar_url) {
+    return payload;
+  }
+  const separator = payload.avatar_url.includes("?") ? "&" : "?";
+  return {
+    ...payload,
+    avatar_url: `${payload.avatar_url}${separator}r=${Date.now()}`,
+  };
+}
+
 const GEORGIAN_TO_LATIN = {
   "ა": "a",
   "ბ": "b",
@@ -1716,13 +1727,22 @@ function App() {
         method: "POST",
         body: formData,
       });
+      const nextUser = data.user ? withFreshAvatarUrl(data.user) : data.user;
+      const nextSettings = data.settings
+        ? {
+          ...data.settings,
+          avatar_url: data.settings.avatar_url
+            ? withFreshAvatarUrl({ avatar_url: data.settings.avatar_url }).avatar_url
+            : data.settings.avatar_url,
+        }
+        : data.settings;
       setAuth((current) => ({
         ...current,
-        user: data.user || current.user,
+        user: nextUser || current.user,
       }));
       setSettings((current) => ({
         ...(current || {}),
-        ...(data.settings || {}),
+        ...(nextSettings || {}),
       }));
       setNotice("Аватар обновлён.");
     } catch (error) {

@@ -80,7 +80,11 @@ export default function AppTopbar({
           title="Профиль и настройки"
         >
           {user?.avatar_url ? (
-            <img src={user.avatar_url} alt={user.display_name || user.username || "Профиль"} />
+            <img
+              key={user.avatar_url}
+              src={user.avatar_url}
+              alt={user.display_name || user.username || "Профиль"}
+            />
           ) : (
             <span>{getProfileInitials(user)}</span>
           )}
