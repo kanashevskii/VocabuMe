@@ -56,6 +56,8 @@ class TelegramUser(models.Model):
     session_question_limit = models.PositiveIntegerField(default=12)
     enable_review_old_words = models.BooleanField(default=True)
     days_before_review = models.PositiveIntegerField(default=30)
+    listening_paused_until = models.DateTimeField(null=True, blank=True)
+    speaking_paused_until = models.DateTimeField(null=True, blank=True)
 
     reminder_enabled = models.BooleanField(default=False)
     reminder_time = models.TimeField(default=time(8, 0))

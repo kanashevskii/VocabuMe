@@ -53,6 +53,18 @@ function formatPointsLabel(points) {
   return "очков";
 }
 
+function formatPauseRemaining(untilIso) {
+  if (!untilIso) {
+    return "";
+  }
+  const remainingMs = new Date(untilIso).getTime() - Date.now();
+  if (remainingMs <= 0) {
+    return "";
+  }
+  const minutes = Math.max(1, Math.ceil(remainingMs / 60000));
+  return `${minutes} мин`;
+}
+
 function formatLearnCorrectAnswer(learnQuestion, learnResult) {
   const answer = learnResult?.correct_answer || "";
   if (!learnQuestion || !learnResult) {
@@ -253,6 +265,11 @@ function App() {
     settings?.available_studied_languages?.find((item) => item.code === activeStudiedLanguage)?.label
     || auth.user?.available_studied_languages?.find((item) => item.code === activeStudiedLanguage)?.label
     || (activeStudiedLanguage === "ka" ? "Грузинский" : "Английский");
+  const temporaryPracticeFilters = settings || auth.user?.temporary_practice_filters || {};
+  const listeningTemporarilyDisabled = Boolean(temporaryPracticeFilters.listening_temporarily_disabled);
+  const speakingTemporarilyDisabled = Boolean(temporaryPracticeFilters.speaking_temporarily_disabled);
+  const listeningPauseLabel = formatPauseRemaining(temporaryPracticeFilters.listening_paused_until);
+  const speakingPauseLabel = formatPauseRemaining(temporaryPracticeFilters.speaking_paused_until);
 
   useEffect(() => {
     const handleWindowError = (event) => {
@@ -1662,6 +1679,34 @@ function App() {
     }
   }
 
+  async function setTemporaryPracticePause(kind, enabled) {
+    const payload =
+      kind === "listening"
+        ? { pause_listening_for_minutes: enabled ? 15 : 0 }
+        : { pause_speaking_for_minutes: enabled ? 15 : 0 };
+    setBusy(true);
+    try {
+      await api("/api/settings", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      await Promise.all([loadDashboard(), loadLearningData()]);
+      setNotice(
+        kind === "listening"
+          ? enabled
+            ? "Следующие 15 минут без аудирования."
+            : "Аудирование снова включено."
+          : enabled
+            ? "Следующие 15 минут без говорения."
+            : "Говорение снова включено.",
+      );
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function uploadAvatar(file) {
     setUploadingAvatar(true);
     try {
@@ -2048,6 +2093,12 @@ function App() {
                 <strong>Сессия завершена.</strong> Верно: {learnCorrectCount} из {learnQuestionCount || learnSessionLimit}.
               </div>
             ) : null}
+            {(listeningTemporarilyDisabled || speakingTemporarilyDisabled) ? (
+              <div className="inline-note status-note">
+                {listeningTemporarilyDisabled ? `Без аудирования${listeningPauseLabel ? ` еще ${listeningPauseLabel}` : ""}. ` : ""}
+                {speakingTemporarilyDisabled ? `Без говорения${speakingPauseLabel ? ` еще ${speakingPauseLabel}` : ""}.` : ""}
+              </div>
+            ) : null}
             <div className="button-row">
               {hasWordsToLearn ? (
                 <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
@@ -2056,6 +2107,26 @@ function App() {
               ) : null}
               <button className="secondary-button" type="button" onClick={openPacks}>
                 ＋ Добавить слова
+              </button>
+            </div>
+            <div className="button-row practice-filter-row">
+              <button
+                className={listeningTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
+                type="button"
+                onClick={() => void setTemporaryPracticePause("listening", !listeningTemporarilyDisabled)}
+              >
+                {listeningTemporarilyDisabled
+                  ? `Слушать снова${listeningPauseLabel ? ` · ${listeningPauseLabel}` : ""}`
+                  : "Не могу слушать · 15 мин"}
+              </button>
+              <button
+                className={speakingTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
+                type="button"
+                onClick={() => void setTemporaryPracticePause("speaking", !speakingTemporarilyDisabled)}
+              >
+                {speakingTemporarilyDisabled
+                  ? `Говорить снова${speakingPauseLabel ? ` · ${speakingPauseLabel}` : ""}`
+                  : "Не могу говорить · 15 мин"}
               </button>
             </div>
           </section>

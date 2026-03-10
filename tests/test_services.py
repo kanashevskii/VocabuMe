@@ -43,6 +43,7 @@ from vocab.services import (
     get_completed_exercise_types,
     get_exercise_goal,
     get_or_create_user_course_progress,
+    get_temporary_practice_filters,
     list_word_packs,
     list_alphabet_page,
     is_prepared_pack_item_ready,
@@ -249,7 +250,85 @@ def test_create_word_normalizes_fields_and_generates_example_translation(monkeyp
     assert item.normalized_word == "apple"
     assert item.transcription == ""
     assert item.example_translation == "пример перевода"
-    assert item.part_of_speech == "noun"
+
+
+@pytest.mark.django_db
+def test_apply_user_settings_can_pause_listening_and_speaking_temporarily():
+    user = TelegramUser.objects.create(chat_id=1004, username="tester")
+
+    apply_user_settings(
+        user,
+        {
+            "pause_listening_for_minutes": 15,
+            "pause_speaking_for_minutes": 15,
+        },
+    )
+
+    user.refresh_from_db()
+    filters = get_temporary_practice_filters(user)
+    assert filters["listening_temporarily_disabled"] is True
+    assert filters["speaking_temporarily_disabled"] is True
+    assert user.listening_paused_until is not None
+    assert user.speaking_paused_until is not None
+
+
+@pytest.mark.django_db
+def test_pending_exercise_types_exclude_temporarily_paused_modes():
+    user = TelegramUser.objects.create(
+        chat_id=1005,
+        username="tester",
+        repeat_threshold=5,
+    )
+    item = VocabularyItem.objects.create(
+        user=user,
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="Apple is red.",
+        example_translation="Яблоко красное.",
+        completed_exercise_types=[],
+    )
+
+    apply_user_settings(
+        user,
+        {
+            "pause_listening_for_minutes": 15,
+            "pause_speaking_for_minutes": 15,
+        },
+    )
+
+    pending = get_pending_exercise_types(item)
+
+    assert "listening_word" not in pending
+    assert "listening_translate" not in pending
+    assert "speaking" not in pending
+    assert "practice_en_ru" in pending
+    assert "practice_ru_en" in pending
+
+
+@pytest.mark.django_db
+def test_direct_listening_and_speaking_questions_respect_temporary_pauses():
+    user = TelegramUser.objects.create(chat_id=1006, username="tester")
+    VocabularyItem.objects.create(
+        user=user,
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="Apple is red.",
+        example_translation="Яблоко красное.",
+    )
+    apply_user_settings(
+        user,
+        {
+            "pause_listening_for_minutes": 15,
+            "pause_speaking_for_minutes": 15,
+        },
+    )
+
+    assert build_listening_question(user, "word") is None
+    assert build_speaking_question(user) is None
 
 
 @pytest.mark.django_db

@@ -161,6 +161,7 @@ GEORGIAN_DISPLAY_MODE_OPTIONS = [
     }
     for code in ("both", "native")
 ]
+TEMPORARY_PRACTICE_PAUSE_MINUTES = 15
 
 
 def example_matches_course(course_code: str, example: str) -> bool:
@@ -191,6 +192,51 @@ def normalize_course_code(course_code: str | None) -> str:
     value = (course_code or DEFAULT_STUDIED_LANGUAGE).strip().lower()
     supported = {code for code, _ in STUDIED_LANGUAGE_CHOICES}
     return value if value in supported else DEFAULT_STUDIED_LANGUAGE
+
+
+def _normalize_pause_until(value: datetime | None) -> datetime | None:
+    if value and value <= timezone.now():
+        return None
+    return value
+
+
+def _clear_expired_practice_pauses(user: TelegramUser) -> TelegramUser:
+    update_fields: list[str] = []
+    listening_paused_until = _normalize_pause_until(user.listening_paused_until)
+    speaking_paused_until = _normalize_pause_until(user.speaking_paused_until)
+    if listening_paused_until != user.listening_paused_until:
+        user.listening_paused_until = listening_paused_until
+        update_fields.append("listening_paused_until")
+    if speaking_paused_until != user.speaking_paused_until:
+        user.speaking_paused_until = speaking_paused_until
+        update_fields.append("speaking_paused_until")
+    if update_fields:
+        user.save(update_fields=update_fields)
+    return user
+
+
+def get_temporary_practice_filters(user: TelegramUser) -> dict:
+    user = _clear_expired_practice_pauses(user)
+    return {
+        "listening_paused_until": user.listening_paused_until.isoformat()
+        if user.listening_paused_until
+        else None,
+        "speaking_paused_until": user.speaking_paused_until.isoformat()
+        if user.speaking_paused_until
+        else None,
+        "listening_temporarily_disabled": user.listening_paused_until is not None,
+        "speaking_temporarily_disabled": user.speaking_paused_until is not None,
+        "pause_duration_minutes": TEMPORARY_PRACTICE_PAUSE_MINUTES,
+    }
+
+
+def is_exercise_temporarily_disabled(user: TelegramUser, exercise_type: str) -> bool:
+    user = _clear_expired_practice_pauses(user)
+    if exercise_type in {"listening_word", "listening_translate"}:
+        return user.listening_paused_until is not None
+    if exercise_type == "speaking":
+        return user.speaking_paused_until is not None
+    return False
 
 
 def get_active_course_code(user: TelegramUser) -> str:
@@ -1023,6 +1069,7 @@ def get_word_image_file(item: VocabularyItem) -> Path | None:
 
 
 def serialize_user(user: TelegramUser) -> dict:
+    temporary_practice_filters = get_temporary_practice_filters(user)
     avatar_file = get_profile_avatar_file(user)
     billing = get_billing_payload(user)
     return {
@@ -1049,6 +1096,7 @@ def serialize_user(user: TelegramUser) -> dict:
         "joined_at": user.joined_at.isoformat() if user.joined_at else None,
         "premium_active": billing["premium_active"],
         "active_subscription": billing["active_subscription"],
+        "temporary_practice_filters": temporary_practice_filters,
     }
 
 
@@ -1426,6 +1474,7 @@ def get_fake_words(
 
 def get_user_settings_payload(user: TelegramUser) -> dict:
     billing = get_billing_payload(user)
+    temporary_practice_filters = get_temporary_practice_filters(user)
     return {
         "custom_avatar_url": user.custom_avatar_url,
         "avatar_url": serialize_user(user)["avatar_url"],
@@ -1446,6 +1495,7 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "monetization": get_monetization_payload(),
         "billing": billing,
         "has_completed_onboarding": user.has_completed_onboarding,
+        **temporary_practice_filters,
     }
 
 
@@ -1490,6 +1540,16 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     user.reminder_timezone = normalize_timezone_value(
         payload.get("reminder_timezone", user.reminder_timezone)
     )
+    if "pause_listening_for_minutes" in payload:
+        minutes = max(0, int(payload.get("pause_listening_for_minutes") or 0))
+        user.listening_paused_until = (
+            timezone.now() + timedelta(minutes=minutes) if minutes else None
+        )
+    if "pause_speaking_for_minutes" in payload:
+        minutes = max(0, int(payload.get("pause_speaking_for_minutes") or 0))
+        user.speaking_paused_until = (
+            timezone.now() + timedelta(minutes=minutes) if minutes else None
+        )
     user.active_studied_language = normalize_course_code(
         payload.get("active_studied_language", user.active_studied_language)
     )
@@ -1627,6 +1687,7 @@ def get_pending_exercise_types(item: VocabularyItem) -> list[str]:
         exercise_type
         for exercise_type in get_required_exercise_types(item.user)
         if exercise_type not in completed
+        and not is_exercise_temporarily_disabled(item.user, exercise_type)
     ]
 
 
@@ -2623,6 +2684,7 @@ def _build_choice_options(
 def build_learning_question(
     user: TelegramUser, exclude_ids: Iterable[int] | None = None
 ) -> dict | None:
+    _clear_expired_practice_pauses(user)
     candidates = get_learning_candidates(user, exclude_ids=exclude_ids)
     if not candidates:
         return None
@@ -2766,6 +2828,8 @@ def submit_choice_answer(
 
 
 def build_listening_question(user: TelegramUser, mode: str) -> dict | None:
+    if is_exercise_temporarily_disabled(user, "listening_word"):
+        return None
     candidates = get_unlearned_words(user, count=10)
     if not candidates:
         return None
@@ -2811,6 +2875,8 @@ def submit_listening_answer(
 
 
 def build_speaking_question(user: TelegramUser) -> dict | None:
+    if is_exercise_temporarily_disabled(user, "speaking"):
+        return None
     candidates = get_unlearned_words(user, count=10)
     if not candidates:
         return None

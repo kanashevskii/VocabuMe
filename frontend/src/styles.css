@@ -1097,6 +1097,16 @@ h3 {
   gap: 10px;
 }
 
+.practice-filter-row {
+  margin-top: -2px;
+}
+
+.active-toggle-button {
+  border-color: rgba(11, 101, 192, 0.32);
+  background: rgba(22, 130, 242, 0.12);
+  color: var(--blue-800);
+}
+
 .practice-overview-card .primary-button,
 .practice-overview-card .secondary-button {
   min-height: 44px;
