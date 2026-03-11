@@ -331,6 +331,8 @@ class PackPreparedWord(models.Model):
     part_of_speech = models.CharField(max_length=50, default="unknown")
     image_path = models.CharField(max_length=500, blank=True, default="")
     image_generation_in_progress = models.BooleanField(default=False)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveIntegerField(default=0)
     prepared_at = models.DateTimeField(auto_now=True)
 
     class Meta:

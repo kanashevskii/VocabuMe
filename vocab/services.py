@@ -70,6 +70,7 @@ logger = logging.getLogger(__name__)
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
 ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 IMAGE_GENERATION_STALE_MINUTES = 20
+PACK_PREPARATION_FAILURE_COOLDOWN_MINUTES = 180
 EXERCISE_TYPE_LABELS = {
     "practice_en_ru": "Тест EN -> RU",
     "practice_ru_en": "Тест RU -> EN",
@@ -255,6 +256,10 @@ def get_or_create_user_course_progress(
 
 def _image_generation_stale_before() -> datetime:
     return timezone.now() - timedelta(minutes=IMAGE_GENERATION_STALE_MINUTES)
+
+
+def _pack_preparation_failure_cooldown_before() -> datetime:
+    return timezone.now() - timedelta(minutes=PACK_PREPARATION_FAILURE_COOLDOWN_MINUTES)
 
 
 def clear_stale_image_generation_flags() -> dict[str, int]:
@@ -1864,6 +1869,10 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
         PackPreparedWord.objects.filter(
             course_code="en", image_generation_in_progress=False
         )
+        .filter(
+            Q(last_failure_at__isnull=True)
+            | Q(last_failure_at__lt=_pack_preparation_failure_cooldown_before())
+        )
         .filter(Q(example="") | Q(transcription="") | Q(image_path=""))
         .order_by("pack_id", "level_id", "prepared_at", "id")
         .first()
@@ -1894,6 +1903,9 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
                 candidate.part_of_speech = (
                     generated.get("part_of_speech", "unknown") or "unknown"
                 )
+            else:
+                candidate.last_failure_at = timezone.now()
+                candidate.failure_count = (candidate.failure_count or 0) + 1
 
         if candidate.example and candidate.translation and not candidate.image_path:
             built = _build_item_image(
@@ -1906,7 +1918,12 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
             if built:
                 _, image_path = built
                 candidate.image_path = image_path
+            else:
+                candidate.last_failure_at = timezone.now()
+                candidate.failure_count = (candidate.failure_count or 0) + 1
         candidate.image_generation_in_progress = False
+        if is_prepared_pack_item_ready(candidate, "en"):
+            candidate.last_failure_at = None
         candidate.save(
             update_fields=[
                 "word",
@@ -1917,13 +1934,24 @@ def prepare_next_pack_word() -> PackPreparedWord | None:
                 "part_of_speech",
                 "image_path",
                 "image_generation_in_progress",
+                "last_failure_at",
+                "failure_count",
                 "prepared_at",
             ]
         )
         return candidate
     except Exception:
         candidate.image_generation_in_progress = False
-        candidate.save(update_fields=["image_generation_in_progress", "prepared_at"])
+        candidate.last_failure_at = timezone.now()
+        candidate.failure_count = (candidate.failure_count or 0) + 1
+        candidate.save(
+            update_fields=[
+                "image_generation_in_progress",
+                "last_failure_at",
+                "failure_count",
+                "prepared_at",
+            ]
+        )
         raise
 
 

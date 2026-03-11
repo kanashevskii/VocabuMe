@@ -865,6 +865,32 @@ def test_prepare_next_pack_word_skips_when_user_image_generation_is_active():
 
 
 @pytest.mark.django_db
+def test_prepare_next_pack_word_applies_failure_cooldown(monkeypatch):
+    PackPreparedWord.objects.create(
+        course_code="en",
+        pack_id="travel",
+        level_id="airport_and_boarding",
+        word="check in",
+        normalized_word="check in",
+        translation="регистрация",
+        transcription="",
+        example="",
+        image_path="",
+    )
+
+    monkeypatch.setattr("vocab.services.generate_word_data", lambda *args, **kwargs: None)
+
+    first = prepare_next_pack_word()
+    second = prepare_next_pack_word()
+
+    assert first is not None
+    first.refresh_from_db()
+    assert first.failure_count == 1
+    assert first.last_failure_at is not None
+    assert second is None or second.id != first.id
+
+
+@pytest.mark.django_db
 def test_ensure_draft_image_generates_path_when_prompt_available(monkeypatch):
     user = TelegramUser.objects.create(chat_id=1024, username="tester")
     draft = AddWordDraft.objects.create(
