@@ -42,6 +42,43 @@ All product changes should preserve shared progress, shared dictionary state, an
 - Verify the live asset hash after deployment when frontend changes are made.
 - If UI bugs are reported, reproduce locally first, then deploy.
 
+## Production safety rules
+
+- Do not probe production with many separate SSH reconnects in a short window.
+- For one production investigation, prefer one SSH session or one batched SSH command over many tiny checks.
+- Before changing production cron, workers, or background jobs, first identify whether they call OpenAI, Telegram, or other billed/rate-limited services.
+- If a background job is suspected of burning money or rate limits, stop the spend first, then debug the root cause.
+- Treat production background generation as user-latency sensitive: user-triggered flows must stay higher priority than pack warmup or backfill jobs.
+
+## Debugging and verification rules
+
+- Use structured debugging:
+  - what is confirmed from code/logs/DB
+  - what is inferred
+  - which hypothesis is being tested next
+- Do not claim that something is fixed, passed, or deployed without direct evidence.
+- Evidence should be concrete:
+  - command output
+  - test result
+  - build result
+  - live asset hash
+  - production state check
+- If a safeguard should hold reliably, prefer code, tests, migrations, or automation over "remembering" the rule in prompt text.
+
+## Dependency and supply-chain rules
+
+- Do not change dependencies or lockfiles unless the task actually requires it.
+- Avoid opportunistic package upgrades during unrelated work.
+- Prefer existing pinned/locked dependencies over newly published versions.
+- If adding or upgrading a dependency is necessary, explain why it is needed and verify that the change is scoped to the task.
+
+## Red lines
+
+- Do not delete user data, datasets, media, or production artifacts unless the user explicitly asked to delete them.
+- "Filter", "clean", or "exclude" means move, mark, skip, or hide by default, not delete.
+- Do not change production config values just because they look strange; first understand why the current value exists.
+- Do not enable new background loops, cron jobs, or auto-generation workers without checking cost and retry behavior.
+
 ## Testing expectations
 
 - For frontend/mobile bugs, use Playwright and test real mobile-sized viewports.
