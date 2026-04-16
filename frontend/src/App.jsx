@@ -95,6 +95,25 @@ function withFreshAvatarUrl(payload) {
   };
 }
 
+async function preloadImage(src, attempts = 4) {
+  if (!src) {
+    return false;
+  }
+  for (let index = 0; index < attempts; index += 1) {
+    const loaded = await new Promise((resolve) => {
+      const image = new window.Image();
+      image.onload = () => resolve(true);
+      image.onerror = () => resolve(false);
+      image.src = src;
+    });
+    if (loaded) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return false;
+}
+
 const GEORGIAN_TO_LATIN = {
   "ა": "a",
   "ბ": "b",
@@ -1736,6 +1755,9 @@ function App() {
             : data.settings.avatar_url,
         }
         : data.settings;
+      if (nextUser?.avatar_url) {
+        await preloadImage(nextUser.avatar_url);
+      }
       setAuth((current) => ({
         ...current,
         user: nextUser || current.user,
