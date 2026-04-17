@@ -81,11 +81,11 @@ export default function SettingsScreen({
       <h3>Настройки ⚙️</h3>
       <form className="settings-grid" onSubmit={onSave}>
         <label>
-          <span>Полный доступ к пакам для релокации</span>
+          <span>Полный доступ к сценариям для переезда</span>
           <small>
             {billing?.premium_active
               ? `Активен${billing?.active_subscription?.expires_at ? ` до ${new Date(billing.active_subscription.expires_at).toLocaleDateString("ru-RU")}` : ""}.`
-              : "Откроет все паки для релокации и уберёт лимиты free-плана для экспат-сценариев."}
+              : "Откроет все сценарии для переезда и уберёт лимиты free-плана для экспат-сценариев."}
           </small>
           {billing?.premium_active ? (
             <div className="inline-note">Подписка уже активна.</div>

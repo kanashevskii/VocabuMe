@@ -393,6 +393,15 @@ Next-week commercial objective:
 - make the paid offer legible enough to start first sales
 - prepare the acquisition story for expat/community distribution
 
+Progress made:
+- First expat-first copy pass is already in code:
+  - pack catalog now reads as `scenarios for relocation`
+  - onboarding sells real post-move situations instead of generic vocabulary repetition
+  - premium copy now emphasizes full access to relocation scenarios and future AI help for difficult бытовые dialogues
+- Remaining work in this stream:
+  - align landing/acquisition assets with the same message
+  - make the first paid CTA and scenario descriptions even sharper around expat pain
+
 ### P24. AI dialogue simulation for relocation scenarios
 
 Open questions to agree before work starts:

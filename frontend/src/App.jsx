@@ -2573,12 +2573,12 @@ function App() {
       <section className="glass-card compact-section pack-section">
         <div className="section-head pack-section-head">
           <div>
-            <p className="overline">Наборы</p>
-            <h3>Готовые наборы ✈️</h3>
-            <p className="lead compact">Выбери готовый набор по ситуации.</p>
+            <p className="overline">Сценарии</p>
+            <h3>Сценарии для переезда ✈️</h3>
+            <p className="lead compact">Выбери ситуацию: банк, документы, жилье, магазин, почта.</p>
           </div>
           <button className="secondary-button pack-manual-button" type="button" onClick={openAddWords}>
-            Добавить вручную
+            Свои слова и фразы
           </button>
         </div>
         {displayPacks.length ? (
@@ -2614,7 +2614,7 @@ function App() {
                       <span className="pack-badge pack-badge-difficulty">{pack.difficulty}</span>
                     ) : null}
                     <span className="pack-badge">
-                      {pack.levels.length === 1 ? "1 сценарий" : `${pack.levels.length} сценария`}
+                      {pack.levels.length === 1 ? "1 ситуация" : `${pack.levels.length} ситуации`}
                     </span>
                     <span className="pack-badge">{totalWords} слов и фраз</span>
                     {pack.has_added_words ? (
@@ -3296,18 +3296,18 @@ function App() {
           {onboardingStep === "intro" ? (
             <section className="glass-card compact-section">
               <p className="overline">Старт</p>
-              <h3>VocabuMe для жизни в новой стране ✨</h3>
+              <h3>VocabuMe для жизни после переезда ✨</h3>
               <p className="lead compact">
-                Ты выбрал {activeLanguageLabel.toLowerCase()}. Дальше можно учить язык через
-                готовые сценарии: банк, документы, первая неделя, рынок, почта.
+                Ты выбрал {activeLanguageLabel.toLowerCase()}. Дальше можно быстро закрывать реальные
+                задачи: банк, документы, жилье, связь, рынок, почта.
               </p>
               <div className="stack-form">
                 <div className="inline-note">
-                  1. Открой нужный сценарий.
+                  1. Выбери ситуацию, которая нужна прямо сейчас.
                   <br />
-                  2. Добавь слова и фразы в словарь.
+                  2. Добавь нужные слова и фразы в словарь.
                   <br />
-                  3. Пройди практику и закрепи их.
+                  3. Пройди практику перед реальным диалогом.
                 </div>
                 <button className="primary-button" type="button" onClick={() => setOnboardingStep("premium")} disabled={busy}>
                   Дальше
@@ -3320,21 +3320,22 @@ function App() {
           ) : (
             <section className="glass-card compact-section onboarding-premium-card">
               <p className="overline">Premium</p>
-              <h3>Полный доступ к пакам для релокации 🚀</h3>
+              <h3>Полный доступ к сценариям для переезда 🚀</h3>
               <p className="lead compact">
-                Для экспатов это не просто слова, а готовые сценарии для жизни после переезда: банк, аренда, счета, документы и бытовые вопросы.
+                Для экспатов это не просто слова, а готовые сценарии для жизни после переезда: банк,
+                аренда, счета, документы и бытовые вопросы.
               </p>
               <div className="simple-list onboarding-premium-list">
                 <div className="simple-row">
-                  <strong>Полный доступ к пакам для релокации</strong>
+                  <strong>Полный доступ к сценариям для переезда</strong>
                   <small>Банк, аренда, счета, документы, магазин, почта и другие expat-сценарии.</small>
                 </div>
                 <div className="simple-row">
-                  <strong>Больше новых слов и фраз под реальные задачи</strong>
+                  <strong>Больше слов и фраз под твою ситуацию</strong>
                   <small>Без ограничения free-плана по дневному добавлению.</small>
                 </div>
                 <div className="simple-row">
-                  <strong>Расширенные AI-возможности</strong>
+                  <strong>AI для сложных бытовых диалогов</strong>
                   <small>Объяснения, дополнительные генерации и будущие диалоги с фидбеком по темам переезда.</small>
                 </div>
               </div>

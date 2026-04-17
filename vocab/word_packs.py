@@ -1,9 +1,9 @@
 TRAVEL_PACKS = [
     {
         "id": "travel",
-        "title": "Travel",
+        "title": "В поездке",
         "emoji": "✈️",
-        "description": "Слова и фразы для поездок, аэропорта, отеля и перемещений.",
+        "description": "Запасной набор для коротких поездок: аэропорт, отель и ориентирование в городе.",
         "difficulty": "Средний",
         "levels": [
             {
@@ -78,15 +78,15 @@ TRAVEL_PACKS = [
 ENGLISH_RELOCATION_PACKS = [
     {
         "id": "georgia_work_permit_en",
-        "title": "English: работа и документы",
+        "title": "English: работа и документы после переезда",
         "emoji": "📄",
-        "description": "Фразы и слова для трудоустройства, документов и общения с работодателем.",
+        "description": "Чтобы заполнить анкету, договориться о старте и понять рабочие условия на английском.",
         "difficulty": "Средний",
         "levels": [
             {
                 "id": "job_documents",
                 "title": "Документы и анкета",
-                "description": "Подать документы, заполнить форму и договориться о следующем шаге.",
+                "description": "Подать документы, заполнить форму и не потеряться на первом шаге с работодателем.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "work permit", "translation": "разрешение на работу"},
@@ -102,7 +102,7 @@ ENGLISH_RELOCATION_PACKS = [
             {
                 "id": "contract_and_terms",
                 "title": "Договор и условия",
-                "description": "Обсуждение условий, подписи и деталей выхода на работу.",
+                "description": "Обсуждение зарплаты, графика, подписи и даты выхода на работу.",
                 "difficulty": "Средний",
                 "items": [
                     {"word": "employment contract", "translation": "трудовой договор"},
@@ -119,15 +119,15 @@ ENGLISH_RELOCATION_PACKS = [
     },
     {
         "id": "georgia_bank_en",
-        "title": "English: банк и счет",
+        "title": "English: банк и счет после переезда",
         "emoji": "🏦",
-        "description": "Лексика для открытия счета, карты и общения в отделении банка.",
+        "description": "Чтобы открыть счет, получить карту и спокойно решить банковские вопросы на английском.",
         "difficulty": "Средний",
         "levels": [
             {
                 "id": "open_account",
                 "title": "Открытие счета",
-                "description": "Самые нужные слова и фразы для старта и открытия счета.",
+                "description": "Первый визит в банк: открыть счет, понять список документов и задать нужные вопросы.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "bank account", "translation": "банковский счет"},
@@ -143,7 +143,7 @@ ENGLISH_RELOCATION_PACKS = [
             {
                 "id": "statements_and_transfers",
                 "title": "Выписка и переводы",
-                "description": "Запрос выписки, реквизитов и обсуждение комиссий.",
+                "description": "Запрос выписки, реквизитов, комиссий и сроков перевода без лишнего стресса.",
                 "difficulty": "Средний",
                 "items": [
                     {"word": "statement", "translation": "выписка"},
@@ -159,15 +159,15 @@ ENGLISH_RELOCATION_PACKS = [
     },
     {
         "id": "georgia_first_week_en",
-        "title": "English: первая неделя в новой стране",
+        "title": "English: первые дни после переезда",
         "emoji": "🧭",
-        "description": "Бытовые фразы для связи, адреса, транспорта и первых дел после переезда.",
+        "description": "Связь, адрес, жилье, покупки и первые бытовые вопросы, которые всплывают сразу после переезда.",
         "difficulty": "Легкий",
         "levels": [
             {
                 "id": "connection_and_address",
                 "title": "Связь и адрес",
-                "description": "SIM, доставка, адрес и базовые бытовые действия в первые дни.",
+                "description": "SIM, доставка, адрес и первые бытовые действия, когда еще все непривычно.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "SIM card", "translation": "сим-карта"},
@@ -182,7 +182,7 @@ ENGLISH_RELOCATION_PACKS = [
             {
                 "id": "housing_and_city",
                 "title": "Жилье и город",
-                "description": "Аренда, транспорт, магазин и повседневные просьбы по городу.",
+                "description": "Аренда, транспорт, магазин и повседневные просьбы, без которых тяжело в новом городе.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "rental agreement", "translation": "договор аренды"},
@@ -198,7 +198,7 @@ ENGLISH_RELOCATION_PACKS = [
             {
                 "id": "market_and_shop",
                 "title": "Рынок и магазин",
-                "description": "Покупки, цены, вес и простые вопросы продавцу.",
+                "description": "Покупки, цены, вес и короткие вопросы продавцу в реальной очереди, а не в учебнике.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "market", "translation": "рынок"},
@@ -215,7 +215,7 @@ ENGLISH_RELOCATION_PACKS = [
             {
                 "id": "post_and_parcels",
                 "title": "Почта и посылки",
-                "description": "Отправка, получение и отслеживание посылок.",
+                "description": "Получение, отправка и поиск посылки, когда нужно быстро разобраться с доставкой.",
                 "difficulty": "Средний",
                 "items": [
                     {"word": "post office", "translation": "почта"},
@@ -235,9 +235,9 @@ ENGLISH_RELOCATION_PACKS = [
 GEORGIAN_TEST_PACKS = [
     {
         "id": "georgian_starter",
-        "title": "Базовый грузинский",
+        "title": "Грузинский: быстрый старт",
         "emoji": "🇬🇪",
-        "description": "Тестовый набор из самых базовых слов и фраз для первых дней.",
+        "description": "Короткий стартовый набор, чтобы не зависнуть в первом бытовом диалоге на грузинском.",
         "difficulty": "Легкий",
         "levels": [
             {
@@ -299,13 +299,13 @@ GEORGIAN_RELOCATION_PACKS = [
         "id": "georgia_work_permit_ka",
         "title": "Грузинский: работа и документы",
         "emoji": "📄",
-        "description": "Фразы для документов, работодателя и бытовых вопросов по работе в Грузии.",
+        "description": "Фразы для документов, работодателя и рабочих ситуаций, когда нужно быстро объясниться на месте.",
         "difficulty": "Средний",
         "levels": [
             {
                 "id": "job_documents",
                 "title": "Документы и анкета",
-                "description": "Подача документов и базовые вопросы по оформлению на работу.",
+                "description": "Подача документов и базовые вопросы по оформлению, чтобы не потеряться в процессе.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "სამუშაო", "translation": "работа"},
@@ -321,7 +321,7 @@ GEORGIAN_RELOCATION_PACKS = [
             {
                 "id": "contract_and_terms",
                 "title": "Договор и условия",
-                "description": "Подпись, зарплата, график и детали выхода на работу.",
+                "description": "Подпись, зарплата, график и детали выхода на работу без паники и догадок.",
                 "difficulty": "Средний",
                 "items": [
                     {"word": "კონტრაქტი", "translation": "договор"},
@@ -340,13 +340,13 @@ GEORGIAN_RELOCATION_PACKS = [
         "id": "georgia_bank_ka",
         "title": "Грузинский: банк и счет",
         "emoji": "🏦",
-        "description": "Самые нужные слова и фразы для банка и открытия счета в Грузии.",
+        "description": "Самые нужные слова и фразы, чтобы открыть счет, получить карту и понять сотрудника банка.",
         "difficulty": "Средний",
         "levels": [
             {
                 "id": "open_account",
                 "title": "Открытие счета",
-                "description": "Первый визит в банк, открытие счета и документы.",
+                "description": "Первый визит в банк, открытие счета и документы, которые у тебя попросят.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "ბანკი", "translation": "банк"},
@@ -361,7 +361,7 @@ GEORGIAN_RELOCATION_PACKS = [
             {
                 "id": "statements_and_transfers",
                 "title": "Выписка и переводы",
-                "description": "Выписка, переводы, комиссии и вопросы по банковской карте.",
+                "description": "Выписка, переводы, комиссии и вопросы по карте, когда нужно решить задачу быстро.",
                 "difficulty": "Средний",
                 "items": [
                     {"word": "ნაღდი ფული", "translation": "наличные"},
@@ -379,15 +379,15 @@ GEORGIAN_RELOCATION_PACKS = [
     },
     {
         "id": "georgia_first_week_ka",
-        "title": "Новая страна: первая неделя",
+        "title": "Грузинский: первые дни после переезда",
         "emoji": "🧭",
-        "description": "Бытовые фразы для связи, адреса, транспорта и первых шагов после переезда.",
+        "description": "Связь, адрес, жилье, покупки и первые бытовые вопросы, которые всплывают сразу после переезда.",
         "difficulty": "Легкий",
         "levels": [
             {
                 "id": "connection_and_address",
                 "title": "Связь и адрес",
-                "description": "SIM, адрес, доставка и первые бытовые действия после переезда.",
+                "description": "SIM, адрес, доставка и первые бытовые действия, когда нужно быстро освоиться.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "სიმ ბარათი", "translation": "сим-карта"},
@@ -402,7 +402,7 @@ GEORGIAN_RELOCATION_PACKS = [
             {
                 "id": "housing_and_city",
                 "title": "Жилье и город",
-                "description": "Аренда, транспорт, магазин и базовые городские ситуации.",
+                "description": "Аренда, транспорт, магазин и базовые городские ситуации без языкового ступора.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "ქირა", "translation": "аренда"},
@@ -418,7 +418,7 @@ GEORGIAN_RELOCATION_PACKS = [
             {
                 "id": "market_and_shop",
                 "title": "Рынок и магазин",
-                "description": "Цены, покупки, чек и базовый диалог с продавцом.",
+                "description": "Цены, покупки, чек и короткий диалог с продавцом в обычной бытовой ситуации.",
                 "difficulty": "Легкий",
                 "items": [
                     {"word": "ბაზარი", "translation": "рынок"},
@@ -434,7 +434,7 @@ GEORGIAN_RELOCATION_PACKS = [
             {
                 "id": "post_and_parcels",
                 "title": "Почта и посылки",
-                "description": "Получение, отправка и поиск посылки на почте.",
+                "description": "Получение, отправка и поиск посылки, когда нужно разобраться с почтой без переводчика.",
                 "difficulty": "Средний",
                 "items": [
                     {"word": "ფოსტა", "translation": "почта"},
