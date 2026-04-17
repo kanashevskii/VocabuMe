@@ -16,7 +16,6 @@ import {
   IRREGULAR_MODES,
   LIBRARY_MODES,
   MAX_ADD_BATCH_WORDS,
-  MAX_IMAGE_REGENERATIONS,
 } from "./constants";
 import { api, reportClientError } from "./lib/api";
 import ProgressScreen from "./screens/ProgressScreen";
@@ -527,6 +526,15 @@ function App() {
     }
   }
 
+  function handleActionError(error) {
+    if (error?.code?.startsWith("paywall_")) {
+      setPrimaryTab("more");
+      setNotice(error.message, { sticky: true, error: true, scope: "global" });
+      return;
+    }
+    setNotice(error.message, { error: true });
+  }
+
   function formatDisplayLine(text, courseCode = activeStudiedLanguage) {
     const primary = text || "";
     if (courseCode !== "ka" || !showGeorgianLatin || !primary) {
@@ -678,7 +686,7 @@ function App() {
 
       window.location.href = data.invoice_link;
     } catch (error) {
-      setNotice(error.message);
+      handleActionError(error);
     } finally {
       setCheckoutBusyPeriod("");
     }
@@ -983,7 +991,7 @@ function App() {
       }
       setNotice("Открыл бота. Нажми Start, затем вернись сюда.");
     } catch (error) {
-      setNotice(error.message);
+      handleActionError(error);
     } finally {
       setBusy(false);
     }
@@ -1011,7 +1019,7 @@ function App() {
       setAuth({ loading: false, authenticated: false, user: null, progress: null });
       setNotice("Выход выполнен.");
     } catch (error) {
-      setNotice(error.message);
+      handleActionError(error);
     } finally {
       setBusy(false);
     }
@@ -1044,7 +1052,7 @@ function App() {
       setAuth({ loading: false, authenticated: true, user: data.user, progress: data.progress });
       setNotice(webAuthMode === "register" ? "Web-аккаунт создан." : "Вход выполнен.");
     } catch (error) {
-      setNotice(error.message);
+      handleActionError(error);
     } finally {
       setBusy(false);
     }
@@ -1128,7 +1136,7 @@ function App() {
       setAddTranslationInput(data.draft.translation || "");
       setNotice(data.step === "confirm_translation" ? "Подтверди перевод. Фото загрузится автоматически." : "Фото загружается автоматически. Можно сохранить слово сразу.");
     } catch (error) {
-      setNotice(error.message);
+      handleActionError(error);
     } finally {
       setAddBusy(false);
       setAddBusyLabel("");
@@ -1179,7 +1187,7 @@ function App() {
       resetAddFlow();
       await refreshAfterWordMutation();
     } catch (error) {
-      setNotice(error.message);
+      handleActionError(error);
     } finally {
       setAddBusy(false);
       setAddBusyLabel("");
@@ -1202,7 +1210,7 @@ function App() {
       setAddDraftStep(data.step);
       setNotice("Фото загружается автоматически. Можно сохранить слово и не ждать.");
     } catch (error) {
-      setNotice(error.message);
+      handleActionError(error);
     } finally {
       setAddBusy(false);
       setAddBusyLabel("");
@@ -2479,13 +2487,11 @@ function App() {
                       className={regeneratingWordId === item.id || item.image_generation_in_progress ? "secondary-button is-loading" : "secondary-button"}
                       type="button"
                       onClick={() => regenerateWordImage(item.id)}
-                      disabled={regeneratingWordId === item.id || item.image_generation_in_progress || (item.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
+                      disabled={regeneratingWordId === item.id || item.image_generation_in_progress}
                     >
                       {regeneratingWordId === item.id || item.image_generation_in_progress
                         ? "⏳ Генерируем..."
-                        : (item.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS
-                          ? "Лимит фото"
-                          : "♻️ Обновить фото"}
+                        : "♻️ Обновить фото"}
                     </button>
                     <button className="danger-button" type="button" onClick={() => deleteWord(item.id)}>
                       Удалить
@@ -2587,6 +2593,7 @@ function App() {
               const isActivePack = selectedPackId === pack.id;
               const totalWords = pack.levels.reduce((sum, level) => sum + level.size, 0);
               const activeScenario = pack.levels.find((level) => level.id === selectedPackLevelId) || pack.levels[0];
+              const isLockedPack = Boolean(pack.premium_required) && !billing.premium_active;
 
               return (
                 <article key={pack.id} className={isActivePack ? "pack-card active" : "pack-card"}>
@@ -2601,13 +2608,20 @@ function App() {
                     className={isActivePack && isPackExpanded ? "secondary-button pack-open-button" : "primary-button pack-open-button"}
                     type="button"
                     onClick={() => {
+                      if (isLockedPack) {
+                        handleActionError({
+                          code: "paywall_premium_pack_gate",
+                          message: "Этот сценарий доступен в Premium. Открой полный доступ к сценариям для переезда.",
+                        });
+                        return;
+                      }
                       setSelectedPackId(pack.id);
                       setSelectedPackLevelId(pack.levels[0]?.id || "");
                       setSelectedPackWords({});
                       setIsPackExpanded((current) => (isActivePack ? !current : true));
                     }}
                   >
-                    {isActivePack && isPackExpanded ? "Скрыть" : "Открыть"}
+                    {isLockedPack ? "Premium" : isActivePack && isPackExpanded ? "Скрыть" : "Открыть"}
                   </button>
                   <div className="pack-card-meta">
                     {pack.difficulty ? (
@@ -2617,6 +2631,9 @@ function App() {
                       {pack.levels.length === 1 ? "1 ситуация" : `${pack.levels.length} ситуации`}
                     </span>
                     <span className="pack-badge">{totalWords} слов и фраз</span>
+                    {isLockedPack ? (
+                      <span className="pack-badge">Premium</span>
+                    ) : null}
                     {pack.has_added_words ? (
                       <span className="pack-badge pack-badge-success">Добавлен</span>
                     ) : null}
@@ -2793,9 +2810,9 @@ function App() {
                       className="secondary-button"
                       type="button"
                       onClick={() => regenerateBatchDraftImage(draft.id)}
-                      disabled={addBusy || (draft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
+                      disabled={addBusy}
                     >
-                      {(draft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS ? "Лимит фото" : "♻️ Другое фото"}
+                      ♻️ Другое фото
                     </button>
                   ) : null}
                 </div>
@@ -2874,9 +2891,9 @@ function App() {
                     className="secondary-button"
                     type="button"
                     onClick={regenerateDraftImage}
-                    disabled={addBusy || (addDraft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS}
+                    disabled={addBusy}
                   >
-                    {(addDraft.image_regeneration_count || 0) >= MAX_IMAGE_REGENERATIONS ? "Лимит фото" : "Другое изображение"}
+                    Другое изображение
                   </button>
                 </div>
               </div>

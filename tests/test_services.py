@@ -12,6 +12,7 @@ from vocab.models import (
     PackPreparedWord,
     SubscriptionPlan,
     TelegramUser,
+    UserDailyEntitlementUsage,
     UserSubscription,
     UserCourseProgress,
     VocabularyItem,
@@ -71,6 +72,7 @@ from vocab.services import (
     serialize_word,
     user_has_premium,
     is_course_word_answer_correct,
+    EntitlementError,
 )
 
 
@@ -1205,6 +1207,74 @@ def test_list_word_packs_marks_pack_and_scenario_as_added_when_any_word_exists()
     assert pack["added_count"] >= 1
     assert scenario["has_added_words"] is True
     assert scenario["added_count"] >= 1
+
+
+@pytest.mark.django_db
+def test_list_word_packs_marks_premium_relocation_packs_for_free_user():
+    user = TelegramUser.objects.create(
+        chat_id=1039, username="tester", active_studied_language="en"
+    )
+
+    packs = list_word_packs(user)
+    starter_pack = next(pack for pack in packs if pack["id"] == "georgia_first_week_en")
+    premium_pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_en")
+
+    assert starter_pack["premium_required"] is False
+    assert starter_pack["accessible"] is True
+    assert premium_pack["premium_required"] is True
+    assert premium_pack["accessible"] is False
+
+
+@pytest.mark.django_db
+def test_add_pack_words_to_user_rejects_locked_premium_pack_for_free_user():
+    user = TelegramUser.objects.create(
+        chat_id=1040, username="tester", active_studied_language="en"
+    )
+
+    with pytest.raises(EntitlementError, match="Premium"):
+        add_pack_words_to_user(
+            user,
+            "georgia_work_permit_en",
+            "job_documents",
+            ["work permit"],
+        )
+
+
+@pytest.mark.django_db
+def test_create_word_drafts_from_text_rejects_daily_limit():
+    user = TelegramUser.objects.create(chat_id=1041, username="tester")
+    UserDailyEntitlementUsage.objects.create(
+        user=user,
+        usage_date=timezone.localdate(),
+        new_items_added=10,
+        extra_image_regenerations=0,
+    )
+
+    with pytest.raises(EntitlementError, match="до 10 новых слов"):
+        create_word_drafts_from_text(user, "apple - яблоко")
+
+
+@pytest.mark.django_db
+def test_request_word_image_generation_rejects_daily_regeneration_limit():
+    user = TelegramUser.objects.create(chat_id=1042, username="tester")
+    UserDailyEntitlementUsage.objects.create(
+        user=user,
+        usage_date=timezone.localdate(),
+        new_items_added=0,
+        extra_image_regenerations=3,
+    )
+    item = VocabularyItem.objects.create(
+        user=user,
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="Example",
+        example_translation="Пример",
+    )
+
+    with pytest.raises(EntitlementError, match="обновления фото"):
+        request_word_image_generation(item, force_regenerate=True)
 
 
 @pytest.mark.django_db

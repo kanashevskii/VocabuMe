@@ -5,6 +5,8 @@ TRAVEL_PACKS = [
         "emoji": "✈️",
         "description": "Запасной набор для коротких поездок: аэропорт, отель и ориентирование в городе.",
         "difficulty": "Средний",
+        "track": "general",
+        "starter_pack": False,
         "levels": [
             {
                 "id": "airport_boarding",
@@ -82,6 +84,8 @@ ENGLISH_RELOCATION_PACKS = [
         "emoji": "📄",
         "description": "Чтобы заполнить анкету, договориться о старте и понять рабочие условия на английском.",
         "difficulty": "Средний",
+        "track": "relocation",
+        "starter_pack": False,
         "levels": [
             {
                 "id": "job_documents",
@@ -123,6 +127,8 @@ ENGLISH_RELOCATION_PACKS = [
         "emoji": "🏦",
         "description": "Чтобы открыть счет, получить карту и спокойно решить банковские вопросы на английском.",
         "difficulty": "Средний",
+        "track": "relocation",
+        "starter_pack": True,
         "levels": [
             {
                 "id": "open_account",
@@ -163,6 +169,8 @@ ENGLISH_RELOCATION_PACKS = [
         "emoji": "🧭",
         "description": "Связь, адрес, жилье, покупки и первые бытовые вопросы, которые всплывают сразу после переезда.",
         "difficulty": "Легкий",
+        "track": "relocation",
+        "starter_pack": True,
         "levels": [
             {
                 "id": "connection_and_address",
@@ -239,6 +247,8 @@ GEORGIAN_TEST_PACKS = [
         "emoji": "🇬🇪",
         "description": "Короткий стартовый набор, чтобы не зависнуть в первом бытовом диалоге на грузинском.",
         "difficulty": "Легкий",
+        "track": "relocation",
+        "starter_pack": True,
         "levels": [
             {
                 "id": "starter",
@@ -301,6 +311,8 @@ GEORGIAN_RELOCATION_PACKS = [
         "emoji": "📄",
         "description": "Фразы для документов, работодателя и рабочих ситуаций, когда нужно быстро объясниться на месте.",
         "difficulty": "Средний",
+        "track": "relocation",
+        "starter_pack": False,
         "levels": [
             {
                 "id": "job_documents",
@@ -342,6 +354,8 @@ GEORGIAN_RELOCATION_PACKS = [
         "emoji": "🏦",
         "description": "Самые нужные слова и фразы, чтобы открыть счет, получить карту и понять сотрудника банка.",
         "difficulty": "Средний",
+        "track": "relocation",
+        "starter_pack": False,
         "levels": [
             {
                 "id": "open_account",
@@ -383,6 +397,8 @@ GEORGIAN_RELOCATION_PACKS = [
         "emoji": "🧭",
         "description": "Связь, адрес, жилье, покупки и первые бытовые вопросы, которые всплывают сразу после переезда.",
         "difficulty": "Легкий",
+        "track": "relocation",
+        "starter_pack": True,
         "levels": [
             {
                 "id": "connection_and_address",

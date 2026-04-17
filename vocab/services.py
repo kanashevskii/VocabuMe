@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -41,6 +41,7 @@ from .models import (
     SubscriptionPlan,
     STUDIED_LANGUAGE_CHOICES,
     TelegramUser,
+    UserDailyEntitlementUsage,
     UserSubscription,
     UserCourseProgress,
     VocabularyItem,
@@ -85,6 +86,14 @@ EXERCISE_PRIORITY = [
     "speaking",
     "listening_translate",
 ]
+
+
+class EntitlementError(ValueError):
+    def __init__(self, code: str, message: str, *, paywall_trigger: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.paywall_trigger = paywall_trigger
 ACHIEVEMENT_DEFINITIONS = [
     {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
     {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
@@ -400,6 +409,105 @@ def get_billing_payload(user: TelegramUser) -> dict:
             for plan in plans
         ],
     }
+
+
+def get_plan_definition_for_user(user: TelegramUser | None) -> dict:
+    return PLAN_DEFINITIONS["premium" if user_has_premium(user) else "free"]
+
+
+def get_entitlements_for_user(user: TelegramUser | None) -> dict:
+    return get_plan_definition_for_user(user)["entitlements"]
+
+
+def get_daily_entitlement_usage(
+    user: TelegramUser, target_date: date | None = None
+) -> UserDailyEntitlementUsage:
+    usage_date = target_date or timezone.localdate()
+    usage, created = UserDailyEntitlementUsage.objects.get_or_create(
+        user=user,
+        usage_date=usage_date,
+        defaults={
+            "new_items_added": VocabularyItem.objects.filter(
+                user=user,
+                created_at__date=usage_date,
+            ).count(),
+            "extra_image_regenerations": 0,
+        },
+    )
+    return usage
+
+
+def get_remaining_new_items_for_today(user: TelegramUser) -> int | None:
+    max_items = get_entitlements_for_user(user).get("max_new_items_per_day")
+    if max_items is None:
+        return None
+    usage = get_daily_entitlement_usage(user)
+    return max(0, int(max_items) - int(usage.new_items_added or 0))
+
+
+def get_remaining_extra_image_regenerations_for_today(user: TelegramUser) -> int | None:
+    max_regenerations = get_entitlements_for_user(user).get(
+        "max_extra_image_regenerations_per_day"
+    )
+    if max_regenerations is None:
+        return None
+    usage = get_daily_entitlement_usage(user)
+    return max(0, int(max_regenerations) - int(usage.extra_image_regenerations or 0))
+
+
+def reserve_new_items_for_today(user: TelegramUser, count: int) -> None:
+    if count <= 0:
+        return
+    remaining = get_remaining_new_items_for_today(user)
+    if remaining is not None and count > remaining:
+        raise EntitlementError(
+            "paywall_daily_new_items_limit",
+            "В free-плане можно добавить до 10 новых слов и фраз в день. Открой Premium, чтобы снять лимит.",
+            paywall_trigger="daily_new_items_limit",
+        )
+    usage = get_daily_entitlement_usage(user)
+    usage.new_items_added += count
+    usage.save(update_fields=["new_items_added", "updated_at"])
+
+
+def reserve_extra_image_regeneration_for_today(user: TelegramUser) -> None:
+    remaining = get_remaining_extra_image_regenerations_for_today(user)
+    if remaining is not None and remaining <= 0:
+        raise EntitlementError(
+            "paywall_extra_image_regeneration_limit",
+            "В free-плане закончились дополнительные обновления фото на сегодня. Открой Premium, чтобы снять лимит.",
+            paywall_trigger="extra_image_regeneration_limit",
+        )
+    usage = get_daily_entitlement_usage(user)
+    usage.extra_image_regenerations += 1
+    usage.save(update_fields=["extra_image_regenerations", "updated_at"])
+
+
+def _pack_definition_for_course(course_code: str, pack_id: str) -> dict | None:
+    for pack in get_course_pack_definitions(course_code):
+        if pack["id"] == pack_id:
+            return pack
+    return None
+
+
+def pack_requires_premium(user: TelegramUser | None, pack_definition: dict | None) -> bool:
+    if not pack_definition:
+        return False
+    if user_has_premium(user):
+        return False
+    if pack_definition.get("track") != "relocation":
+        return False
+    return not bool(pack_definition.get("starter_pack"))
+
+
+def ensure_pack_is_accessible(user: TelegramUser, pack_definition: dict | None) -> None:
+    if not pack_requires_premium(user, pack_definition):
+        return
+    raise EntitlementError(
+        "paywall_premium_pack_gate",
+        "Этот сценарий доступен в Premium. Открой полный доступ к сценариям для переезда.",
+        paywall_trigger="premium_pack_gate",
+    )
 
 
 def _get_subscription_plan(plan_code: str, billing_period: str) -> SubscriptionPlan:
@@ -1292,6 +1400,14 @@ def add_words_from_text(
     created_items = []
     skipped = []
     failed = []
+    pending_new_count = sum(1 for entry in entries if not word_already_exists(user, entry.word))
+    remaining_new_items = get_remaining_new_items_for_today(user)
+    if remaining_new_items is not None and pending_new_count > remaining_new_items:
+        raise EntitlementError(
+            "paywall_daily_new_items_limit",
+            "В free-плане можно добавить до 10 новых слов и фраз в день. Открой Premium, чтобы снять лимит.",
+            paywall_trigger="daily_new_items_limit",
+        )
 
     for entry in entries:
         if word_already_exists(user, entry.word):
@@ -1314,6 +1430,7 @@ def add_words_from_text(
             logger.exception("Failed to save word %s for user %s", entry.word, user.id)
             failed.append({"word": entry.word, "reason": "save_failed"})
 
+    reserve_new_items_for_today(user, len(created_items))
     return {"created": created_items, "skipped": skipped, "failed": failed}
 
 
@@ -1329,6 +1446,16 @@ def create_word_drafts_from_text(
         )
 
     if len(entries) > 1:
+        pending_new_count = sum(
+            1 for entry in entries if not word_already_exists(user, entry.word)
+        )
+        remaining_new_items = get_remaining_new_items_for_today(user)
+        if remaining_new_items is not None and pending_new_count > remaining_new_items:
+            raise EntitlementError(
+                "paywall_daily_new_items_limit",
+                "В free-плане можно добавить до 10 новых слов и фраз в день. Открой Premium, чтобы снять лимит.",
+                paywall_trigger="daily_new_items_limit",
+            )
         missing_translation = [
             entry.word for entry in entries if not entry.translation_hint
         ]
@@ -1387,6 +1514,17 @@ def create_word_drafts_from_text(
         }
 
     entry = entries[0]
+    remaining_new_items = get_remaining_new_items_for_today(user)
+    if (
+        remaining_new_items is not None
+        and remaining_new_items <= 0
+        and not word_already_exists(user, entry.word)
+    ):
+        raise EntitlementError(
+            "paywall_daily_new_items_limit",
+            "В free-плане можно добавить до 10 новых слов и фраз в день. Открой Premium, чтобы снять лимит.",
+            paywall_trigger="daily_new_items_limit",
+        )
     if word_already_exists(user, entry.word):
         raise ValueError("This word already exists.")
 
@@ -1824,6 +1962,7 @@ def list_word_packs(
         ]
         added_count = sum(level["added_count"] for level in levels)
         total_size = sum(level["size"] for level in levels)
+        premium_required = pack_requires_premium(user, pack)
         packs.append(
             {
                 "id": pack["id"],
@@ -1831,6 +1970,10 @@ def list_word_packs(
                 "emoji": pack["emoji"],
                 "description": pack["description"],
                 "difficulty": pack.get("difficulty", ""),
+                "track": pack.get("track", "general"),
+                "starter_pack": bool(pack.get("starter_pack")),
+                "premium_required": premium_required,
+                "accessible": not premium_required,
                 "size": total_size,
                 "added_count": added_count,
                 "has_added_words": added_count > 0,
@@ -2074,6 +2217,8 @@ def add_pack_words_to_user(
     user: TelegramUser, pack_id: str, level_id: str, selected_words: list[str]
 ) -> dict:
     active_course = get_active_course_code(user)
+    pack_definition = _pack_definition_for_course(active_course, pack_id)
+    ensure_pack_is_accessible(user, pack_definition)
     level = get_pack_level(pack_id, level_id)
     if not level:
         raise ValueError("Pack level not found.")
@@ -2084,6 +2229,18 @@ def add_pack_words_to_user(
     ]
     if not normalized_selected:
         raise ValueError("Choose at least one word from the pack.")
+    remaining_new_items = get_remaining_new_items_for_today(user)
+    selectable_new_count = sum(
+        1
+        for normalized in normalized_selected
+        if not word_already_exists(user, allowed[normalized]["word"])
+    )
+    if remaining_new_items is not None and selectable_new_count > remaining_new_items:
+        raise EntitlementError(
+            "paywall_daily_new_items_limit",
+            "В free-плане можно добавить до 10 новых слов и фраз в день. Открой Premium, чтобы снять лимит.",
+            paywall_trigger="daily_new_items_limit",
+        )
 
     prepared_map = {
         item.normalized_word: item
@@ -2171,6 +2328,7 @@ def add_pack_words_to_user(
                 request_word_image_generation(item)
             created.append(serialize_word(item))
 
+    reserve_new_items_for_today(user, len(created))
     ensure_pack_preparation(pack_id, level_id)
     return {"created": created, "skipped": skipped}
 
@@ -2341,6 +2499,8 @@ def request_draft_image_generation(
     draft: AddWordDraft, force_regenerate: bool = False
 ) -> AddWordDraft:
     clear_stale_image_generation_flags()
+    if force_regenerate:
+        reserve_extra_image_regeneration_for_today(draft.user)
     reused_path = (
         ""
         if force_regenerate
@@ -2425,6 +2585,8 @@ def request_word_image_generation(
     item: VocabularyItem, force_regenerate: bool = False
 ) -> VocabularyItem:
     clear_stale_image_generation_flags()
+    if force_regenerate:
+        reserve_extra_image_regeneration_for_today(item.user)
     reused_path = (
         ""
         if force_regenerate
@@ -2498,6 +2660,7 @@ def ensure_draft_image(
 
 
 def finalize_word_draft(draft: AddWordDraft, use_image: bool = True) -> VocabularyItem:
+    reserve_new_items_for_today(draft.user, 1)
     payload = {
         "course_code": draft.course_code,
         "word": draft.word,

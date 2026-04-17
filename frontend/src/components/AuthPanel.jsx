@@ -31,12 +31,13 @@ export default function AuthPanel({
           <LogoMark />
           <div>
             <p className="overline">VocabuMe</p>
-            <h1>Один вход. Один словарь. Один общий прогресс.</h1>
+            <h1>Язык для жизни после переезда.</h1>
           </div>
         </div>
         <p className="lead">
-          Выбери способ входа. Для локальной веб-версии можно использовать email
-          и пароль, а Telegram остаётся основным способом синхронизации.
+          Банк, аренда, документы, магазин, почта, бытовые диалоги. Выбери способ
+          входа, чтобы открыть готовые сценарии и один общий прогресс во всех
+          поверхностях продукта.
         </p>
         <div className="glass-card compact-section auth-method-panel">
           <div className="section-head section-head-wrap">
@@ -46,8 +47,8 @@ export default function AuthPanel({
             </div>
           </div>
           <p className="lead compact">
-            Подходит для обычного Telegram flow и Mini App. Если тестируешь
-            локальный веб, используй блок ниже.
+            Основной способ входа для Mini App и обычного Telegram flow.
+            Для локального web-теста можно использовать блок ниже.
           </p>
           <div className="auth-actions">
             <button
@@ -154,16 +155,16 @@ export default function AuthPanel({
       <div className="glass-card auth-preview">
         <div className="auth-preview-grid">
           <article className="mini-pane">
-            <span>Учить</span>
-            <strong>🧠 Карточки, практика, аудирование</strong>
+            <span>Сценарии</span>
+            <strong>🧭 Банк, жилье, документы, связь, магазин</strong>
           </article>
           <article className="mini-pane">
-            <span>Словарь</span>
-            <strong>📚 Быстрый поиск и редактирование</strong>
+            <span>Практика</span>
+            <strong>🎯 Карточки, тренировки и бытовые фразы под задачу</strong>
           </article>
           <article className="mini-pane">
             <span>Синхронизация</span>
-            <strong>🔄 Telegram и web используют один профиль</strong>
+            <strong>🔄 Telegram и web используют один профиль и один прогресс</strong>
           </article>
         </div>
       </div>

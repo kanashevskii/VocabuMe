@@ -70,6 +70,7 @@ from .services import (
     upsert_telegram_user,
     word_already_exists,
     ensure_pack_preparation,
+    EntitlementError,
 )
 from .telegram_auth import (
     TelegramAuthError,
@@ -92,8 +93,26 @@ def _json_body(request: HttpRequest) -> dict:
         raise ValueError("Invalid JSON body.") from exc
 
 
-def _json_error(message: str, status: int = 400) -> JsonResponse:
-    return JsonResponse({"ok": False, "error": message}, status=status)
+def _json_error(
+    message: str, status: int = 400, *, code: str = "", **extra: object
+) -> JsonResponse:
+    payload: dict[str, object] = {"ok": False, "error": message}
+    if code:
+        payload["code"] = code
+    payload.update(extra)
+    return JsonResponse(payload, status=status)
+
+
+def _json_entitlement_error(
+    user: TelegramUser, exc: EntitlementError, status: int = 402
+) -> JsonResponse:
+    return _json_error(
+        exc.message,
+        status=status,
+        code=exc.code,
+        paywall_trigger=exc.paywall_trigger,
+        billing=get_billing_payload(user),
+    )
 
 
 def _safe_unlink(path: str) -> None:
@@ -450,6 +469,8 @@ def words(request: HttpRequest) -> JsonResponse:
         result = add_words_from_text(
             user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS
         )
+    except EntitlementError as exc:
+        return _json_entitlement_error(user, exc)
     except ValueError as exc:
         return _json_error(str(exc), status=400)
 
@@ -505,6 +526,8 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
                 "step": result["step"],
             }
         )
+    except EntitlementError as exc:
+        return _json_entitlement_error(user, exc)
     except ValueError as exc:
         return _json_error(str(exc), status=400)
     except Exception as exc:
@@ -562,10 +585,10 @@ def word_draft_regenerate_image(request: HttpRequest, draft_id: int) -> JsonResp
         return draft
     if not draft.translation_confirmed:
         return _json_error("Confirm translation first.", status=400)
-    if draft.image_regeneration_count >= MAX_IMAGE_REGENERATIONS:
-        return _json_error("Лимит перегенерации фото исчерпан.", status=400)
-
-    draft = request_draft_image_generation(draft, force_regenerate=True)
+    try:
+        draft = request_draft_image_generation(draft, force_regenerate=True)
+    except EntitlementError as exc:
+        return _json_entitlement_error(user, exc)
     return JsonResponse(
         {"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"}
     )
@@ -592,7 +615,10 @@ def word_draft_save(request: HttpRequest, draft_id: int) -> JsonResponse:
         return _json_error(str(exc))
 
     use_image = bool(payload.get("use_image", True))
-    item = finalize_word_draft(draft, use_image=use_image)
+    try:
+        item = finalize_word_draft(draft, use_image=use_image)
+    except EntitlementError as exc:
+        return _json_entitlement_error(user, exc)
     return JsonResponse(
         {
             "ok": True,
@@ -656,10 +682,10 @@ def word_image_regenerate(request: HttpRequest, word_id: int) -> JsonResponse:
     item = get_user_word(user, word_id)
     if item is None:
         return _json_error("Word not found.", status=404)
-    if item.image_regeneration_count >= MAX_IMAGE_REGENERATIONS:
-        return _json_error("Лимит перегенерации фото исчерпан.", status=400)
-
-    item = request_word_image_generation(item, force_regenerate=True)
+    try:
+        item = request_word_image_generation(item, force_regenerate=True)
+    except EntitlementError as exc:
+        return _json_entitlement_error(user, exc)
     return JsonResponse({"ok": True, "item": serialize_word(item)})
 
 
@@ -775,6 +801,8 @@ def packs_add(request: HttpRequest) -> JsonResponse:
         result = add_pack_words_to_user(
             user, pack_id, level_id, [str(word) for word in selected_words]
         )
+    except EntitlementError as exc:
+        return _json_entitlement_error(user, exc)
     except ValueError as exc:
         return _json_error(str(exc))
 

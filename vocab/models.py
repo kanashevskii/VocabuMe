@@ -103,6 +103,22 @@ class UserCourseProgress(models.Model):
         return f"{self.user} [{self.course_code}]"
 
 
+class UserDailyEntitlementUsage(models.Model):
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    usage_date = models.DateField()
+    new_items_added = models.PositiveIntegerField(default=0)
+    extra_image_regenerations = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "usage_date")
+        ordering = ["-usage_date", "-id"]
+
+    def __str__(self):
+        return f"{self.user} [{self.usage_date}]"
+
+
 class SubscriptionPlan(models.Model):
     code = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=100)

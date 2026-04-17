@@ -81,7 +81,11 @@ export async function api(url, options = {}) {
       detail: rawText.slice(0, 4000),
       meta: { method },
     });
-    throw new Error(errorMessage);
+    const error = new Error(errorMessage);
+    error.status = response.status;
+    error.code = data.code || "";
+    error.payload = data;
+    throw error;
   }
 
   return data;

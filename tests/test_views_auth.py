@@ -695,7 +695,8 @@ def test_word_detail_delete_removes_word(client):
 @pytest.mark.django_db
 def test_word_image_regenerate_rejects_limit_exhausted(client):
     user = TelegramUser.objects.create(chat_id=2016, username="tester")
-    from vocab.models import VocabularyItem
+    from django.utils import timezone
+    from vocab.models import UserDailyEntitlementUsage, VocabularyItem
 
     item = VocabularyItem.objects.create(
         user=user,
@@ -705,7 +706,12 @@ def test_word_image_regenerate_rejects_limit_exhausted(client):
         transcription="",
         example="Example",
         example_translation="Пример",
-        image_regeneration_count=3,
+    )
+    UserDailyEntitlementUsage.objects.create(
+        user=user,
+        usage_date=timezone.localdate(),
+        new_items_added=0,
+        extra_image_regenerations=3,
     )
     session = client.session
     session["telegram_user_id"] = user.id
@@ -713,8 +719,9 @@ def test_word_image_regenerate_rejects_limit_exhausted(client):
 
     response = client.post(f"/api/words/{item.id}/image/regenerate")
 
-    assert response.status_code == 400
-    assert "Лимит перегенерации" in response.json()["error"]
+    assert response.status_code == 402
+    assert response.json()["code"] == "paywall_extra_image_regeneration_limit"
+    assert "обновления фото" in response.json()["error"]
 
 
 @pytest.mark.django_db
@@ -732,3 +739,28 @@ def test_packs_add_rejects_non_list_selected_words(client):
 
     assert response.status_code == 400
     assert response.json()["error"] == "selected_words must be a list."
+
+
+@pytest.mark.django_db
+def test_packs_add_rejects_locked_premium_pack_for_free_user(client):
+    user = TelegramUser.objects.create(
+        chat_id=2018, username="tester", active_studied_language="en"
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.post(
+        "/api/packs/add",
+        data=json.dumps(
+            {
+                "pack_id": "georgia_work_permit_en",
+                "level_id": "job_documents",
+                "selected_words": ["work permit"],
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 402
+    assert response.json()["code"] == "paywall_premium_pack_gate"
