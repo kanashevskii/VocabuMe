@@ -81,21 +81,21 @@ export default function SettingsScreen({
       <h3>Настройки ⚙️</h3>
       <form className="settings-grid" onSubmit={onSave}>
         <label>
-          <span>Premium</span>
+          <span>Полный доступ к пакам для релокации</span>
           <small>
             {billing?.premium_active
               ? `Активен${billing?.active_subscription?.expires_at ? ` до ${new Date(billing.active_subscription.expires_at).toLocaleDateString("ru-RU")}` : ""}.`
-              : "Откроет все relocation-сценарии и уберёт лимиты free-плана."}
+              : "Откроет все паки для релокации и уберёт лимиты free-плана для экспат-сценариев."}
           </small>
           {billing?.premium_active ? (
             <div className="inline-note">Подписка уже активна.</div>
           ) : (
             <div className="button-row">
               <button className="primary-button" type="button" onClick={() => onStartCheckout("monthly")}>
-                Купить месяц
+                Полный доступ · месяц
               </button>
               <button className="secondary-button" type="button" onClick={() => onStartCheckout("yearly")}>
-                Купить год
+                Полный доступ · год
               </button>
             </div>
           )}

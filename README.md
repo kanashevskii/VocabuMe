@@ -1,6 +1,6 @@
 # VocabuMe
 
-VocabuMe is an English learning product that now runs in three connected surfaces:
+VocabuMe is a language product for expats and relocants that now runs in three connected surfaces:
 - Telegram bot
 - Telegram Mini App
 - Website with Telegram-based sign-in
@@ -21,6 +21,8 @@ If you want to use VocabuMe commercially, obtain explicit written permission fir
 ## Current product scope
 
 VocabuMe supports:
+- relocation scenario packs for real-life tasks after moving
+- English and Georgian study tracks with separate progress
 - adding words and phrases in batch
 - flashcards
 - multiple-choice practice
@@ -29,6 +31,29 @@ VocabuMe supports:
 - personal dictionary management
 - shared progress and achievements
 - reminders and learning settings
+
+## Go-to-market focus
+
+VocabuMe is no longer positioned as "just an English words app".
+
+The current product focus is:
+- languages for relocation
+- expats and people who already moved or are about to move
+- scenario-based vocabulary for survival and adaptation:
+  - bank
+  - rent
+  - documents
+  - bills
+  - small repair and everyday бытовые situations
+
+The core promise is practical:
+- not "learn English in general"
+- but "handle real situations after moving with the words and phrases you actually need"
+
+Near-term product direction:
+- keep the existing word repetition workflow
+- sell full access to relocation packs
+- expand toward AI-assisted dialogue simulation with feedback for real scenarios
 
 ## Stack
 

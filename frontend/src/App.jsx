@@ -3320,22 +3320,22 @@ function App() {
           ) : (
             <section className="glass-card compact-section onboarding-premium-card">
               <p className="overline">Premium</p>
-              <h3>Что дает Premium 🚀</h3>
+              <h3>Полный доступ к пакам для релокации 🚀</h3>
               <p className="lead compact">
-                Premium открывает больше сценариев и убирает лимиты, чтобы учить язык под реальные задачи после переезда.
+                Для экспатов это не просто слова, а готовые сценарии для жизни после переезда: банк, аренда, счета, документы и бытовые вопросы.
               </p>
               <div className="simple-list onboarding-premium-list">
                 <div className="simple-row">
-                  <strong>Безлимитные новые слова и фразы</strong>
+                  <strong>Полный доступ к пакам для релокации</strong>
+                  <small>Банк, аренда, счета, документы, магазин, почта и другие expat-сценарии.</small>
+                </div>
+                <div className="simple-row">
+                  <strong>Больше новых слов и фраз под реальные задачи</strong>
                   <small>Без ограничения free-плана по дневному добавлению.</small>
                 </div>
                 <div className="simple-row">
-                  <strong>Все relocation-сценарии</strong>
-                  <small>Работа, банк, документы, почта, магазин и другие practical packs.</small>
-                </div>
-                <div className="simple-row">
                   <strong>Расширенные AI-возможности</strong>
-                  <small>Объяснения, дополнительные генерации и будущие dialogue drills.</small>
+                  <small>Объяснения, дополнительные генерации и будущие диалоги с фидбеком по темам переезда.</small>
                 </div>
               </div>
               <div className="pack-list onboarding-premium-prices">
@@ -3354,7 +3354,7 @@ function App() {
                     onClick={() => void startPremiumCheckout("monthly", "onboarding")}
                     disabled={busy || Boolean(checkoutBusyPeriod)}
                   >
-                    {checkoutBusyPeriod === "monthly" ? "Открываем оплату..." : "Купить месяц"}
+                    {checkoutBusyPeriod === "monthly" ? "Открываем оплату..." : "Купить доступ · месяц"}
                   </button>
                   <button
                     className="secondary-button"
@@ -3362,7 +3362,7 @@ function App() {
                     onClick={() => void startPremiumCheckout("yearly", "onboarding")}
                     disabled={busy || Boolean(checkoutBusyPeriod)}
                   >
-                    {checkoutBusyPeriod === "yearly" ? "Открываем оплату..." : "Купить год"}
+                    {checkoutBusyPeriod === "yearly" ? "Открываем оплату..." : "Купить доступ · год"}
                   </button>
                 </div>
               ) : (

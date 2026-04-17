@@ -12,6 +12,25 @@ Working rule:
 
 This order is now optimized for the fastest path to first paid subscriptions, not for finishing the entire engineering cleanup first.
 
+## 2026-04 product reset
+
+Approved positioning update:
+- Primary audience: expats and relocants.
+- Product category: `languages for relocation`, not generic word repetition.
+- Core pain: acute stress from missing scenario-specific vocabulary in real-life situations after moving.
+- Core scenarios: bank, rent, bills, documents, small repair, utilities, and everyday service communication.
+- Word repetition remains in the product, but now as supporting mechanics rather than the headline promise.
+- Premium should be packaged as `полный доступ к пакам для релокации`.
+- Future differentiator: AI dialogue simulation with feedback for relocation scenarios.
+- First distribution channel: expat and relocation communities.
+
+Commercial target:
+- start first sales next week
+
+Commercial sprint rule:
+- prioritize packaging, positioning, paywall clarity, and acquisition readiness over broad generic feature work
+- do not let interview-prep expansion block the first expat-focused sales push
+
 | Priority | Status | Task | Why first | Exit criteria |
 | --- | --- | --- | --- | --- |
 | P0 | `done` | Secure secrets and config loading | Unsafe configuration blocks every other production-quality step. | No hardcoded secrets remain, required env vars are documented, startup fails fast on missing required config, `.env.example` is aligned. |
@@ -25,9 +44,11 @@ This order is now optimized for the fastest path to first paid subscriptions, no
 | P22 | `done` | Georgia practical relocation scenarios | Users will not buy a vague relocation product; they need immediate concrete value around real Georgia-first tasks. | First approved scenario packs exist for `work permit`, `bank account`, and related everyday relocation tasks in English and Georgian. |
 | P16 | `done` | Onboarding and premium conversion flow | First-run experience must explain the relocation promise and route the user toward the paid offer quickly. | First-run onboarding exists, teaches the core loop, and leads cleanly into the selected premium offer. |
 | P14 | `done` | Subscription and Telegram payments | After offer and onboarding are defined, payment flow becomes the shortest path to first revenue. | Subscription models, payment flow, entitlement checks, and expiration handling work end to end. |
-| P15 | `next` | Free-tier limits and entitlement enforcement | The paywall only converts if limits are enforced consistently after payment logic exists. | Daily/plan-based limits are enforced consistently across bot, Mini App, and website. |
+| P19 | `next` | Expat-first repackaging and relocation positioning assets | Before selling, the product must clearly read as a relocation tool for expats, not as a generic vocabulary trainer. | Product copy, pack framing, premium messaging, and onboarding language clearly target expat relocation pain points. |
+| P15 | `queued` | Free-tier limits and entitlement enforcement | The paywall only converts if limits are enforced consistently after payment logic exists. | Daily/plan-based limits are enforced consistently across bot, Mini App, and website. |
 | P17 | `queued` | Product analytics and conversion tracking | We need to see where users convert or drop before spending more effort on scaling. | Core events, funnel checkpoints, and subscription conversion metrics are implemented and documented. |
 | P20 | `queued` | Landing page and acquisition assets | Once the product can sell, it needs a focused acquisition surface aligned to the Georgia relocation wedge. | Marketing landing, screenshots, store-like copy, and CTA flow are aligned with the approved product direction. |
+| P24 | `queued` | AI dialogue simulation for relocation scenarios | Repetition alone will not be enough for expat sales; scenario dialogue drills can become the strongest premium differentiator. | At least one AI-driven relocation dialogue flow exists with topic-specific prompts and usable feedback. |
 | P21 | `queued` | Referral and growth loops | Telegram-native sharing can lower CAC early, but only after the core product and paywall exist. | At least one approved growth loop is implemented with measurable invite/share conversion, and referral mechanics are consistent with pricing and analytics. |
 | P6 | `queued` | Add frontend tests and mobile E2E validation | Useful, but the current local quality baseline is already good enough to begin the first monetization sprint. | Critical tabs and navigation work in mobile-sized Playwright runs, and component-level tests cover validation and failure states. |
 | P7 | `queued` | Add CI pipeline | Important for scaling changes safely, but not the immediate bottleneck to first subscriptions. | CI runs backend/frontend install, lint, tests, and frontend build on every push/PR. |
@@ -74,7 +95,7 @@ If the goal is first subscriptions as fast as possible, the product needs this s
 7. Only then spend effort on broader acquisition, growth loops, and deeper engineering hardening.
 
 This means the fastest revenue path is:
-- `P18 -> P13 -> P22 -> P16 -> P14 -> P15 -> P17 -> P20 -> P21`
+- `P18 -> P13 -> P22 -> P16 -> P14 -> P19 -> P15 -> P17 -> P20 -> P21`
 
 And not:
 - `P6 -> P7 -> P8 -> P9 -> P10 -> P11`
@@ -184,6 +205,7 @@ Implementation approach after agreement:
 
 Decision:
 - Approved direction: `Language for relocation`.
+- Primary buyer persona: expats and relocants.
 - Product should stay globally useful for relocation language learning, not just generic English study.
 - Users must still be able to add arbitrary personal words and phrases outside curated relocation scenarios.
 
@@ -359,6 +381,30 @@ Decision so far:
 - Global positioning stays `Language for Relocation`.
 - First geography-specific rollout should center on Georgia.
 - Interview preparation is not the first content track; it stays deferred until everyday relocation utility is validated.
+- Product should now be framed explicitly for expats:
+  - not "learn English in general"
+  - but "handle real situations after moving"
+- Premium copy should sell full access to relocation packs, not generic unlimited learning.
+- Existing repetition mechanics stay, but packaging should move toward practical scenario utility first.
+- Near-term acquisition should focus on expat communities rather than broad language-learning channels.
+
+Next-week commercial objective:
+- complete an expat-first copy pass across onboarding, premium framing, and pack descriptions
+- make the paid offer legible enough to start first sales
+- prepare the acquisition story for expat/community distribution
+
+### P24. AI dialogue simulation for relocation scenarios
+
+Open questions to agree before work starts:
+- Which first dialogue scenarios matter most for expats: bank, rent, utilities, repair request, HR, doctor, or shop?
+- Is the first version text-first, voice-first, or mixed?
+- What feedback matters most first: correctness, better phrasing, tone/politeness, or confidence?
+- Is this premium-only from day one, or a limited teaser in free?
+
+Implementation approach after agreement:
+- Add scenario-specific dialogue prompts and evaluation in the shared service layer.
+- Start with a small number of relocation scenarios where immediate value is obvious.
+- Keep feedback practical: what to say instead, what was missing, and what phrase the user can reuse in real life.
 
 ### P22. Georgia practical relocation scenarios
 
