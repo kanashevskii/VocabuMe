@@ -550,6 +550,45 @@ def test_build_learning_question_returns_choice_payload(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_build_learning_question_respects_word_priority():
+    user = TelegramUser.objects.create(
+        chat_id=10105, username="tester", word_priority="old_first"
+    )
+    old_item = VocabularyItem.objects.create(
+        user=user,
+        word="older",
+        normalized_word="older",
+        translation="старый",
+        transcription="",
+        example="Older example",
+        example_translation="Старый пример",
+    )
+    new_item = VocabularyItem.objects.create(
+        user=user,
+        word="newer",
+        normalized_word="newer",
+        translation="новый",
+        transcription="",
+        example="Newer example",
+        example_translation="Новый пример",
+    )
+    VocabularyItem.objects.filter(id=old_item.id).update(
+        created_at=timezone.now() - timedelta(days=3)
+    )
+    old_item.refresh_from_db()
+    new_item.refresh_from_db()
+
+    question = build_learning_question(user)
+    assert question is not None
+    assert question["item"]["id"] == old_item.id
+
+    apply_user_settings(user, {"word_priority": "new_first"})
+    question = build_learning_question(user)
+    assert question is not None
+    assert question["item"]["id"] == new_item.id
+
+
+@pytest.mark.django_db
 def test_build_choice_question_reverse_mode_returns_word_options(monkeypatch):
     user = TelegramUser.objects.create(chat_id=1011, username="tester")
     item = VocabularyItem.objects.create(
@@ -600,6 +639,59 @@ def test_build_listening_and_speaking_questions_return_first_candidate():
     assert listening["item"]["id"] == item.id
     assert speaking is not None
     assert speaking["item"]["id"] == item.id
+
+
+@pytest.mark.django_db
+def test_practice_questions_can_prioritize_review_words_first():
+    user = TelegramUser.objects.create(
+        chat_id=10131,
+        username="tester",
+        word_priority="old_first",
+        enable_review_old_words=True,
+        days_before_review=1,
+    )
+    stale_review = VocabularyItem.objects.create(
+        user=user,
+        word="reviewed",
+        normalized_word="reviewed",
+        translation="повтор",
+        transcription="",
+        example="Reviewed example",
+        example_translation="Пример повтора",
+        is_learned=True,
+        completed_exercise_types=["practice_en_ru", "practice_ru_en", "listening_word", "listening_translate", "speaking"],
+        correct_count=5,
+    )
+    new_item = VocabularyItem.objects.create(
+        user=user,
+        word="fresh",
+        normalized_word="fresh",
+        translation="свежий",
+        transcription="",
+        example="Fresh example",
+        example_translation="Свежий пример",
+    )
+    VocabularyItem.objects.filter(id=stale_review.id).update(
+        updated_at=timezone.now() - timedelta(days=5)
+    )
+    stale_review.refresh_from_db()
+    new_item.refresh_from_db()
+
+    classic = build_choice_question(user, "classic")
+    listening = build_listening_question(user, "word")
+    speaking = build_speaking_question(user)
+
+    assert classic is not None
+    assert classic["item"]["id"] == stale_review.id
+    assert listening is not None
+    assert listening["item"]["id"] == stale_review.id
+    assert speaking is not None
+    assert speaking["item"]["id"] == stale_review.id
+
+    apply_user_settings(user, {"word_priority": "new_first"})
+    classic = build_choice_question(user, "classic")
+    assert classic is not None
+    assert classic["item"]["id"] == new_item.id
 
 
 @pytest.mark.django_db
@@ -1080,6 +1172,8 @@ def test_get_user_settings_payload_includes_georgian_display_mode_options():
     assert payload["has_completed_onboarding"] is False
     assert payload["georgian_display_mode_options"][0]["code"] == "both"
     assert payload["georgian_display_mode_options"][0]["recommended"] is True
+    assert payload["word_priority"] == "new_first"
+    assert payload["word_priority_options"][0]["code"] == "new_first"
     assert payload["monetization"]["default_free_plan_code"] == "free"
     assert payload["monetization"]["plans"]["free"]["entitlements"]["max_new_items_per_day"] == 10
     assert payload["monetization"]["plans"]["premium"]["price"]["monthly"]["amount"] == "6.99"

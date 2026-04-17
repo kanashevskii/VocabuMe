@@ -35,6 +35,7 @@ from .models import (
     AddWordDraft,
     Achievement,
     DEFAULT_STUDIED_LANGUAGE,
+    DEFAULT_WORD_PRIORITY,
     IrregularVerbProgress,
     PaymentAttempt,
     PackPreparedWord,
@@ -46,6 +47,7 @@ from .models import (
     UserCourseProgress,
     VocabularyItem,
     WebLoginToken,
+    WORD_PRIORITY_CHOICES,
 )
 from .monetization import PLAN_DEFINITIONS, get_monetization_payload
 from .openai_utils import (
@@ -72,6 +74,10 @@ MAX_AVATAR_BYTES = 5 * 1024 * 1024
 ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 IMAGE_GENERATION_STALE_MINUTES = 20
 PACK_PREPARATION_FAILURE_COOLDOWN_MINUTES = 180
+WORD_PRIORITY_OPTIONS = [
+    {"code": "new_first", "label": "Сначала новые", "recommended": True},
+    {"code": "old_first", "label": "Сначала старые", "recommended": False},
+]
 EXERCISE_TYPE_LABELS = {
     "practice_en_ru": "Тест EN -> RU",
     "practice_ru_en": "Тест RU -> EN",
@@ -202,6 +208,12 @@ def normalize_course_code(course_code: str | None) -> str:
     value = (course_code or DEFAULT_STUDIED_LANGUAGE).strip().lower()
     supported = {code for code, _ in STUDIED_LANGUAGE_CHOICES}
     return value if value in supported else DEFAULT_STUDIED_LANGUAGE
+
+
+def normalize_word_priority(value: str | None) -> str:
+    allowed = {code for code, _ in WORD_PRIORITY_CHOICES}
+    normalized = (value or DEFAULT_WORD_PRIORITY).strip().lower()
+    return normalized if normalized in allowed else DEFAULT_WORD_PRIORITY
 
 
 def _normalize_pause_until(value: datetime | None) -> datetime | None:
@@ -1205,6 +1217,8 @@ def serialize_user(user: TelegramUser) -> dict:
         "georgian_display_mode": user.georgian_display_mode,
         "has_selected_georgian_display_mode": user.has_selected_georgian_display_mode,
         "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
+        "word_priority": normalize_word_priority(user.word_priority),
+        "word_priority_options": WORD_PRIORITY_OPTIONS,
         "display_name": user.username or user.email or f"user{user.chat_id}",
         "joined_at": user.joined_at.isoformat() if user.joined_at else None,
         "premium_active": billing["premium_active"],
@@ -1635,6 +1649,8 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "georgian_display_mode": user.georgian_display_mode,
         "has_selected_georgian_display_mode": user.has_selected_georgian_display_mode,
         "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
+        "word_priority": normalize_word_priority(user.word_priority),
+        "word_priority_options": WORD_PRIORITY_OPTIONS,
         "monetization": get_monetization_payload(),
         "billing": billing,
         "has_completed_onboarding": user.has_completed_onboarding,
@@ -1667,6 +1683,9 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     )
     user.enable_review_old_words = bool(
         payload.get("enable_review_old_words", user.enable_review_old_words)
+    )
+    user.word_priority = normalize_word_priority(
+        payload.get("word_priority", user.word_priority)
     )
     user.days_before_review = max(
         1, min(int(payload.get("days_before_review", user.days_before_review)), 365)
@@ -2701,45 +2720,98 @@ def get_ordered_unlearned_words(
     count: int = 10,
     exclude_ids: Iterable[int] | None = None,
 ) -> list[VocabularyItem]:
+    return get_priority_study_words(user, count=count, exclude_ids=exclude_ids)
+
+
+def _ordered_new_words_queryset(
+    user: TelegramUser,
+    *,
+    exclude_ids: Iterable[int] | None = None,
+    part_of_speech: str | None = None,
+):
+    active_course = get_active_course_code(user)
+    qs = VocabularyItem.objects.filter(
+        user=user, course_code=active_course, is_learned=False
+    ).exclude(id__in=list(exclude_ids or []))
+    if part_of_speech:
+        qs = qs.filter(part_of_speech=part_of_speech)
+    if normalize_word_priority(getattr(user, "word_priority", None)) == "new_first":
+        return qs.order_by("-created_at", "-id")
+    return qs.order_by("created_at", "id")
+
+
+def _ordered_review_words_queryset(
+    user: TelegramUser,
+    *,
+    exclude_ids: Iterable[int] | None = None,
+    part_of_speech: str | None = None,
+):
+    if not user.enable_review_old_words:
+        return VocabularyItem.objects.none()
+    active_course = get_active_course_code(user)
+    threshold = now() - timedelta(days=user.days_before_review)
+    qs = VocabularyItem.objects.filter(
+        user=user,
+        course_code=active_course,
+        is_learned=True,
+        updated_at__lt=threshold,
+    ).exclude(id__in=list(exclude_ids or []))
+    if part_of_speech:
+        qs = qs.filter(part_of_speech=part_of_speech)
+    return qs.order_by("updated_at", "id")
+
+
+def get_priority_study_words(
+    user: TelegramUser,
+    *,
+    count: int = 10,
+    exclude_ids: Iterable[int] | None = None,
+    part_of_speech: str | None = None,
+) -> list[VocabularyItem]:
     exclude_ids = list(exclude_ids or [])
-    return list(
-        VocabularyItem.objects.filter(
-            user=user, course_code=get_active_course_code(user), is_learned=False
-        )
-        .exclude(id__in=exclude_ids)
-        .order_by("created_at", "id")[:count]
+    word_priority = normalize_word_priority(getattr(user, "word_priority", None))
+    new_words = list(
+        _ordered_new_words_queryset(
+            user, exclude_ids=exclude_ids, part_of_speech=part_of_speech
+        )[:count]
     )
+    if word_priority == "new_first":
+        if len(new_words) >= count:
+            return new_words[:count]
+        seen = {item.id for item in new_words}
+        review_words = [
+            item
+            for item in _ordered_review_words_queryset(
+                user,
+                exclude_ids=[*exclude_ids, *seen],
+                part_of_speech=part_of_speech,
+            )[: max(0, count - len(new_words))]
+        ]
+        return [*new_words, *review_words][:count]
+
+    review_words = list(
+        _ordered_review_words_queryset(
+            user, exclude_ids=exclude_ids, part_of_speech=part_of_speech
+        )[:count]
+    )
+    if len(review_words) >= count:
+        return review_words[:count]
+    seen = {item.id for item in review_words}
+    new_tail = [
+        item
+        for item in _ordered_new_words_queryset(
+            user,
+            exclude_ids=[*exclude_ids, *seen],
+            part_of_speech=part_of_speech,
+        )[: max(0, count - len(review_words))]
+    ]
+    return [*review_words, *new_tail][:count]
 
 
 def get_unlearned_words(
     user: TelegramUser, count: int = 10, part_of_speech: str | None = None
 ) -> list[VocabularyItem]:
-    active_course = get_active_course_code(user)
-    base_qs = VocabularyItem.objects.filter(
-        user=user, course_code=active_course, is_learned=False
-    )
-    if part_of_speech:
-        base_qs = base_qs.filter(part_of_speech=part_of_speech)
-    base_ids = list(base_qs.values_list("id", flat=True))
-
-    review_ids: list[int] = []
-    if user.enable_review_old_words:
-        threshold = now() - timedelta(days=user.days_before_review)
-        review_qs = VocabularyItem.objects.filter(
-            user=user,
-            course_code=active_course,
-            is_learned=True,
-            updated_at__lt=threshold,
-        )
-        if part_of_speech:
-            review_qs = review_qs.filter(part_of_speech=part_of_speech)
-        review_ids = list(review_qs.values_list("id", flat=True))
-
-    all_ids = base_ids + review_ids
-    if not all_ids:
-        return []
-    selected_ids = random.sample(all_ids, min(len(all_ids), count))
-    return list(VocabularyItem.objects.filter(id__in=selected_ids))
+    return get_priority_study_words(user, count=count, part_of_speech=part_of_speech)
 
 
 def get_learned_words(user: TelegramUser) -> list[VocabularyItem]:
@@ -2840,11 +2912,9 @@ def get_fake_translations(
 def get_learning_candidates(
     user: TelegramUser, exclude_ids: Iterable[int] | None = None
 ) -> list[VocabularyItem]:
-    qs = VocabularyItem.objects.filter(
-        user=user, course_code=get_active_course_code(user), is_learned=False
-    ).exclude(id__in=list(exclude_ids or []))
-    items = list(qs)
-    random.shuffle(items)
+    items = list(
+        _ordered_new_words_queryset(user, exclude_ids=exclude_ids)
+    )
     return [item for item in items if get_pending_exercise_types(item)]
 
 

@@ -565,6 +565,7 @@ def test_settings_post_updates_and_clamps_values(client):
                 "reminder_time": "09:30",
                 "reminder_timezone": "UTC+3",
                 "enable_review_old_words": False,
+                "word_priority": "old_first",
                 "reminder_enabled": True,
             }
         ),
@@ -578,6 +579,7 @@ def test_settings_post_updates_and_clamps_values(client):
     assert user.days_before_review == 365
     assert user.reminder_interval_days == 30
     assert user.reminder_timezone == "UTC+03:00"
+    assert user.word_priority == "old_first"
 
 
 @pytest.mark.django_db

@@ -12,6 +12,11 @@ GEORGIAN_DISPLAY_MODE_CHOICES = (
     ("native", "Georgian only"),
 )
 DEFAULT_GEORGIAN_DISPLAY_MODE = "both"
+WORD_PRIORITY_CHOICES = (
+    ("new_first", "New first"),
+    ("old_first", "Old first"),
+)
+DEFAULT_WORD_PRIORITY = "new_first"
 SUBSCRIPTION_STATUS_CHOICES = (
     ("pending", "Pending"),
     ("active", "Active"),
@@ -50,6 +55,11 @@ class TelegramUser(models.Model):
         max_length=20,
         choices=GEORGIAN_DISPLAY_MODE_CHOICES,
         default=DEFAULT_GEORGIAN_DISPLAY_MODE,
+    )
+    word_priority = models.CharField(
+        max_length=20,
+        choices=WORD_PRIORITY_CHOICES,
+        default=DEFAULT_WORD_PRIORITY,
     )
     has_completed_onboarding = models.BooleanField(default=False)
     repeat_threshold = models.PositiveIntegerField(default=4)

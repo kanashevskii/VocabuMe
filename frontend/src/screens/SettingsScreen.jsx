@@ -63,6 +63,11 @@ export default function SettingsScreen({
       { code: "both", label: "Грузинский + латиница", recommended: true },
       { code: "native", label: "Только грузинский", recommended: false },
     ];
+  const wordPriorityOptions =
+    settings.word_priority_options || [
+      { code: "new_first", label: "Сначала новые", recommended: true },
+      { code: "old_first", label: "Сначала старые", recommended: false },
+    ];
   const reminderTimeOptions = REMINDER_TIME_OPTIONS.some(
     (item) => item.value === settings.reminder_time,
   )
@@ -205,6 +210,23 @@ export default function SettingsScreen({
               onChange("session_question_limit", Number(event.target.value))
             }
           />
+        </label>
+        <label>
+          <span>Порядок слов в практике</span>
+          <small>
+            Выбери, что важнее: сразу проходить новые слова или сначала закрывать
+            старый хвост и повторы.
+          </small>
+          <select
+            value={settings.word_priority}
+            onChange={(event) => onChange("word_priority", event.target.value)}
+          >
+            {wordPriorityOptions.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.label}{item.recommended ? " (рекомендуется)" : ""}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           <span>Дней до повторения</span>
