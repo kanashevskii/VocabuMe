@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-import os
-import tempfile
 import traceback
 
 from django.conf import settings
@@ -15,15 +13,12 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import AddWordDraft, TelegramUser, VocabularyItem
-from .openai_utils import transcribe_speech_file
-from .openai_limits import openai_user_scope
 from .services import (
     add_pack_words_to_user,
     add_words_from_text,
     apply_user_settings,
     build_user_progress,
     build_alphabet_question,
-    build_speaking_question,
     consume_web_login_token,
     create_web_login_token,
     create_word_drafts_from_text,
@@ -49,8 +44,6 @@ from .services import (
     serialize_user,
     serialize_draft,
     serialize_word,
-    get_issued_speaking_question,
-    submit_issued_speaking_answer,
     submit_alphabet_answer,
     update_word_translation,
     upsert_telegram_user,
@@ -101,6 +94,10 @@ from .api.learning import (  # noqa: F401 - URL compatibility exports
     study_answer,
     study_cards,
 )
+from .api.speaking import (  # noqa: F401 - URL compatibility exports
+    speaking_answer,
+    speaking_question,
+)
 
 logger = logging.getLogger(__name__)
 MAX_IMAGE_REGENERATIONS = 3
@@ -135,15 +132,6 @@ def _json_entitlement_error(
         paywall_trigger=exc.paywall_trigger,
         billing=get_billing_payload(user),
     )
-
-
-def _safe_unlink(path: str) -> None:
-    if not path or not os.path.exists(path):
-        return
-    try:
-        os.remove(path)
-    except OSError:
-        logger.warning("Failed to remove temp file %s", path)
 
 
 @ensure_csrf_cookie
@@ -759,77 +747,6 @@ def packs_add(request: HttpRequest) -> JsonResponse:
             "packs": list_word_packs(user),
         }
     )
-
-
-@require_GET
-def speaking_question(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    question = build_speaking_question(user)
-    if question is None:
-        return JsonResponse({"ok": True, "empty": True})
-    return JsonResponse({"ok": True, "question": question})
-
-
-@require_POST
-def speaking_answer(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    if limited := _enforce_request_limit(
-        request, scope="speech-transcription", limit=10, window=60, user=user
-    ):
-        return limited
-    question_id = str(request.POST.get("question_id", ""))
-    try:
-        get_issued_speaking_question(user, question_id)
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-
-    audio_file = request.FILES.get("audio")
-    if audio_file is None:
-        return _json_error("Audio file is required.")
-    if audio_file.size > 10 * 1024 * 1024:
-        return _json_error("Audio file is too large.", status=413)
-    allowed_audio_content_types = {
-        "audio/webm",
-        "audio/ogg",
-        "audio/mpeg",
-        "audio/wav",
-        "audio/mp4",
-    }
-    if audio_file.content_type not in allowed_audio_content_types:
-        return _json_error("Unsupported audio format.", status=415)
-
-    suffix = os.path.splitext(audio_file.name or "")[1].lower() or ".webm"
-    if suffix not in {".webm", ".ogg", ".mp3", ".wav", ".m4a", ".mp4"}:
-        return _json_error("Unsupported audio format.", status=415)
-    temp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            for chunk in audio_file.chunks():
-                temp_file.write(chunk)
-            temp_path = temp_file.name
-
-        with openai_user_scope(user.id):
-            transcript = transcribe_speech_file(temp_path)
-        return JsonResponse(
-            {"ok": True, **submit_issued_speaking_answer(user, question_id, transcript)}
-        )
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-    except Exception:
-        logger.exception(
-            "Speaking recognition failed for user=%s question_id=%s",
-            user.id,
-            question_id,
-        )
-        return _json_error("Speech recognition is temporarily unavailable.", status=503)
-    finally:
-        _safe_unlink(temp_path)
 
 
 @require_GET

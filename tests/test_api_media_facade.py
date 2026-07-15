@@ -3,6 +3,7 @@ from vocab.api import images
 from vocab.api import irregular
 from vocab.api import learning
 from vocab.api import media
+from vocab.api import speaking
 
 
 def test_views_keep_legacy_media_exports():
@@ -37,3 +38,9 @@ def test_views_keep_legacy_learning_exports(client):
         ).status_code
         == 401
     )
+
+
+def test_views_keep_legacy_speaking_exports(client):
+    assert views.speaking_question is speaking.speaking_question
+    assert views.speaking_answer is speaking.speaking_answer
+    assert client.get("/api/speaking/question").status_code == 401
