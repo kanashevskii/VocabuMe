@@ -9,6 +9,7 @@ User=eduard
 Group=eduard
 WorkingDirectory=/home/eduard/englishbot
 Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/usr/bin/mkdir -p /home/eduard/englishbot/var
 ExecStart=/home/eduard/englishbot/venv/bin/celery -A core beat --loglevel=INFO --schedule=/home/eduard/englishbot/var/celerybeat-schedule
 Restart=on-failure
 RestartSec=5
