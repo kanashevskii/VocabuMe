@@ -36,3 +36,9 @@ def setup_logging():
     logger.addHandler(console_handler)
     logger.addHandler(error_handler)
     logger.addHandler(info_handler)
+
+    # httpx includes full request URLs in its INFO messages.  Telegram Bot API
+    # URLs contain the bot token, so allowing these records into journald or
+    # rotating files would expose a production credential.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
