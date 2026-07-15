@@ -1,6 +1,8 @@
 from django.db import models
+from django.db.models import Q
 from datetime import time
 import secrets
+import uuid
 
 STUDIED_LANGUAGE_CHOICES = (
     ("en", "English"),
@@ -193,6 +195,18 @@ class PaymentAttempt(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["telegram_payment_charge_id"],
+                condition=~Q(telegram_payment_charge_id=""),
+                name="unique_nonempty_telegram_payment_charge",
+            ),
+            models.UniqueConstraint(
+                fields=["provider_payment_charge_id"],
+                condition=~Q(provider_payment_charge_id=""),
+                name="unique_nonempty_provider_payment_charge",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.user} -> {self.plan.code} [{self.status}]"
@@ -242,6 +256,21 @@ class LearningSession(models.Model):
 
     def __str__(self):
         return f"Session for {self.user_id}"
+
+
+class IssuedLearningQuestion(models.Model):
+    """Server-side source of truth for a Mini App learning attempt."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    item = models.ForeignKey(VocabularyItem, on_delete=models.CASCADE)
+    exercise_type = models.CharField(max_length=40)
+    expires_at = models.DateTimeField()
+    answered_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "expires_at"], name="vocab_issue_user_id_d712f8_idx")]
 
 
 class Achievement(models.Model):

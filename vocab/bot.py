@@ -5,16 +5,12 @@ import html
 import asyncio
 import hashlib
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode, urlsplit, urlunsplit, parse_qsl
 from urllib.request import Request, urlopen
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
 
-from core.env import (
-    get_telegram_payments_provider_token,
-    get_telegram_token,
-    get_webapp_url,
-)
+from core.env import get_telegram_token, get_webapp_url
 
 # Note: django.setup() is not called here because:
 # 1. When imported from run.py, Django is already set up before the import
@@ -44,8 +40,10 @@ from telegram.ext import (
 )
 from asgiref.sync import sync_to_async
 from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
+from .monetization import TELEGRAM_STARS_CURRENCY, get_telegram_stars_prices_for_user
 from .services import (
     activate_subscription_for_successful_payment as activate_subscription_for_successful_payment_service,
+    validate_telegram_pre_checkout,
     bind_web_login_token,
     build_user_progress as build_user_progress_service,
     create_bot_payment_attempt,
@@ -94,7 +92,6 @@ from types import SimpleNamespace
 
 TELEGRAM_TOKEN = get_telegram_token()
 WEBAPP_URL = get_webapp_url()
-TELEGRAM_PAYMENTS_PROVIDER_TOKEN = get_telegram_payments_provider_token()
 ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
 WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
@@ -682,26 +679,47 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def payment_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await safe_reply(
+        update,
+        "Поддержка по оплатам VocabuMe: напиши сюда командой /paysupport и опиши проблему с Premium. "
+        "Покупки обрабатываются внутри Telegram Stars; Telegram support не сможет решить вопросы по доступу в VocabuMe.",
+    )
+
+
+async def terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await safe_reply(
+        update,
+        "VocabuMe Premium дает цифровой доступ к расширенным сценариям, лимитам и AI-функциям в Mini App. "
+        "Оплата проходит в Telegram Stars. По вопросам доступа, ошибок оплаты или возврата напиши /paysupport.",
+    )
+
+
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plans = await get_paid_subscription_plans()
-    if not TELEGRAM_PAYMENTS_PROVIDER_TOKEN:
-        await safe_reply(update, "Оплата пока не настроена. Попробуй позже.")
-        return
     if not plans:
         await safe_reply(update, "Планы подписки пока недоступны.")
         return
 
     buttons = []
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    stars_prices = get_telegram_stars_prices_for_user(chat_id)
     for plan in plans:
         period_label = "месяц" if plan.billing_period == "monthly" else "год"
+        stars_amount = stars_prices.get(plan.billing_period)
+        if stars_amount is None:
+            continue
         buttons.append(
             [
                 InlineKeyboardButton(
-                    f"{plan.price_amount} {plan.currency} / {period_label}",
+                    f"{stars_amount} Stars / {period_label}",
                     callback_data=f"subscribe:{plan.billing_period}",
                 )
             ]
         )
+    if not buttons:
+        await safe_reply(update, "Планы подписки пока недоступны.")
+        return
     await safe_reply(
         update,
         "💎 Premium открывает все relocation-сценарии и убирает лимиты.\nВыбери вариант подписки:",
@@ -712,9 +730,6 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_subscription_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await safe_answer(query)
-    if not TELEGRAM_PAYMENTS_PROVIDER_TOKEN:
-        await query.edit_message_text("Оплата пока не настроена. Попробуй позже.")
-        return
 
     billing_period = query.data.split(":", 1)[1]
     plans = await get_paid_subscription_plans()
@@ -733,8 +748,8 @@ async def start_subscription_checkout(update: Update, context: ContextTypes.DEFA
         title=f"{plan.name} for VocabuMe",
         description="Premium для безлимитного добавления и всех relocation-сценариев.",
         payload=payment_attempt["invoice_payload"],
-        provider_token=TELEGRAM_PAYMENTS_PROVIDER_TOKEN,
-        currency=plan.currency,
+        provider_token="",
+        currency=TELEGRAM_STARS_CURRENCY,
         prices=prices,
     )
     await query.edit_message_text("Счёт отправлен выше. Заверши оплату в Telegram.")
@@ -742,7 +757,14 @@ async def start_subscription_checkout(update: Update, context: ContextTypes.DEFA
 
 async def handle_pre_checkout_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.pre_checkout_query
-    await query.answer(ok=True)
+    if query is None:
+        return
+    valid, error_message = await sync_to_async(validate_telegram_pre_checkout)(
+        invoice_payload=query.invoice_payload,
+        amount_minor=query.total_amount,
+        currency=query.currency,
+    )
+    await query.answer(ok=valid, error_message=error_message or None)
 
 
 async def handle_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):

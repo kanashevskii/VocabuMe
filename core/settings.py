@@ -104,6 +104,22 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "core.wsgi.application"
 
+# Bounded request bodies protect JSON endpoints and speech uploads before they
+# reach application code.  The web server must enforce the same limit.
+DATA_UPLOAD_MAX_MEMORY_SIZE = env("DATA_UPLOAD_MAX_MEMORY_SIZE", cast=int, default=12 * 1024 * 1024)
+FILE_UPLOAD_MAX_MEMORY_SIZE = env("FILE_UPLOAD_MAX_MEMORY_SIZE", cast=int, default=10 * 1024 * 1024)
+MAX_JSON_BODY_BYTES = env("MAX_JSON_BODY_BYTES", cast=int, default=64 * 1024)
+TELEGRAM_AUTH_MAX_AGE_SECONDS = env("TELEGRAM_AUTH_MAX_AGE_SECONDS", cast=int, default=300)
+
+# A shared Redis cache is required in production for rate limits to work across
+# web workers.  LocMemCache remains a deliberately explicit local fallback.
+CACHES = {
+    "default": {
+        "BACKEND": env("CACHE_BACKEND", default="django.core.cache.backends.locmem.LocMemCache"),
+        "LOCATION": env("CACHE_LOCATION", default="vocabume-local"),
+    }
+}
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

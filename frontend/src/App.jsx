@@ -1404,9 +1404,8 @@ function App() {
       const data = await api("/api/learn/answer", {
         method: "POST",
         body: JSON.stringify({
-          word_id: learnQuestion.item.id,
           answer,
-          exercise_type: learnQuestion.exercise_type
+          question_id: learnQuestion.question_id
         })
       });
       setLearnResult(data);
@@ -1432,9 +1431,8 @@ function App() {
       const data = await api("/api/learn/answer", {
         method: "POST",
         body: JSON.stringify({
-          word_id: learnQuestion.item.id,
           answer: learnTextAnswer,
-          exercise_type: learnQuestion.exercise_type
+          question_id: learnQuestion.question_id
         })
       });
       setLearnResult(data);
@@ -1458,7 +1456,7 @@ function App() {
     try {
       const extension = blob.type.includes("mp4") ? "mp4" : "webm";
       const formData = new FormData();
-      formData.append("word_id", String(learnQuestion.item.id));
+      formData.append("question_id", learnQuestion.question_id);
       formData.append("audio", new File([blob], `speech.${extension}`, { type: blob.type || "audio/webm" }));
       const data = await api("/api/speaking/answer", {
         method: "POST",
@@ -1526,8 +1524,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({
           base: irregularQuestion.verb.base,
-          answer,
-          correct_pair: irregularQuestion.correct_pair
+          answer
         })
       });
       setIrregularResult(data);
@@ -1552,7 +1549,7 @@ function App() {
       const data = await api("/api/alphabet/answer", {
         method: "POST",
         body: JSON.stringify({
-          symbol: alphabetQuestion.letter.symbol,
+          question_token: alphabetQuestion.question_token,
           answer,
         })
       });
@@ -1600,26 +1597,34 @@ function App() {
     }
   }
 
-  function skipAlphabetQuestion() {
+  async function skipAlphabetQuestion() {
     if (!alphabetQuestion || alphabetResult) {
       return;
     }
-    setAlphabetResult({
-      correct: false,
-      skipped: true,
-      correct_answer: alphabetQuestion.letter.symbol,
-    });
+    try {
+      const data = await api("/api/alphabet/answer", {
+        method: "POST",
+        body: JSON.stringify({ question_token: alphabetQuestion.question_token, answer: "" })
+      });
+      setAlphabetResult({ ...data, skipped: true });
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
-  function skipIrregularQuestion() {
+  async function skipIrregularQuestion() {
     if (!irregularQuestion || irregularResult) {
       return;
     }
-    setIrregularResult({
-      correct: false,
-      skipped: true,
-      correct_answer: irregularQuestion.correct_pair,
-    });
+    try {
+      const data = await api("/api/irregular/answer", {
+        method: "POST",
+        body: JSON.stringify({ base: irregularQuestion.verb.base, answer: "" })
+      });
+      setIrregularResult({ ...data, skipped: true });
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
   async function saveTranslation(wordId) {
@@ -3053,7 +3058,6 @@ function App() {
               <div className="quiz-panel">
                 <div className="prompt-card">
                   <strong>/{alphabetQuestion.letter.transcription}/</strong>
-                  <span>{formatDisplayAnswer(alphabetQuestion.letter.symbol, alphabetQuestion.course_code)}</span>
                   <span>{alphabetQuestion.letter.hint}</span>
                 </div>
                 <div className="option-grid">

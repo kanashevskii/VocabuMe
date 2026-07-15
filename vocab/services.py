@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Iterable
 from urllib.parse import urlparse
+from uuid import UUID
 import logging
 import random
 import re
@@ -16,12 +17,13 @@ import time
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth.hashers import check_password, make_password
-from django.db.models import Count, Min, Q
+from django.db import IntegrityError, transaction
+from django.db.models import Count, F, Min, Q
 from django.utils import timezone
 from django.utils.timezone import now
 from telegram import Bot, LabeledPrice
 
-from core.env import get_telegram_payments_provider_token, get_telegram_token
+from core.env import get_telegram_token
 
 try:
     from PIL import Image, ImageOps
@@ -37,6 +39,7 @@ from .models import (
     DEFAULT_STUDIED_LANGUAGE,
     DEFAULT_WORD_PRIORITY,
     IrregularVerbProgress,
+    IssuedLearningQuestion,
     PaymentAttempt,
     PackPreparedWord,
     SubscriptionPlan,
@@ -49,7 +52,12 @@ from .models import (
     WebLoginToken,
     WORD_PRIORITY_CHOICES,
 )
-from .monetization import PLAN_DEFINITIONS, get_monetization_payload
+from .monetization import (
+    PLAN_DEFINITIONS,
+    TELEGRAM_STARS_CURRENCY,
+    get_telegram_stars_prices_for_user,
+    get_monetization_payload,
+)
 from .openai_utils import (
     build_visual_prompt,
     generate_card_image,
@@ -470,29 +478,58 @@ def get_remaining_extra_image_regenerations_for_today(user: TelegramUser) -> int
 def reserve_new_items_for_today(user: TelegramUser, count: int) -> None:
     if count <= 0:
         return
-    remaining = get_remaining_new_items_for_today(user)
-    if remaining is not None and count > remaining:
-        raise EntitlementError(
-            "paywall_daily_new_items_limit",
-            "В free-плане можно добавить до 10 новых слов и фраз в день. Открой Premium, чтобы снять лимит.",
-            paywall_trigger="daily_new_items_limit",
+    usage_date = timezone.localdate()
+    with transaction.atomic():
+        try:
+            usage, _ = UserDailyEntitlementUsage.objects.get_or_create(
+                user=user,
+                usage_date=usage_date,
+                defaults={
+                    "new_items_added": VocabularyItem.objects.filter(
+                        user=user, created_at__date=usage_date
+                    ).count(),
+                },
+            )
+        except IntegrityError:
+            usage = UserDailyEntitlementUsage.objects.get(user=user, usage_date=usage_date)
+        usage = UserDailyEntitlementUsage.objects.select_for_update().get(pk=usage.pk)
+        max_items = get_entitlements_for_user(user).get("max_new_items_per_day")
+        if max_items is not None and usage.new_items_added + count > int(max_items):
+            raise EntitlementError(
+                "paywall_daily_new_items_limit",
+                "В free-плане можно добавить до 10 новых слов и фраз в день. Открой Premium, чтобы снять лимит.",
+                paywall_trigger="daily_new_items_limit",
+            )
+        UserDailyEntitlementUsage.objects.filter(pk=usage.pk).update(
+            new_items_added=F("new_items_added") + count
         )
-    usage = get_daily_entitlement_usage(user)
-    usage.new_items_added += count
-    usage.save(update_fields=["new_items_added", "updated_at"])
 
 
 def reserve_extra_image_regeneration_for_today(user: TelegramUser) -> None:
-    remaining = get_remaining_extra_image_regenerations_for_today(user)
-    if remaining is not None and remaining <= 0:
-        raise EntitlementError(
-            "paywall_extra_image_regeneration_limit",
-            "В free-плане закончились дополнительные обновления фото на сегодня. Открой Premium, чтобы снять лимит.",
-            paywall_trigger="extra_image_regeneration_limit",
+    usage_date = timezone.localdate()
+    with transaction.atomic():
+        try:
+            usage, _ = UserDailyEntitlementUsage.objects.get_or_create(
+                user=user, usage_date=usage_date
+            )
+        except IntegrityError:
+            usage = UserDailyEntitlementUsage.objects.get(user=user, usage_date=usage_date)
+        usage = UserDailyEntitlementUsage.objects.select_for_update().get(pk=usage.pk)
+        max_regenerations = get_entitlements_for_user(user).get(
+            "max_extra_image_regenerations_per_day"
         )
-    usage = get_daily_entitlement_usage(user)
-    usage.extra_image_regenerations += 1
-    usage.save(update_fields=["extra_image_regenerations", "updated_at"])
+        if (
+            max_regenerations is not None
+            and usage.extra_image_regenerations >= int(max_regenerations)
+        ):
+            raise EntitlementError(
+                "paywall_extra_image_regeneration_limit",
+                "В free-плане закончились дополнительные обновления фото на сегодня. Открой Premium, чтобы снять лимит.",
+                paywall_trigger="extra_image_regeneration_limit",
+            )
+        UserDailyEntitlementUsage.objects.filter(pk=usage.pk).update(
+            extra_image_regenerations=F("extra_image_regenerations") + 1
+        )
 
 
 def _pack_definition_for_course(course_code: str, pack_id: str) -> dict | None:
@@ -537,12 +574,19 @@ def _build_payment_payload(user: TelegramUser, plan: SubscriptionPlan) -> str:
     return f"sub:{user.id}:{plan.code}:{secrets.token_hex(8)}"
 
 
+def _telegram_stars_amount_for_plan(user: TelegramUser, plan: SubscriptionPlan) -> int:
+    amount = get_telegram_stars_prices_for_user(user.chat_id).get(plan.billing_period)
+    if amount is None:
+        raise ValueError("Telegram Stars price is unavailable.")
+    return int(amount)
+
+
 def create_bot_payment_attempt(
     user: TelegramUser, *, plan_code: str, billing_period: str
 ) -> dict:
     plan = _get_subscription_plan(plan_code, billing_period)
     payload = _build_payment_payload(user, plan)
-    amount_minor = int((plan.price_amount * 100).quantize(Decimal("1")))
+    amount_minor = _telegram_stars_amount_for_plan(user, plan)
     attempt = PaymentAttempt.objects.create(
         user=user,
         plan=plan,
@@ -550,14 +594,20 @@ def create_bot_payment_attempt(
         status="pending",
         invoice_payload=payload,
         amount_minor=amount_minor,
-        currency=plan.currency,
-        metadata={"return_source": "bot"},
+        currency=TELEGRAM_STARS_CURRENCY,
+        metadata={
+            "return_source": "bot",
+            "catalog_price_amount": format(plan.price_amount, ".2f"),
+            "catalog_currency": plan.currency,
+            "payment_method": "telegram_stars",
+        },
     )
     return {
         "attempt_id": attempt.id,
         "invoice_payload": payload,
         "amount_minor": amount_minor,
         "plan": plan,
+        "currency": TELEGRAM_STARS_CURRENCY,
     }
 
 
@@ -568,10 +618,6 @@ def create_checkout_session(
     billing_period: str,
     return_source: str = "miniapp",
 ) -> dict:
-    provider_token = get_telegram_payments_provider_token().strip()
-    if not provider_token:
-        raise ValueError("Оплата пока не настроена. Попробуй позже.")
-
     plan = _get_subscription_plan(plan_code, billing_period)
     prepared = create_bot_payment_attempt(
         user, plan_code=plan_code, billing_period=billing_period
@@ -584,14 +630,17 @@ def create_checkout_session(
         title=f"{plan.name} for VocabuMe",
         description="Premium для безлимитного добавления и всех relocation-сценариев.",
         payload=payload,
-        provider_token=provider_token,
-        currency=plan.currency,
+        provider_token="",
+        currency=TELEGRAM_STARS_CURRENCY,
         prices=[LabeledPrice(label=plan.name, amount=amount_minor)],
     )
 
     attempt = PaymentAttempt.objects.get(id=prepared["attempt_id"])
     attempt.invoice_link = invoice_link
-    attempt.metadata = {"return_source": return_source}
+    attempt.metadata = {
+        **attempt.metadata,
+        "return_source": return_source,
+    }
     attempt.save(update_fields=["invoice_link", "metadata", "updated_at"])
     return {
         "attempt_id": attempt.id,
@@ -602,6 +651,8 @@ def create_checkout_session(
             "billing_period": plan.billing_period,
             "price_amount": format(plan.price_amount, ".2f"),
             "currency": plan.currency,
+            "telegram_stars_amount": amount_minor,
+            "telegram_stars_currency": TELEGRAM_STARS_CURRENCY,
         },
     }
 
@@ -614,60 +665,65 @@ def activate_subscription_for_successful_payment(
     amount_minor: int,
     currency: str,
 ) -> UserSubscription:
-    attempt = (
-        PaymentAttempt.objects.select_related("user", "plan")
-        .filter(invoice_payload=invoice_payload)
-        .first()
-    )
-    if attempt is None:
-        raise ValueError("Payment attempt not found.")
-
-    if attempt.status == "paid":
-        existing = (
-            UserSubscription.objects.select_related("plan")
-            .filter(invoice_payload=invoice_payload, status="active")
+    if not invoice_payload or not telegram_payment_charge_id:
+        raise ValueError("Payment identifiers are required.")
+    with transaction.atomic():
+        attempt = (
+            PaymentAttempt.objects.select_for_update()
+            .select_related("user", "plan")
+            .filter(invoice_payload=invoice_payload)
             .first()
         )
-        if existing is not None:
+        if attempt is None:
+            raise ValueError("Payment attempt not found.")
+        if attempt.currency != currency or attempt.amount_minor != amount_minor:
+            raise ValueError("Payment amount or currency does not match the invoice.")
+        if attempt.status == "paid":
+            existing = UserSubscription.objects.filter(invoice_payload=invoice_payload).first()
+            if existing is None:
+                raise ValueError("Paid payment attempt has no subscription.")
             return existing
+        if attempt.status != "pending":
+            raise ValueError("Payment attempt cannot be activated.")
+        charge_exists = PaymentAttempt.objects.filter(
+            telegram_payment_charge_id=telegram_payment_charge_id
+        ).exclude(pk=attempt.pk).exists()
+        if charge_exists:
+            raise ValueError("Telegram payment charge was already processed.")
 
-    current_time = timezone.now()
-    attempt.status = "paid"
-    attempt.paid_at = current_time
-    attempt.telegram_payment_charge_id = telegram_payment_charge_id
-    attempt.provider_payment_charge_id = provider_payment_charge_id
-    attempt.amount_minor = amount_minor
-    attempt.currency = currency
-    attempt.save(
-        update_fields=[
-            "status",
-            "paid_at",
-            "telegram_payment_charge_id",
-            "provider_payment_charge_id",
-            "amount_minor",
-            "currency",
-            "updated_at",
-        ]
-    )
+        current_time = timezone.now()
+        TelegramUser.objects.select_for_update().get(pk=attempt.user_id)
+        attempt.status = "paid"
+        attempt.paid_at = current_time
+        attempt.telegram_payment_charge_id = telegram_payment_charge_id
+        attempt.provider_payment_charge_id = provider_payment_charge_id
+        attempt.save(update_fields=["status", "paid_at", "telegram_payment_charge_id", "provider_payment_charge_id", "updated_at"])
+        UserSubscription.objects.select_for_update().filter(user=attempt.user, status="active").update(
+            status="expired", updated_at=current_time
+        )
+        return UserSubscription.objects.create(
+            user=attempt.user,
+            plan=attempt.plan,
+            status="active",
+            started_at=current_time,
+            activated_at=current_time,
+            expires_at=current_time + timedelta(days=attempt.plan.duration_days),
+            source="telegram",
+            invoice_payload=invoice_payload,
+            telegram_payment_charge_id=telegram_payment_charge_id,
+            provider_payment_charge_id=provider_payment_charge_id,
+            metadata={"attempt_id": attempt.id},
+        )
 
-    UserSubscription.objects.filter(user=attempt.user, status="active").update(
-        status="expired", updated_at=current_time
-    )
 
-    subscription = UserSubscription.objects.create(
-        user=attempt.user,
-        plan=attempt.plan,
-        status="active",
-        started_at=current_time,
-        activated_at=current_time,
-        expires_at=current_time + timedelta(days=attempt.plan.duration_days),
-        source="telegram",
-        invoice_payload=invoice_payload,
-        telegram_payment_charge_id=telegram_payment_charge_id,
-        provider_payment_charge_id=provider_payment_charge_id,
-        metadata={"attempt_id": attempt.id},
-    )
-    return subscription
+def validate_telegram_pre_checkout(*, invoice_payload: str, amount_minor: int, currency: str) -> tuple[bool, str]:
+    """Validate a Telegram Stars invoice before Telegram charges the user."""
+    attempt = PaymentAttempt.objects.filter(invoice_payload=invoice_payload).first()
+    if attempt is None or attempt.status != "pending":
+        return False, "Счёт недействителен или уже обработан. Откройте оплату заново."
+    if attempt.amount_minor != amount_minor or attempt.currency != currency:
+        return False, "Сумма счёта не совпадает. Откройте оплату заново."
+    return True, ""
 
 
 def get_course_pack_definitions(course_code: str | None = None) -> list[dict]:
@@ -2997,6 +3053,88 @@ def build_learning_question(
     return payload
 
 
+def issue_learning_question(
+    user: TelegramUser, exclude_ids: Iterable[int] | None = None
+) -> dict | None:
+    """Return a public question while retaining the grading authority server-side."""
+    question = build_learning_question(user, exclude_ids=exclude_ids)
+    if question is None:
+        return None
+    issued = IssuedLearningQuestion.objects.create(
+        user=user,
+        item_id=question["item"]["id"],
+        exercise_type=question["exercise_type"],
+        expires_at=timezone.now() + timedelta(minutes=15),
+    )
+    question.pop("correct_answer", None)
+    question["question_id"] = str(issued.id)
+    return question
+
+
+def submit_issued_learning_answer(
+    user: TelegramUser, question_id: str, answer: str
+) -> dict:
+    try:
+        parsed_question_id = UUID(question_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Learning question was not found.") from exc
+    with transaction.atomic():
+        issued = (
+            IssuedLearningQuestion.objects.select_for_update()
+            .select_related("item")
+            .filter(id=parsed_question_id, user=user)
+            .first()
+        )
+        if issued is None:
+            raise ValueError("Learning question was not found.")
+        if issued.answered_at is not None:
+            raise ValueError("Learning question was already answered.")
+        if issued.expires_at <= timezone.now():
+            raise ValueError("Learning question has expired.")
+        issued.answered_at = timezone.now()
+        issued.save(update_fields=["answered_at"])
+        return submit_learning_text_answer(
+            user, issued.item_id, answer, issued.exercise_type
+        )
+
+
+def get_issued_speaking_question(user: TelegramUser, question_id: str) -> IssuedLearningQuestion:
+    try:
+        parsed_question_id = UUID(question_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Speaking question was not found or has expired.") from exc
+    issued = IssuedLearningQuestion.objects.filter(
+        id=parsed_question_id,
+        user=user,
+        exercise_type="speaking",
+        answered_at__isnull=True,
+        expires_at__gt=timezone.now(),
+    ).first()
+    if issued is None:
+        raise ValueError("Speaking question was not found or has expired.")
+    return issued
+
+
+def submit_issued_speaking_answer(
+    user: TelegramUser, question_id: str, transcript: str
+) -> dict:
+    try:
+        parsed_question_id = UUID(question_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Speaking question was not found or has expired.") from exc
+    with transaction.atomic():
+        issued = (
+            IssuedLearningQuestion.objects.select_for_update()
+            .filter(id=parsed_question_id, user=user, exercise_type="speaking")
+            .first()
+        )
+        if issued is None or issued.answered_at is not None or issued.expires_at <= timezone.now():
+            raise ValueError("Speaking question was not found or has expired.")
+        issued.answered_at = timezone.now()
+        issued.save(update_fields=["answered_at"])
+        return evaluate_speaking_answer(user, issued.item_id, transcript)
+
+
 def build_choice_question(user: TelegramUser, mode: str) -> dict | None:
     if mode == "review":
         candidates = get_learned_words(user)
@@ -3329,7 +3467,7 @@ def build_irregular_question() -> dict:
         if candidate not in options:
             options.append(candidate)
     random.shuffle(options)
-    return {"verb": verb, "correct_pair": correct_pair, "options": options[:4]}
+    return {"verb": verb, "options": options[:4]}
 
 
 def update_irregular_progress(

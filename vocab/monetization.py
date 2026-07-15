@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
+from core.env import env, env_csv
+
 PRICE_CURRENCY = "USD"
+TELEGRAM_STARS_CURRENCY = "XTR"
+TELEGRAM_STARS_PRICES = {
+    "monthly": 199,
+    "yearly": 999,
+}
 DEFAULT_EXTRA_IMAGE_REGENERATIONS_PER_DAY = 3
 DEFAULT_FREE_RELOCATION_PACKS = 2
 DEFAULT_FREE_NEW_ITEMS_PER_DAY = 10
@@ -33,6 +41,16 @@ PLAN_DEFINITIONS: dict[str, dict[str, Any]] = {
         "price": {
             "monthly": {"amount": "6.99", "currency": PRICE_CURRENCY},
             "yearly": {"amount": "39.99", "currency": PRICE_CURRENCY},
+        },
+        "telegram_stars_price": {
+            "monthly": {
+                "amount": TELEGRAM_STARS_PRICES["monthly"],
+                "currency": TELEGRAM_STARS_CURRENCY,
+            },
+            "yearly": {
+                "amount": TELEGRAM_STARS_PRICES["yearly"],
+                "currency": TELEGRAM_STARS_CURRENCY,
+            },
         },
         "entitlements": {
             "max_new_items_per_day": None,
@@ -83,10 +101,34 @@ def get_plan_catalog() -> dict[str, dict[str, Any]]:
     return PLAN_DEFINITIONS
 
 
-def get_monetization_payload() -> dict[str, Any]:
+def get_telegram_stars_prices_for_user(user_chat_id: int | str | None = None) -> dict[str, int]:
+    prices = dict(TELEGRAM_STARS_PRICES)
+    if user_chat_id is None:
+        return prices
+
+    test_user_ids = set(env_csv("TELEGRAM_STARS_TEST_USER_IDS"))
+    if str(user_chat_id) not in test_user_ids:
+        return prices
+
+    test_price = env("TELEGRAM_STARS_TEST_PRICE", default=1, cast=int)
+    if test_price < 1:
+        test_price = 1
+    return {period: test_price for period in prices}
+
+
+def get_monetization_payload(user_chat_id: int | str | None = None) -> dict[str, Any]:
+    plans = copy.deepcopy(get_plan_catalog())
+    stars_prices = get_telegram_stars_prices_for_user(user_chat_id)
+    premium = plans.get("premium")
+    if premium:
+        premium["telegram_stars_price"] = {
+            period: {"amount": amount, "currency": TELEGRAM_STARS_CURRENCY}
+            for period, amount in stars_prices.items()
+        }
     return {
         "currency": PRICE_CURRENCY,
-        "plans": get_plan_catalog(),
+        "telegram_stars_currency": TELEGRAM_STARS_CURRENCY,
+        "plans": plans,
         "paywall_triggers": PAYWALL_TRIGGERS,
         "default_free_plan_code": "free",
         "default_paid_plan_code": "premium",

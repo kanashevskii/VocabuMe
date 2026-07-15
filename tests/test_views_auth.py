@@ -4,7 +4,7 @@ import json
 from io import BytesIO
 
 import pytest
-from django.contrib.auth.hashers import make_password
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
@@ -24,42 +24,26 @@ def test_app_config_returns_public_auth_configuration(client):
 
 
 @pytest.mark.django_db
-def test_auth_web_register_creates_user_and_session(client):
+def test_auth_web_register_is_retired_in_favor_of_telegram_identity(client):
     response = client.post(
         "/api/auth/web/register",
         data=json.dumps({"email": "user@example.com", "password": "supersecret"}),
         content_type="application/json",
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["user"]["email"] == "user@example.com"
-
-    me_response = client.get("/api/auth/me")
-    me_payload = me_response.json()
-    assert me_payload["authenticated"] is True
-    assert me_payload["user"]["email"] == "user@example.com"
+    assert response.status_code == 410
+    assert TelegramUser.objects.count() == 0
 
 
 @pytest.mark.django_db
-def test_auth_web_login_rejects_invalid_password(client):
-    TelegramUser.objects.create(
-        chat_id=-1,
-        username="user",
-        email="user@example.com",
-        password_hash=make_password("supersecret"),
-        auth_provider="web",
-    )
-
+def test_auth_web_login_is_retired_in_favor_of_telegram_identity(client):
     response = client.post(
         "/api/auth/web/login",
         data=json.dumps({"email": "user@example.com", "password": "wrong-password"}),
         content_type="application/json",
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"] == "Invalid email or password."
+    assert response.status_code == 410
 
 
 @pytest.mark.django_db
@@ -114,7 +98,7 @@ def test_auth_poll_link_returns_not_authenticated_for_unknown_token(client):
 def test_auth_telegram_widget_uses_verified_payload(client, monkeypatch):
     monkeypatch.setattr(
         "vocab.views.verify_login_widget",
-        lambda payload, token: {"id": "301", "username": "telegram_user"},
+        lambda payload, token, max_age_seconds: {"id": "301", "username": "telegram_user"},
     )
 
     response = client.post(
@@ -133,7 +117,7 @@ def test_auth_telegram_widget_uses_verified_payload(client, monkeypatch):
 def test_auth_telegram_webapp_uses_verified_payload(client, monkeypatch):
     monkeypatch.setattr(
         "vocab.views.verify_webapp_init_data",
-        lambda init_data, token: {"user": {"id": 302, "username": "webapp_user"}},
+        lambda init_data, token, max_age_seconds: {"user": {"id": 302, "username": "webapp_user"}},
     )
 
     response = client.post(
@@ -242,6 +226,53 @@ def test_client_error_log_persists_context(client):
 
 
 @pytest.mark.django_db
+def test_client_error_log_requires_authenticated_user(client):
+    response = client.post(
+        "/api/client-error",
+        data=json.dumps({"category": "client", "level": "error", "message": "boom"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 401
+    assert AppErrorLog.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_client_error_log_is_rate_limited(client):
+    cache.clear()
+    user = TelegramUser.objects.create(chat_id=20041, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+    payload = json.dumps({"category": "client", "level": "error", "message": "boom"})
+
+    for _ in range(30):
+        assert client.post("/api/client-error", data=payload, content_type="application/json").status_code == 200
+    response = client.post("/api/client-error", data=payload, content_type="application/json")
+
+    assert response.status_code == 429
+    assert response["Retry-After"] == "60"
+
+
+@pytest.mark.django_db
+def test_webapp_header_takes_precedence_over_session(client, monkeypatch):
+    session_user = TelegramUser.objects.create(chat_id=20042, username="session")
+    header_user = TelegramUser.objects.create(chat_id=20043, username="header")
+    session = client.session
+    session["telegram_user_id"] = session_user.id
+    session.save()
+    monkeypatch.setattr(
+        "vocab.views.verify_webapp_init_data",
+        lambda init_data, token, max_age_seconds: {"user": {"id": header_user.chat_id, "username": "header"}},
+    )
+
+    response = client.get("/api/auth/me", HTTP_X_TELEGRAM_INIT_DATA="signed")
+
+    assert response.status_code == 200
+    assert response.json()["user"]["chat_id"] == header_user.chat_id
+
+
+@pytest.mark.django_db
 def test_learn_question_returns_empty_when_service_has_no_question(client, monkeypatch):
     user = TelegramUser.objects.create(
         chat_id=2005, username="tester", session_question_limit=99
@@ -249,9 +280,7 @@ def test_learn_question_returns_empty_when_service_has_no_question(client, monke
     session = client.session
     session["telegram_user_id"] = user.id
     session.save()
-    monkeypatch.setattr(
-        "vocab.views.build_learning_question", lambda user, exclude_ids=None: None
-    )
+    monkeypatch.setattr("vocab.views.issue_learning_question", lambda user, exclude_ids=None: None)
 
     response = client.get("/api/learn/question")
 
@@ -306,8 +335,9 @@ def test_alphabet_question_returns_current_course_payload(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
-    assert payload["question"]["letter"]["symbol"] == "B"
+    assert "symbol" not in payload["question"]["letter"]
     assert payload["question"]["options"] == ["A", "B", "C", "D"]
+    assert payload["question"]["question_token"]
 
 
 @pytest.mark.django_db
@@ -350,9 +380,11 @@ def test_alphabet_answer_returns_result_payload(client, monkeypatch):
         },
     )
 
+    question_response = client.get("/api/alphabet/question")
+    question_token = question_response.json()["question"]["question_token"]
     response = client.post(
         "/api/alphabet/answer",
-        data=json.dumps({"symbol": "გ", "answer": "გ"}),
+        data=json.dumps({"question_token": question_token, "answer": "გ"}),
         content_type="application/json",
     )
 
@@ -457,7 +489,7 @@ def test_billing_checkout_returns_invoice_link(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_learn_answer_rejects_unknown_exercise_type(client):
+def test_learn_answer_rejects_unknown_or_missing_question(client):
     user = TelegramUser.objects.create(chat_id=2006, username="tester")
     session = client.session
     session["telegram_user_id"] = user.id
@@ -465,12 +497,12 @@ def test_learn_answer_rejects_unknown_exercise_type(client):
 
     response = client.post(
         "/api/learn/answer",
-        data=json.dumps({"word_id": 1, "answer": "x", "exercise_type": "bad"}),
+        data=json.dumps({"question_id": "not-a-question", "answer": "x"}),
         content_type="application/json",
     )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "Unknown exercise type."
+    assert response.json()["error"] == "Learning question was not found."
 
 
 @pytest.mark.django_db

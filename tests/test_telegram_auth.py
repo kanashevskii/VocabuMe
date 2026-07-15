@@ -86,3 +86,21 @@ def test_verify_webapp_init_data_accepts_valid_payload():
 def test_verify_webapp_init_data_rejects_missing_hash():
     with pytest.raises(TelegramAuthError, match="Missing WebApp hash"):
         verify_webapp_init_data("auth_date=123", "test-token")
+
+
+def test_verify_webapp_init_data_rejects_future_timestamp():
+    bot_token = "test-token"
+    payload = {
+        "auth_date": str(int(time()) + 120),
+        "query_id": "abc",
+        "user": json.dumps({"id": 123}),
+    }
+    payload["hash"] = _webapp_hash(payload, bot_token)
+
+    with pytest.raises(TelegramAuthError, match="Invalid Telegram auth date"):
+        verify_webapp_init_data(urlencode(payload), bot_token)
+
+
+def test_verify_webapp_init_data_rejects_duplicate_fields():
+    with pytest.raises(TelegramAuthError, match="Duplicate WebApp init-data field"):
+        verify_webapp_init_data("auth_date=1&auth_date=1&hash=abc", "test-token")

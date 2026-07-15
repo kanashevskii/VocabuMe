@@ -7,6 +7,8 @@ import os
 import tempfile
 import traceback
 
+from django.conf import settings
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http import FileResponse, HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
@@ -15,13 +17,14 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
 from .alphabets import get_alphabet_letter
+from .irregular_verbs import IRREGULAR_VERBS
 from .openai_utils import transcribe_speech_file
 from .services import (
     add_pack_words_to_user,
     add_words_from_text,
     apply_user_settings,
-    authenticate_web_user,
     build_learning_question,
+    issue_learning_question,
     build_user_progress,
     build_choice_question,
     build_irregular_question,
@@ -29,7 +32,6 @@ from .services import (
     build_listening_question,
     build_speaking_question,
     consume_web_login_token,
-    create_web_user,
     create_web_login_token,
     create_word_drafts_from_text,
     delete_user_avatar,
@@ -59,6 +61,9 @@ from .services import (
     serialize_draft,
     serialize_word,
     submit_learning_text_answer,
+    submit_issued_learning_answer,
+    get_issued_speaking_question,
+    submit_issued_speaking_answer,
     submit_choice_answer,
     submit_listening_answer,
     submit_alphabet_answer,
@@ -77,20 +82,32 @@ from .telegram_auth import (
     verify_login_widget,
     verify_webapp_init_data,
 )
+from .ratelimit import RateLimitExceeded, enforce_rate_limit
 
 SESSION_USER_KEY = "telegram_user_id"
 logger = logging.getLogger(__name__)
 MAX_IMAGE_REGENERATIONS = 3
 MAX_ADD_BATCH_WORDS = 10
+MAX_CLIENT_ERROR_BODY_BYTES = 16 * 1024
+MAX_CLIENT_ERROR_MESSAGE_LENGTH = 1_000
+CLIENT_ERROR_CATEGORIES = {"client", "network", "ui", "api"}
+CLIENT_ERROR_LEVELS = {"warning", "error"}
+QUESTION_SIGNER = TimestampSigner(salt="vocab.alphabet-question")
 
 
 def _json_body(request: HttpRequest) -> dict:
+    content_length = request.META.get("CONTENT_LENGTH")
+    if content_length and int(content_length) > settings.MAX_JSON_BODY_BYTES:
+        raise ValueError("JSON body is too large.")
     if not request.body:
         return {}
     try:
-        return json.loads(request.body)
+        payload = json.loads(request.body)
     except json.JSONDecodeError as exc:
         raise ValueError("Invalid JSON body.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object.")
+    return payload
 
 
 def _json_error(
@@ -131,7 +148,9 @@ def _safe_context(payload: dict | None) -> dict:
     for key, value in payload.items():
         if key.lower() in {"password", "token", "init_data", "audio"}:
             continue
-        if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, str):
+            safe[key] = value[:500]
+        elif isinstance(value, (int, float, bool)) or value is None:
             safe[key] = value
         else:
             safe[key] = str(value)
@@ -164,32 +183,56 @@ def _log_app_error(
 
 
 def _current_user(request: HttpRequest) -> TelegramUser | None:
-    user_id = request.session.get(SESSION_USER_KEY)
-    if user_id:
-        user = get_telegram_user_by_id(user_id)
-        if user is not None:
-            return user
-        request.session.pop(SESSION_USER_KEY, None)
-
     init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
-    if not init_data:
-        return None
+    if init_data:
+        try:
+            verified = verify_webapp_init_data(
+                init_data,
+                get_telegram_token(),
+                max_age_seconds=settings.TELEGRAM_AUTH_MAX_AGE_SECONDS,
+            )
+            telegram_user = verified.get("user") or {}
+            telegram_id = int(telegram_user["id"])
+        except (KeyError, TypeError, ValueError, TelegramAuthError):
+            return None
+        user = upsert_telegram_user(
+            chat_id=telegram_id, username=telegram_user.get("username")
+        )
+        request.session[SESSION_USER_KEY] = user.id
+        return user
 
-    try:
-        verified = verify_webapp_init_data(init_data, get_telegram_token())
-    except TelegramAuthError:
+    user_id = request.session.get(SESSION_USER_KEY)
+    if not user_id:
         return None
-
-    telegram_user = verified.get("user") or {}
-    telegram_id = telegram_user.get("id")
-    if not telegram_id:
-        return None
-
-    user = upsert_telegram_user(
-        chat_id=int(telegram_id), username=telegram_user.get("username")
-    )
-    request.session[SESSION_USER_KEY] = user.id
+    user = get_telegram_user_by_id(user_id)
+    if user is None:
+        request.session.pop(SESSION_USER_KEY, None)
     return user
+
+
+def _rate_limit_subject(request: HttpRequest, user: TelegramUser | None = None) -> str:
+    if user is not None:
+        return f"user:{user.id}"
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    client_ip = forwarded_for.split(",", 1)[0].strip() or request.META.get("REMOTE_ADDR", "")
+    return f"ip:{client_ip or 'unknown'}"
+
+
+def _enforce_request_limit(
+    request: HttpRequest, *, scope: str, limit: int, window: int, user: TelegramUser | None = None
+) -> JsonResponse | None:
+    try:
+        enforce_rate_limit(
+            scope=scope,
+            subject=_rate_limit_subject(request, user),
+            limit=limit,
+            window=window,
+        )
+    except RateLimitExceeded:
+        response = _json_error("Too many requests. Please try again shortly.", status=429)
+        response["Retry-After"] = str(window)
+        return response
+    return None
 
 
 def _require_user(request: HttpRequest) -> TelegramUser | JsonResponse:
@@ -232,9 +275,11 @@ def app_config(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_POST
 def auth_telegram_widget(request: HttpRequest) -> JsonResponse:
+    if limited := _enforce_request_limit(request, scope="auth-widget", limit=20, window=60):
+        return limited
     try:
         payload = _json_body(request)
-        verified = verify_login_widget(payload, get_telegram_token())
+        verified = verify_login_widget(payload, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS)
     except (ValueError, TelegramAuthError) as exc:
         return _json_error(str(exc), status=400)
 
@@ -247,10 +292,12 @@ def auth_telegram_widget(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_POST
 def auth_telegram_webapp(request: HttpRequest) -> JsonResponse:
+    if limited := _enforce_request_limit(request, scope="auth-webapp", limit=20, window=60):
+        return limited
     try:
         payload = _json_body(request)
         init_data = payload.get("init_data", "")
-        verified = verify_webapp_init_data(init_data, get_telegram_token())
+        verified = verify_webapp_init_data(init_data, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS)
     except (ValueError, TelegramAuthError) as exc:
         return _json_error(str(exc), status=400)
 
@@ -285,6 +332,8 @@ def auth_me(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def auth_request_link(request: HttpRequest) -> JsonResponse:
+    if limited := _enforce_request_limit(request, scope="auth-link", limit=5, window=60):
+        return limited
     login_token = create_web_login_token()
     deep_link = (
         f"https://t.me/{get_telegram_bot_username()}"
@@ -302,30 +351,12 @@ def auth_request_link(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def auth_web_register(request: HttpRequest) -> JsonResponse:
-    try:
-        payload = _json_body(request)
-        email = (payload.get("email") or "").strip()
-        password = payload.get("password") or ""
-        user = create_web_user(email, password)
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-
-    return _login(request, user)
+    return _json_error("Email/password registration is no longer supported. Use Telegram login.", status=410)
 
 
 @require_POST
 def auth_web_login(request: HttpRequest) -> JsonResponse:
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-
-    email = (payload.get("email") or "").strip()
-    password = payload.get("password") or ""
-    user = authenticate_web_user(email, password)
-    if user is None:
-        return _json_error("Invalid email or password.", status=400)
-    return _login(request, user)
+    return _json_error("Email/password login is no longer supported. Use Telegram login.", status=410)
 
 
 @require_GET
@@ -349,21 +380,34 @@ def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
 @require_POST
 def client_error_log(request: HttpRequest) -> JsonResponse:
     user = _current_user(request)
+    if user is None:
+        return _json_error("Authentication required.", status=401)
+    if limited := _enforce_request_limit(request, scope="client-error", limit=30, window=60, user=user):
+        return limited
+    if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_CLIENT_ERROR_BODY_BYTES:
+        return _json_error("Client error payload is too large.", status=413)
     try:
         payload = _json_body(request)
     except ValueError as exc:
         return _json_error(str(exc))
 
+    category = str(payload.get("category") or "client").lower()
+    level = str(payload.get("level") or "error").lower()
+    if category not in CLIENT_ERROR_CATEGORIES or level not in CLIENT_ERROR_LEVELS:
+        return _json_error("Invalid client error payload.")
+    status_code = payload.get("status_code")
+    if not isinstance(status_code, int) or not 100 <= status_code <= 599:
+        status_code = None
     _log_app_error(
         request,
         user=user,
-        category=(payload.get("category") or "client")[:50],
-        level=(payload.get("level") or "error")[:20],
-        status_code=payload.get("status_code"),
-        message=(payload.get("message") or "Client-side error")[:4000],
+        category=category,
+        level=level,
+        status_code=status_code,
+        message=str(payload.get("message") or "Client-side error")[:MAX_CLIENT_ERROR_MESSAGE_LENGTH],
         context={
             "url": payload.get("url", ""),
-            "detail": payload.get("detail", ""),
+            "detail": str(payload.get("detail", ""))[:1_000],
             "meta": payload.get("meta", {}),
         },
     )
@@ -415,6 +459,10 @@ def billing_checkout(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="billing-checkout", limit=5, window=60, user=user
+    ):
+        return limited
 
     try:
         payload = _json_body(request)
@@ -460,6 +508,11 @@ def words(request: HttpRequest) -> JsonResponse:
         ]
         return JsonResponse({"ok": True, "items": items})
 
+    if limited := _enforce_request_limit(
+        request, scope="word-generation", limit=10, window=60, user=user
+    ):
+        return limited
+
     try:
         payload = _json_body(request)
     except ValueError as exc:
@@ -489,6 +542,10 @@ def word_draft_create(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="word-draft-generation", limit=10, window=60, user=user
+    ):
+        return limited
 
     try:
         payload = _json_body(request)
@@ -579,6 +636,10 @@ def word_draft_regenerate_image(request: HttpRequest, draft_id: int) -> JsonResp
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="image-regeneration", limit=5, window=60, user=user
+    ):
+        return limited
 
     draft = _get_draft_for_user(user, draft_id)
     if isinstance(draft, JsonResponse):
@@ -772,6 +833,10 @@ def packs_prepare(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="pack-preparation", limit=2, window=60, user=user
+    ):
+        return limited
     active_course = get_active_course_code(user)
     for pack in list_word_packs(user):
         for level in pack["levels"]:
@@ -786,6 +851,10 @@ def packs_add(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="pack-add", limit=5, window=60, user=user
+    ):
+        return limited
     try:
         payload = _json_body(request)
     except ValueError as exc:
@@ -834,7 +903,7 @@ def learn_question(request: HttpRequest) -> JsonResponse:
         except ValueError:
             continue
 
-    question = build_learning_question(user, exclude_ids=exclude_ids)
+    question = issue_learning_question(user, exclude_ids=exclude_ids)
     if question is None:
         return JsonResponse(
             {
@@ -860,22 +929,13 @@ def learn_answer(request: HttpRequest) -> JsonResponse:
 
     try:
         payload = _json_body(request)
-        word_id = int(payload.get("word_id"))
+        question_id = str(payload.get("question_id", ""))
         answer = str(payload.get("answer", ""))
-        exercise_type = str(payload.get("exercise_type", ""))
     except (TypeError, ValueError):
         return _json_error("Invalid learning answer payload.")
 
-    if exercise_type not in {
-        "practice_en_ru",
-        "practice_ru_en",
-        "listening_word",
-        "listening_translate",
-    }:
-        return _json_error("Unknown exercise type.")
-
     try:
-        result = submit_learning_text_answer(user, word_id, answer, exercise_type)
+        result = submit_issued_learning_answer(user, question_id, answer)
     except ValueError as exc:
         return _json_error(str(exc))
     return JsonResponse({"ok": True, **result})
@@ -967,16 +1027,28 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
     if isinstance(user, JsonResponse):
         return user
 
+    if limited := _enforce_request_limit(
+        request, scope="speech-transcription", limit=10, window=60, user=user
+    ):
+        return limited
+    question_id = str(request.POST.get("question_id", ""))
     try:
-        word_id = int(request.POST.get("word_id"))
-    except (TypeError, ValueError):
-        return _json_error("Invalid speaking payload.")
+        get_issued_speaking_question(user, question_id)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
 
     audio_file = request.FILES.get("audio")
     if audio_file is None:
         return _json_error("Audio file is required.")
+    if audio_file.size > 10 * 1024 * 1024:
+        return _json_error("Audio file is too large.", status=413)
+    allowed_audio_content_types = {"audio/webm", "audio/ogg", "audio/mpeg", "audio/wav", "audio/mp4"}
+    if audio_file.content_type not in allowed_audio_content_types:
+        return _json_error("Unsupported audio format.", status=415)
 
-    suffix = os.path.splitext(audio_file.name or "")[1] or ".webm"
+    suffix = os.path.splitext(audio_file.name or "")[1].lower() or ".webm"
+    if suffix not in {".webm", ".ogg", ".mp3", ".wav", ".m4a", ".mp4"}:
+        return _json_error("Unsupported audio format.", status=415)
     temp_path = ""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
@@ -986,13 +1058,13 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
 
         transcript = transcribe_speech_file(temp_path)
         return JsonResponse(
-            {"ok": True, **evaluate_speaking_answer(user, word_id, transcript)}
+            {"ok": True, **submit_issued_speaking_answer(user, question_id, transcript)}
         )
-    except Exception as exc:
-        logger.exception(
-            "Speaking recognition failed for user=%s word_id=%s", user.id, word_id
-        )
-        return _json_error(f"Speech recognition failed: {exc}", status=400)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+    except Exception:
+        logger.exception("Speaking recognition failed for user=%s question_id=%s", user.id, question_id)
+        return _json_error("Speech recognition is temporarily unavailable.", status=503)
     finally:
         _safe_unlink(temp_path)
 
@@ -1161,12 +1233,15 @@ def irregular_answer(request: HttpRequest) -> JsonResponse:
 
     try:
         payload = _json_body(request)
-        base = str(payload.get("base"))
-        answer = str(payload.get("answer"))
-        correct_pair = str(payload.get("correct_pair"))
+        base = str(payload.get("base", "")).strip()
+        answer = str(payload.get("answer", "")).strip()
     except (TypeError, ValueError):
         return _json_error("Invalid irregular payload.")
 
+    verb = next((item for item in IRREGULAR_VERBS if item["base"] == base), None)
+    if verb is None:
+        return _json_error("Irregular verb not found.", status=404)
+    correct_pair = f"{verb['past']} {verb['participle']}"
     correct = answer == correct_pair
     if correct:
         update_irregular_progress(user, base, True)
@@ -1198,7 +1273,14 @@ def alphabet_question(request: HttpRequest) -> JsonResponse:
     if isinstance(user, JsonResponse):
         return user
 
-    return JsonResponse({"ok": True, "question": build_alphabet_question(user)})
+    question = build_alphabet_question(user)
+    question["letter"] = dict(question["letter"])
+    symbol = question.pop("correct_symbol")
+    question["letter"].pop("symbol", None)
+    question["question_token"] = QUESTION_SIGNER.sign(
+        f"{user.id}:{question['course_code']}:{symbol}"
+    )
+    return JsonResponse({"ok": True, "question": question})
 
 
 @require_POST
@@ -1209,14 +1291,19 @@ def alphabet_answer(request: HttpRequest) -> JsonResponse:
 
     try:
         payload = _json_body(request)
-        symbol = str(payload.get("symbol", ""))
+        question_token = str(payload.get("question_token", ""))
         answer = str(payload.get("answer", ""))
     except (TypeError, ValueError):
         return _json_error("Invalid alphabet payload.")
 
     try:
+        signed_user_id, course_code, symbol = QUESTION_SIGNER.unsign(
+            question_token, max_age=15 * 60
+        ).split(":", 2)
+        if int(signed_user_id) != user.id or course_code != get_active_course_code(user):
+            return _json_error("Alphabet question does not belong to this user.", status=403)
         result = submit_alphabet_answer(user, symbol, answer)
-    except ValueError as exc:
+    except (BadSignature, SignatureExpired, ValueError) as exc:
         return _json_error(str(exc))
     return JsonResponse({"ok": True, **result})
 
@@ -1244,27 +1331,7 @@ def study_cards(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def study_answer(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    try:
-        payload = _json_body(request)
-        word_id = int(payload.get("word_id"))
-        correct = bool(payload.get("correct"))
-    except (TypeError, ValueError):
-        return _json_error("Invalid answer payload.")
-
-    item = get_user_word(user, word_id)
-    if item is None:
-        return _json_error("Word not found.", status=404)
-
-    updated = update_word_progress(item.id, correct=correct)
-    update_learning_streak(user)
-    return JsonResponse(
-        {
-            "ok": True,
-            "item": serialize_word(updated),
-            "progress": build_user_progress(user),
-        }
+    return _json_error(
+        "This endpoint is retired. Submit a server-issued learning question instead.",
+        status=410,
     )
