@@ -104,10 +104,11 @@ def _complete_job(job: BackgroundJob, *, external_retry: bool) -> None:
         logger.exception("Background job %s (%s) failed", job.id, job.kind)
         retry = job.attempts < job.max_attempts
         job.status = "queued" if retry else "failed"
-        job.run_after = (
-            timezone.now()
-            if external_retry
-            else timezone.now() + timedelta(seconds=min(300, 2**job.attempts))
+        # Celery schedules the matching retry separately. Keep the durable row
+        # unavailable for the same backoff window so a fallback `process_jobs`
+        # worker cannot execute the paid operation a second time meanwhile.
+        job.run_after = timezone.now() + timedelta(
+            seconds=min(300, 2**job.attempts)
         )
         job.last_error = str(exc)[:2_000]
         job.locked_at = None

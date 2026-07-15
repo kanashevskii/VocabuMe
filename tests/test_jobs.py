@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from vocab.jobs import enqueue_job, run_one_job
+from vocab.jobs import enqueue_job, run_job_by_id, run_one_job
 from vocab.models import BackgroundJob
 
 
@@ -89,6 +89,28 @@ def test_run_one_job_retries_after_failure(monkeypatch):
     assert job.status == "queued"
     assert job.attempts == 1
     assert "temporary" in job.last_error
+
+
+@pytest.mark.django_db
+def test_celery_retry_does_not_leave_job_available_to_fallback_worker(monkeypatch):
+    job = enqueue_job(
+        kind="word_image",
+        deduplication_key="word-image:external-retry:1",
+        payload={"item_id": 3, "version": 1},
+        priority=10,
+    )
+    monkeypatch.setattr(
+        "vocab.services._run_word_image_generation",
+        lambda item_id, version: (_ for _ in ()).throw(RuntimeError("temporary")),
+    )
+
+    with pytest.raises(RuntimeError, match="temporary"):
+        run_job_by_id(job.id, external_retry=True)
+
+    job.refresh_from_db()
+    assert job.status == "queued"
+    assert job.run_after > job.updated_at
+    assert run_one_job() is False
 
 
 @pytest.mark.django_db
