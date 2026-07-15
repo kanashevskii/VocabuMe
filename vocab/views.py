@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import mimetypes
 import os
@@ -40,7 +39,6 @@ from .services import (
     get_billing_payload,
     get_draft_image_file,
     get_profile_avatar_file,
-    get_telegram_user_by_id,
     get_active_course_code,
     get_user_draft,
     get_user_settings_payload,
@@ -75,11 +73,17 @@ from .telegram_auth import (
     verify_login_widget,
     verify_webapp_init_data,
 )
-from .ratelimit import RateLimitExceeded, enforce_rate_limit
 from .jobs import enqueue_job
+from .api.common import (
+    SESSION_USER_KEY,
+    current_user as _resolve_current_user,
+    enforce_request_limit as _enforce_request_limit,
+    json_body as _json_body,
+    json_error as _json_error,
+    login as _login,
+)
 from .api.docs import api_docs, openapi_schema  # noqa: F401 - URL compatibility exports
 
-SESSION_USER_KEY = "telegram_user_id"
 logger = logging.getLogger(__name__)
 MAX_IMAGE_REGENERATIONS = 3
 MAX_ADD_BATCH_WORDS = 10
@@ -90,29 +94,21 @@ CLIENT_ERROR_LEVELS = {"warning", "error"}
 QUESTION_SIGNER = TimestampSigner(salt="vocab.alphabet-question")
 
 
-def _json_body(request: HttpRequest) -> dict:
-    content_length = request.META.get("CONTENT_LENGTH")
-    if content_length and int(content_length) > settings.MAX_JSON_BODY_BYTES:
-        raise ValueError("JSON body is too large.")
-    if not request.body:
-        return {}
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError as exc:
-        raise ValueError("Invalid JSON body.") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("JSON body must be an object.")
-    return payload
+def _current_user(request: HttpRequest) -> TelegramUser | None:
+    """Compatibility facade for legacy callers that patch the auth verifier."""
+    return _resolve_current_user(
+        request,
+        verify_init_data=verify_webapp_init_data,
+    )
 
 
-def _json_error(
-    message: str, status: int = 400, *, code: str = "", **extra: object
-) -> JsonResponse:
-    payload: dict[str, object] = {"ok": False, "error": message}
-    if code:
-        payload["code"] = code
-    payload.update(extra)
-    return JsonResponse(payload, status=status)
+def _require_user(request: HttpRequest) -> TelegramUser | JsonResponse:
+    user = _current_user(request)
+    return (
+        user
+        if user is not None
+        else _json_error("Authentication required.", status=401)
+    )
 
 
 def _json_entitlement_error(
@@ -175,81 +171,6 @@ def _log_app_error(
         )
     except Exception:
         logger.exception("Failed to persist AppErrorLog for %s", request.path)
-
-
-def _current_user(request: HttpRequest) -> TelegramUser | None:
-    init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
-    if init_data:
-        try:
-            verified = verify_webapp_init_data(
-                init_data,
-                get_telegram_token(),
-                max_age_seconds=settings.TELEGRAM_AUTH_MAX_AGE_SECONDS,
-            )
-            telegram_user = verified.get("user") or {}
-            telegram_id = int(telegram_user["id"])
-        except (KeyError, TypeError, ValueError, TelegramAuthError):
-            return None
-        return TelegramUser.objects.filter(chat_id=telegram_id).first()
-
-    user_id = request.session.get(SESSION_USER_KEY)
-    if not user_id:
-        return None
-    user = get_telegram_user_by_id(user_id)
-    return user
-
-
-def _rate_limit_subject(request: HttpRequest, user: TelegramUser | None = None) -> str:
-    if user is not None:
-        return f"user:{user.id}"
-    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    client_ip = forwarded_for.split(",", 1)[0].strip() or request.META.get(
-        "REMOTE_ADDR", ""
-    )
-    return f"ip:{client_ip or 'unknown'}"
-
-
-def _enforce_request_limit(
-    request: HttpRequest,
-    *,
-    scope: str,
-    limit: int,
-    window: int,
-    user: TelegramUser | None = None,
-) -> JsonResponse | None:
-    try:
-        enforce_rate_limit(
-            scope=scope,
-            subject=_rate_limit_subject(request, user),
-            limit=limit,
-            window=window,
-        )
-    except RateLimitExceeded:
-        response = _json_error(
-            "Too many requests. Please try again shortly.", status=429
-        )
-        response["Retry-After"] = str(window)
-        return response
-    return None
-
-
-def _require_user(request: HttpRequest) -> TelegramUser | JsonResponse:
-    user = _current_user(request)
-    if user is None:
-        return _json_error("Authentication required.", status=401)
-    return user
-
-
-def _login(request: HttpRequest, user: TelegramUser) -> JsonResponse:
-    request.session.cycle_key()
-    request.session[SESSION_USER_KEY] = user.id
-    return JsonResponse(
-        {
-            "ok": True,
-            "user": serialize_user(user),
-            "progress": build_user_progress(user),
-        }
-    )
 
 
 @ensure_csrf_cookie
