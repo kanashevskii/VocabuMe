@@ -28,6 +28,20 @@ class FakeRedis:
             self.values[key] = current - 1
         return 1
 
+    def get(self, key):
+        return self.values.get(key)
+
+    def incr(self, key):
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    def expire(self, _key, _seconds):
+        return True
+
+    def delete(self, key):
+        self.values.pop(key, None)
+        return 1
+
 
 def test_openai_slot_releases_global_and_user_capacity(monkeypatch):
     client = FakeRedis()
@@ -69,3 +83,17 @@ def test_openai_request_slot_uses_trusted_user_scope(monkeypatch):
             pass
 
     assert captured == {"label": "word-data", "user_id": 42}
+
+
+def test_openai_slot_opens_circuit_after_configured_failures(monkeypatch):
+    client = FakeRedis()
+    monkeypatch.setattr("vocab.openai_limits._redis_client", lambda: client)
+    monkeypatch.setattr("vocab.openai_limits.OPENAI_CIRCUIT_FAILURE_THRESHOLD", 1)
+
+    with pytest.raises(RuntimeError):
+        with openai_slot("word"):
+            raise RuntimeError("provider failure")
+
+    with pytest.raises(OpenAIConcurrencyExceeded):
+        with openai_slot("word"):
+            pass

@@ -31,6 +31,10 @@ OPENAI_MAX_INFLIGHT_PER_USER = env(
 )
 OPENAI_SLOT_WAIT_SECONDS = env("OPENAI_SLOT_WAIT_SECONDS", cast=int, default=10)
 OPENAI_SLOT_TTL_SECONDS = env("OPENAI_SLOT_TTL_SECONDS", cast=int, default=300)
+OPENAI_CIRCUIT_FAILURE_THRESHOLD = env(
+    "OPENAI_CIRCUIT_FAILURE_THRESHOLD", cast=int, default=5
+)
+OPENAI_CIRCUIT_RESET_SECONDS = env("OPENAI_CIRCUIT_RESET_SECONDS", cast=int, default=60)
 
 _ACQUIRE_SEMAPHORE = """
 local current = tonumber(redis.call('GET', KEYS[1]) or '0')
@@ -105,6 +109,30 @@ def _release(client: Redis, key: str) -> None:
         logger.exception("Failed to release OpenAI concurrency slot key=%s", key)
 
 
+def _circuit_is_open(client: Redis) -> bool:
+    try:
+        failures = int(client.get("vocabume:openai:failures") or 0)
+    except RedisError as exc:
+        raise OpenAIConcurrencyExceeded("OpenAI is temporarily unavailable.") from exc
+    return failures >= OPENAI_CIRCUIT_FAILURE_THRESHOLD
+
+
+def _record_failure(client: Redis) -> None:
+    try:
+        key = "vocabume:openai:failures"
+        client.incr(key)
+        client.expire(key, OPENAI_CIRCUIT_RESET_SECONDS)
+    except RedisError:
+        logger.exception("Failed to record OpenAI circuit-breaker failure")
+
+
+def _record_success(client: Redis) -> None:
+    try:
+        client.delete("vocabume:openai:failures")
+    except RedisError:
+        logger.exception("Failed to clear OpenAI circuit-breaker failures")
+
+
 @contextmanager
 def openai_slot(label: str, *, user_id: int | None = None) -> Iterator[None]:
     """Reserve global and optional per-user OpenAI capacity for one operation."""
@@ -113,6 +141,10 @@ def openai_slot(label: str, *, user_id: int | None = None) -> Iterator[None]:
     if client is None:
         yield
         return
+    if _circuit_is_open(client):
+        raise OpenAIConcurrencyExceeded(
+            "OpenAI is temporarily unavailable. Please try again shortly."
+        )
 
     global_key = "vocabume:openai:inflight"
     user_key = f"vocabume:openai:user:{user_id}:inflight" if user_id else None
@@ -143,7 +175,13 @@ def openai_slot(label: str, *, user_id: int | None = None) -> Iterator[None]:
             raise OpenAIConcurrencyExceeded(
                 "OpenAI is busy. Please try again in a moment."
             )
-        yield
+        try:
+            yield
+        except Exception:
+            _record_failure(client)
+            raise
+        else:
+            _record_success(client)
     finally:
         if acquired_user and user_key:
             _release(client, user_key)
