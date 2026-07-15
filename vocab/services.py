@@ -16,7 +16,7 @@ import time
 
 from asgiref.sync import async_to_sync
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Min, Q
+from django.db.models import F, Min, Q
 from django.utils import timezone
 from django.utils.timezone import now
 from telegram import Bot, LabeledPrice
@@ -63,6 +63,7 @@ from .openai_utils import (
     generate_word_data,
     generate_word_data_batch,
 )
+from .selectors.progress import get_rank_percent
 from .utils import (
     clean_word,
     normalize_timezone_value,
@@ -1080,19 +1081,10 @@ def build_user_progress(user: TelegramUser) -> dict:
         user=user, course_code=active_course, learned_at__gte=month_window_start
     ).count()
 
-    user_stats = TelegramUser.objects.annotate(
-        learned_count=Count(
-            "vocabularyitem",
-            filter=Q(
-                vocabularyitem__course_code=active_course,
-                vocabularyitem__is_learned=True,
-            ),
-        )
+    rank_percent = get_rank_percent(
+        course_code=active_course,
+        learned_count=learned,
     )
-
-    total_users = user_stats.count()
-    better_than = user_stats.filter(learned_count__lt=learned).count()
-    rank_percent = round(100 * (1 - better_than / total_users)) if total_users else None
 
     return {
         "total": total,
