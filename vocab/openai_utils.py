@@ -6,11 +6,9 @@ import re
 import base64
 import time
 from pathlib import Path
-from contextlib import contextmanager
 
-from django.db import close_old_connections, connection
-
-from core.env import env, get_openai_api_key
+from core.env import get_openai_api_key
+from vocab.openai_limits import openai_slot
 
 client = OpenAI(api_key=get_openai_api_key())
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -18,8 +16,6 @@ DRAFT_IMAGE_DIR = PROJECT_ROOT / "media" / "draft_images"
 TEXT_MODEL = "gpt-5-mini"
 IMAGE_MODEL = "gpt-image-1.5"
 TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
-OPENAI_QUEUE_LOCK_KEY = env("OPENAI_QUEUE_LOCK_KEY", cast=int, default=841725)
-OPENAI_QUEUE_WAIT_SECONDS = env("OPENAI_QUEUE_WAIT_SECONDS", cast=int, default=180)
 
 
 def detect_language(text):
@@ -41,43 +37,9 @@ def _strip_code_fences(text: str) -> str:
     return stripped
 
 
-@contextmanager
 def openai_request_slot(label: str):
-    close_old_connections()
-    started_at = time.monotonic()
-    acquired = False
-
-    try:
-        with connection.cursor() as cursor:
-            while True:
-                cursor.execute(
-                    "SELECT pg_try_advisory_lock(%s)", [OPENAI_QUEUE_LOCK_KEY]
-                )
-                acquired = bool(cursor.fetchone()[0])
-                if acquired:
-                    waited = time.monotonic() - started_at
-                    if waited >= 0.25:
-                        logging.info(
-                            "OpenAI queue acquired for %s after %.2fs", label, waited
-                        )
-                    break
-                if time.monotonic() - started_at >= OPENAI_QUEUE_WAIT_SECONDS:
-                    raise TimeoutError(f"OpenAI queue wait timed out for {label}")
-                time.sleep(0.2)
-
-        yield
-    finally:
-        if acquired:
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT pg_advisory_unlock(%s)", [OPENAI_QUEUE_LOCK_KEY]
-                    )
-            except Exception:
-                logging.exception(
-                    "Failed to release OpenAI advisory lock for %s", label
-                )
-        close_old_connections()
+    """Compatibility facade for the Redis-backed OpenAI concurrency limiter."""
+    return openai_slot(label)
 
 
 def _parse_model_json(payload: str) -> dict:
