@@ -64,7 +64,12 @@ from .openai_utils import (
     generate_word_data,
     generate_word_data_batch,
 )
-from .utils import clean_word, normalize_timezone_value, translate_to_ru
+from .utils import (
+    clean_word,
+    normalize_timezone_value,
+    timezone_from_name,
+    translate_to_ru,
+)
 from .word_packs import get_pack_definitions, get_pack_level
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -736,6 +741,7 @@ def get_pack_item_translation(entry: dict) -> str:
 def get_course_progress_stats(user: TelegramUser, course_code: str | None = None) -> dict:
     active_course = normalize_course_code(course_code or get_active_course_code(user))
     progress = get_or_create_user_course_progress(user, active_course)
+    today = _learning_local_date(user)
     learned = VocabularyItem.objects.filter(
         user=user, course_code=active_course, is_learned=True
     ).count()
@@ -744,7 +750,7 @@ def get_course_progress_stats(user: TelegramUser, course_code: str | None = None
     ).count()
     return {
         "words": learned,
-        "days": progress.consecutive_days or 0,
+        "days": _active_streak_days(progress, today),
         "irregular": irregular,
         "practice": progress.practice_correct or 0,
         "listening": progress.listening_correct or 0,
@@ -1085,7 +1091,7 @@ def build_user_progress(user: TelegramUser) -> dict:
     start_date = VocabularyItem.objects.filter(
         user=user, course_code=active_course
     ).aggregate(Min("created_at"))["created_at__min"]
-    today = now().date()
+    today = _learning_local_date(user)
     learned_today = VocabularyItem.objects.filter(
         user=user, course_code=active_course, learned_at__date=today
     ).count()
@@ -1129,7 +1135,7 @@ def build_user_progress(user: TelegramUser) -> dict:
         "pending_achievement_highlights": get_pending_achievement_highlights(
             user, course_code=active_course
         ),
-        "streak_days": course_progress.consecutive_days,
+        "streak_days": _active_streak_days(course_progress, today),
         "study_days": course_progress.total_study_days,
         "studied_today": course_progress.last_study_date == today,
         "learned_today": learned_today,
@@ -3194,7 +3200,8 @@ def submit_choice_answer(
         if correct:
             increment_user_metric(user, "practice_correct")
 
-    update_learning_streak(user)
+    if correct:
+        update_learning_streak(user)
     points_earned = 1 if correct else 0
     return {
         "correct": correct,
@@ -3241,7 +3248,8 @@ def submit_listening_answer(
     )
     if correct:
         increment_user_metric(user, "listening_correct")
-    update_learning_streak(user)
+    if correct:
+        update_learning_streak(user)
     return {
         "correct": correct,
         "item": serialize_word(updated),
@@ -3557,9 +3565,22 @@ def parse_word_batch(text: str) -> list[ParsedWordEntry]:
     return entries
 
 
+def _learning_local_date(user: TelegramUser) -> date:
+    """Return the current calendar date in the learner's configured timezone."""
+    user_timezone = timezone_from_name(user.reminder_timezone or "UTC")
+    return timezone.now().astimezone(user_timezone).date()
+
+
+def _active_streak_days(progress: UserCourseProgress, today: date) -> int:
+    """Hide a historical streak once the learner has missed a full calendar day."""
+    if progress.last_study_date not in {today, today - timedelta(days=1)}:
+        return 0
+    return progress.consecutive_days
+
+
 def update_learning_streak(user: TelegramUser) -> TelegramUser:
     progress = get_or_create_user_course_progress(user)
-    today = now().date()
+    today = _learning_local_date(user)
     if progress.last_study_date == today:
         return user
 

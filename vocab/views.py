@@ -1207,7 +1207,7 @@ def irregular_answer(request: HttpRequest) -> JsonResponse:
     correct = answer == correct_pair
     if correct:
         update_irregular_progress(user, base, True)
-    update_learning_streak(user)
+        update_learning_streak(user)
     return JsonResponse(
         {
             "ok": True,
