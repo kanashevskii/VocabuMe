@@ -24,7 +24,7 @@ from telegram import (
 )
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
-from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut, TelegramError, Forbidden
+from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -78,6 +78,13 @@ from .integrations.images import (
     fetch_image_bytes,
     to_project_relative,
 )
+from .integrations.telegram.messaging import (
+    safe_answer,
+    safe_edit_message_text,
+    safe_photo_reply,
+    safe_reply,
+    safe_telegram_request as _safe_telegram_request,
+)
 from .utils import (
     clean_word,
     translate_to_ru,
@@ -106,20 +113,29 @@ MAX_IRREGULAR_PER_SESSION = 10
 IRREGULARS_PER_PAGE = 20
 IRREGULAR_MASTERY_THRESHOLD = 5
 
+
 async def finalize_add_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replies = context.user_data.pop("add_replies", [])
     context.user_data.pop("add_queue", None)
     context.user_data.pop("pending_data", None)
     context.user_data.pop("awaiting_manual_translation", None)
-    logging.info("Add flow finished chat_id=%s replies=%s", update.effective_chat.id if update.effective_chat else "unknown", len(replies))
+    logging.info(
+        "Add flow finished chat_id=%s replies=%s",
+        update.effective_chat.id if update.effective_chat else "unknown",
+        len(replies),
+    )
 
     if not replies:
         await safe_reply(update, "❌ Нечего сохранять. Попробуй снова через /add.")
         return ConversationHandler.END
 
-    final_message = "\n\n".join(replies) + "\n\n🧠 Все слова добавлены. Чтобы начать изучение — напиши /learn"
+    final_message = (
+        "\n\n".join(replies)
+        + "\n\n🧠 Все слова добавлены. Чтобы начать изучение — напиши /learn"
+    )
     await safe_reply(update, final_message, parse_mode="Markdown")
     return ConversationHandler.END
+
 
 async def save_and_store_reply(user, data: dict, context: ContextTypes.DEFAULT_TYPE):
     norm = clean_word(data.get("word", ""))
@@ -127,11 +143,22 @@ async def save_and_store_reply(user, data: dict, context: ContextTypes.DEFAULT_T
         await save_word(user, data["word"], data)
         append_reply(context, build_word_reply(data))
     except IntegrityError:
-        logging.warning("Add flow: duplicate word for user=%s norm=%s", getattr(user, "id", "?"), norm)
+        logging.warning(
+            "Add flow: duplicate word for user=%s norm=%s",
+            getattr(user, "id", "?"),
+            norm,
+        )
         append_reply(context, f"⛔ Слово уже есть у тебя: *{norm}*")
     except Exception:
-        logging.exception("Add flow: failed to save word %s for user=%s", norm, getattr(user, "id", "?"))
-        append_reply(context, f"⚠️ Не удалось сохранить: *{norm or data.get('word', '?')}*")
+        logging.exception(
+            "Add flow: failed to save word %s for user=%s",
+            norm,
+            getattr(user, "id", "?"),
+        )
+        append_reply(
+            context, f"⚠️ Не удалось сохранить: *{norm or data.get('word', '?')}*"
+        )
+
 
 async def process_next_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     queue = context.user_data.get("add_queue", [])
@@ -143,7 +170,9 @@ async def process_next_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = context.user_data.get("current_user")
     if not user:
-        user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+        user, _ = await get_or_create_user(
+            update.effective_chat.id, update.effective_chat.username
+        )
         context.user_data["current_user"] = user
 
     cleaned_word = entry["cleaned_word"]
@@ -166,13 +195,23 @@ async def process_next_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
             timeout=25,
         )
     except asyncio.TimeoutError:
-        logging.warning("Add flow: generate_word_data timeout chat_id=%s word=%s", update.effective_chat.id, cleaned_word)
+        logging.warning(
+            "Add flow: generate_word_data timeout chat_id=%s word=%s",
+            update.effective_chat.id,
+            cleaned_word,
+        )
         data = None
     except Exception:
-        logging.exception("Add flow: generate_word_data crashed chat_id=%s word=%s", update.effective_chat.id, cleaned_word)
+        logging.exception(
+            "Add flow: generate_word_data crashed chat_id=%s word=%s",
+            update.effective_chat.id,
+            cleaned_word,
+        )
         data = None
     if not data:
-        append_reply(context, f"⚠️ Не удалось получить данные для: *{entry['original']}*")
+        append_reply(
+            context, f"⚠️ Не удалось получить данные для: *{entry['original']}*"
+        )
         return await process_next_word(update, context)
 
     if entry.get("manual_translation"):
@@ -193,8 +232,12 @@ async def process_next_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("✍️ Ввести перевод", callback_data="translation_choice_manual"),
-                    InlineKeyboardButton("🤖 Авто-перевод", callback_data="translation_choice_auto"),
+                    InlineKeyboardButton(
+                        "✍️ Ввести перевод", callback_data="translation_choice_manual"
+                    ),
+                    InlineKeyboardButton(
+                        "🤖 Авто-перевод", callback_data="translation_choice_auto"
+                    ),
                 ]
             ]
         )
@@ -207,6 +250,7 @@ async def process_next_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAIT_TRANSLATION
 
     return await prompt_photo_selection(update, context)
+
 
 def strip_article_or_infinitive(text: str):
     """
@@ -232,10 +276,12 @@ def strip_article_or_infinitive(text: str):
 
     return cleaned, hint
 
+
 def append_reply(context: ContextTypes.DEFAULT_TYPE, message: str):
     replies = context.user_data.get("add_replies", [])
     replies.append(message)
     context.user_data["add_replies"] = replies
+
 
 def normalize_raw_word(text: str) -> str:
     """
@@ -244,6 +290,7 @@ def normalize_raw_word(text: str) -> str:
     cleaned = re.sub(r"[^\w\s'-]", " ", text.strip())
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned[:255].strip()
+
 
 def guess_part_of_speech_ru(translation: str | None) -> str | None:
     if not translation:
@@ -254,6 +301,7 @@ def guess_part_of_speech_ru(translation: str | None) -> str | None:
     if t.endswith(("ый", "ий", "ая", "ое", "ее", "ие", "ые", "ой", "ей", "ых", "их")):
         return "adjective"
     return "noun"
+
 
 def build_word_reply(data: dict) -> str:
     norm = clean_word(data["word"])
@@ -268,6 +316,7 @@ def build_word_reply(data: dict) -> str:
 def esc(text: str) -> str:
     """Escape text for safe use in MarkdownV2 messages."""
     return escape_markdown(text, version=2) if text else ""
+
 
 @sync_to_async
 def get_or_create_user(chat_id, username):
@@ -296,169 +345,32 @@ def activate_subscription_for_successful_payment(
         currency=currency,
     )
 
+
 @sync_to_async
 def word_already_exists(user, word):
     return word_already_exists_service(user, word)
+
 
 @sync_to_async
 def save_word(user, _original_input, data):
     return create_word_service(user, data)
 
+
 @sync_to_async
 def get_fake_translations(user, exclude_word, part_of_speech=None, count=3):
-    return get_fake_translations_service(user, exclude_word, part_of_speech=part_of_speech, count=count)
+    return get_fake_translations_service(
+        user, exclude_word, part_of_speech=part_of_speech, count=count
+    )
+
 
 @sync_to_async
 def update_correct_count(item_id, correct: bool):
     return update_word_progress_service(item_id, correct=correct)
 
+
 @sync_to_async
 def get_word_by_id(item_id):
     return get_word_by_id_service(item_id)
-
-async def safe_reply(update: Update, text: str, **kwargs):
-    target = None
-    if update.message:
-        target = update.message
-    elif update.callback_query and update.callback_query.message:
-        target = update.callback_query.message
-
-    if not target:
-        logging.warning("safe_reply: no message target (update=%s)", update)
-        return None
-
-    chat_id = update.effective_chat.id if update.effective_chat else None
-
-    async def _send(send_kwargs: dict):
-        return await target.reply_text(text, **send_kwargs)
-
-    try:
-        return await _safe_telegram_request(
-            "reply_text",
-            lambda: _send(kwargs),
-            chat_id=chat_id,
-            swallow_bad_request=False,
-        )
-    except BadRequest as exc:
-        message = str(exc).lower()
-        if "parse" in message and "parse_mode" in kwargs:
-            logging.warning("safe_reply: parse error, retrying without parse_mode chat_id=%s err=%s", chat_id, exc)
-            fallback_kwargs = dict(kwargs)
-            fallback_kwargs.pop("parse_mode", None)
-            return await _safe_telegram_request(
-                "reply_text(no-parse)",
-                lambda: _send(fallback_kwargs),
-                chat_id=chat_id,
-                attempts=2,
-            )
-        logging.warning("safe_reply: BadRequest chat_id=%s err=%s", chat_id, exc)
-        return None
-
-
-async def safe_answer(query):
-    try:
-        await query.answer()
-    except BadRequest as exc:
-        logging.warning("Callback answer failed (possibly stale): %s", exc)
-    except (TimedOut, NetworkError, RetryAfter, Forbidden, TelegramError) as exc:
-        logging.warning("Callback answer failed: %s", exc)
-    except Exception:
-        logging.exception("Callback answer crashed")
-
-
-async def safe_photo_reply(update: Update, photo: bytes, **kwargs):
-    target = None
-    if update.message:
-        target = update.message
-    elif update.callback_query and update.callback_query.message:
-        target = update.callback_query.message
-
-    if not target:
-        logging.warning("safe_photo_reply: no message target (update=%s)", update)
-        return None
-
-    chat_id = update.effective_chat.id if update.effective_chat else None
-
-    async def _send(send_kwargs: dict):
-        return await target.reply_photo(photo=photo, **send_kwargs)
-
-    try:
-        return await _safe_telegram_request(
-            "reply_photo",
-            lambda: _send(kwargs),
-            chat_id=chat_id,
-            swallow_bad_request=False,
-        )
-    except BadRequest as exc:
-        logging.warning("safe_photo_reply: BadRequest chat_id=%s err=%s", chat_id, exc)
-        return None
-
-
-async def safe_edit_message_text(query, text: str, **kwargs):
-    chat_id = query.message.chat_id if getattr(query, "message", None) else None
-    try:
-        return await _safe_telegram_request(
-            "edit_message_text",
-            lambda: query.edit_message_text(text, **kwargs),
-            chat_id=chat_id,
-            swallow_bad_request=False,
-        )
-    except BadRequest as exc:
-        message = str(exc).lower()
-        if "parse" in message and "parse_mode" in kwargs:
-            logging.warning(
-                "safe_edit_message_text: parse error, retrying without parse_mode chat_id=%s err=%s",
-                chat_id,
-                exc,
-            )
-            fallback_kwargs = dict(kwargs)
-            fallback_kwargs.pop("parse_mode", None)
-            return await _safe_telegram_request(
-                "edit_message_text(no-parse)",
-                lambda: query.edit_message_text(text, **fallback_kwargs),
-                chat_id=chat_id,
-                attempts=2,
-            )
-        logging.warning("safe_edit_message_text: BadRequest chat_id=%s err=%s", chat_id, exc)
-        return None
-
-
-async def _safe_telegram_request(
-    action: str,
-    coro_factory,
-    *,
-    chat_id: int | None = None,
-    attempts: int = 3,
-    swallow_bad_request: bool = True,
-):
-    for attempt in range(attempts):
-        try:
-            return await coro_factory()
-        except RetryAfter as exc:
-            delay = float(getattr(exc, "retry_after", 1.0)) + 0.2
-            logging.warning("%s: RetryAfter %.2fs chat_id=%s", action, delay, chat_id)
-            await asyncio.sleep(delay)
-        except (TimedOut, NetworkError) as exc:
-            if attempt >= attempts - 1:
-                logging.exception("%s: network timeout exhausted chat_id=%s err=%s", action, chat_id, exc)
-                return None
-            delay = min(2 ** attempt, 8) + random.random() * 0.25
-            logging.warning("%s: network error, retry in %.2fs chat_id=%s err=%s", action, delay, chat_id, exc)
-            await asyncio.sleep(delay)
-        except Forbidden as exc:
-            logging.warning("%s: forbidden chat_id=%s err=%s", action, chat_id, exc)
-            return None
-        except BadRequest as exc:
-            if swallow_bad_request:
-                logging.warning("%s: bad request chat_id=%s err=%s", action, chat_id, exc)
-                return None
-            raise
-        except TelegramError as exc:
-            logging.exception("%s: TelegramError chat_id=%s err=%s", action, chat_id, exc)
-            return None
-        except Exception:
-            logging.exception("%s: unexpected error chat_id=%s", action, chat_id)
-            return None
 
 
 async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -483,6 +395,7 @@ async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE):
             attempts=1,
         )
 
+
 def get_praise(correct: int, total: int) -> str:
     if total == 0:
         return ""
@@ -497,6 +410,7 @@ def get_praise(correct: int, total: int) -> str:
         return "😐 Продолжай практиковаться!"
     return "💡 Не сдавайся и попробуй ещё раз!"
 
+
 # --- START ---
 def _webapp_url_with_source(source: str) -> str:
     if not WEBAPP_URL or not source:
@@ -504,7 +418,9 @@ def _webapp_url_with_source(source: str) -> str:
     parts = urlsplit(WEBAPP_URL)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query["src"] = source[:80]
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -519,7 +435,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_arg = context.args[0]
         if start_arg.startswith("login_"):
             token = start_arg.removeprefix("login_")
-            user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+            user, _ = await get_or_create_user(
+                update.effective_chat.id, update.effective_chat.username
+            )
             login_token = await sync_to_async(bind_web_login_token)(token, user)
             if login_token:
                 await safe_reply(
@@ -534,7 +452,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         start_source = re.sub(r"[^a-zA-Z0-9_.:-]+", "-", start_arg).strip("-")[:80]
         if start_source and update.effective_chat:
-            user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+            user, _ = await get_or_create_user(
+                update.effective_chat.id, update.effective_chat.username
+            )
             logging.info(
                 "Acquisition start source=%s user_id=%s chat_id=%s username=%s",
                 start_source,
@@ -545,12 +465,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = []
     if WEBAPP_URL:
-        keyboard.append([
+        keyboard.append(
+            [
             InlineKeyboardButton(
                 "🚀 Открыть VocabuMe",
                 web_app=WebAppInfo(url=_webapp_url_with_source(start_source)),
             )
-        ])
+            ]
+        )
 
     await safe_reply(
         update,
@@ -609,7 +531,9 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def start_subscription_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_subscription_checkout(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
     query = update.callback_query
     await safe_answer(query)
 
@@ -675,19 +599,22 @@ async def handle_successful_payment(update: Update, context: ContextTypes.DEFAUL
         f"✅ Premium активирован на {period_label}.\nДоступ открыт до {subscription.expires_at:%d.%m.%Y}.",
     )
 
+
 async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает карточки по одному слову без вариантов ответа."""
     if update.callback_query:
         await safe_answer(update.callback_query)
 
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     session = context.user_data.get("cards_info")
     lesson = context.user_data.get("cards_queue")
     callback_data = update.callback_query.data if update.callback_query else None
     is_fresh_start = update.message or callback_data == "start_learn_cards"
-    is_start = (
-        update.message
-        or callback_data in ("start_learn_cards", "cards_next_batch")
+    is_start = update.message or callback_data in (
+        "start_learn_cards",
+        "cards_next_batch",
     )
     is_repeat = callback_data == "cards_repeat"
     seen_ids = context.user_data.get("cards_seen_ids", [])
@@ -704,7 +631,11 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Нет активной сессии карточек. Нажми «Учить», чтобы начать заново.",
             reply_markup=InlineKeyboardMarkup(
                 [
-                    [InlineKeyboardButton("📚 Учить", callback_data="start_learn_cards")],
+                    [
+                        InlineKeyboardButton(
+                            "📚 Учить", callback_data="start_learn_cards"
+                        )
+                    ],
                     [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
                 ]
             ),
@@ -720,8 +651,16 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Нет предыдущей подборки, чтобы повторить. Нажми «Учить», чтобы начать заново.",
                 reply_markup=InlineKeyboardMarkup(
                     [
-                        [InlineKeyboardButton("📚 Учить", callback_data="start_learn_cards")],
-                        [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+                        [
+                            InlineKeyboardButton(
+                                "📚 Учить", callback_data="start_learn_cards"
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "🏠 Главное меню", callback_data="start"
+                            )
+                        ],
                     ]
                 ),
             )
@@ -734,7 +673,10 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 word_list.append(word)
 
         if not word_list:
-            await safe_reply(update, "Не удалось загрузить прошлые карточки. Попробуй начать заново через «Учить».")
+            await safe_reply(
+                update,
+                "Не удалось загрузить прошлые карточки. Попробуй начать заново через «Учить».",
+            )
             return
 
         lesson = list(word_list)
@@ -755,13 +697,23 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Новых карточек пока нет — можно добавить слова через /add или повторить предыдущие.",
                     reply_markup=InlineKeyboardMarkup(
                         [
-                            [InlineKeyboardButton("🔁 Повторить эти 10", callback_data="cards_repeat")],
-                            [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
+                            [
+                                InlineKeyboardButton(
+                                    "🔁 Повторить эти 10", callback_data="cards_repeat"
+                                )
+                            ],
+                            [
+                                InlineKeyboardButton(
+                                    "🏠 Главное меню", callback_data="start"
+                                )
+                            ],
                         ]
                     ),
                 )
             else:
-                await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
+                await safe_reply(
+                    update, "🎉 Все слова выучены! Добавь новые через /add."
+                )
             return
 
         lesson = list(word_list)
@@ -786,17 +738,24 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining = lesson and len(lesson) or 0
     buttons = [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
     if remaining:
-        buttons.insert(0, [InlineKeyboardButton("➡️ Далее", callback_data="cards_next")])
+        buttons.insert(
+            0, [InlineKeyboardButton("➡️ Далее", callback_data="cards_next")]
+        )
     else:
         context.user_data.pop("cards_info", None)
         context.user_data.pop("cards_queue", None)
         buttons.insert(
             0,
             [
-                InlineKeyboardButton("🔁 Повторить эти 10", callback_data="cards_repeat"),
+                InlineKeyboardButton(
+                    "🔁 Повторить эти 10", callback_data="cards_repeat"
+                ),
             ],
         )
-        buttons.insert(1, [InlineKeyboardButton("➡️ Следующие 10", callback_data="cards_next_batch")])
+        buttons.insert(
+            1,
+            [InlineKeyboardButton("➡️ Следующие 10", callback_data="cards_next_batch")],
+        )
 
     transcription = word_obj.transcription or ""
     example_text = word_obj.example or ""
@@ -841,7 +800,9 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✏️ <i>{html.escape(example_text)}</i>\n"
         f"<tg-spoiler>{html.escape(example_translation)}</tg-spoiler>"
     )
-    await safe_reply(update, msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_reply(
+        update, msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 
 async def practice_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -850,8 +811,16 @@ async def practice_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🇬🇧 → 🇷🇺 Классический", callback_data="practice_classic")],
-            [InlineKeyboardButton("🇷🇺 → 🇬🇧 Обратный", callback_data="practice_reverse")],
+            [
+                InlineKeyboardButton(
+                    "🇬🇧 → 🇷🇺 Классический", callback_data="practice_classic"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🇷🇺 → 🇬🇧 Обратный", callback_data="practice_reverse"
+                )
+            ],
             [InlineKeyboardButton("🏠 Главное меню", callback_data="start")],
         ]
     )
@@ -866,7 +835,10 @@ async def practice_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ADD ---
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.info("Add flow started chat_id=%s", update.effective_chat.id if update.effective_chat else "unknown")
+    logging.info(
+        "Add flow started chat_id=%s",
+        update.effective_chat.id if update.effective_chat else "unknown",
+    )
     await safe_reply(
         update,
         (
@@ -878,10 +850,10 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ADD_WORDS
 
+
 async def process_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(
-        update.effective_chat.id,
-        update.effective_chat.username
+        update.effective_chat.id, update.effective_chat.username
     )
     logging.info("Add flow: processing raw input chat_id=%s", update.effective_chat.id)
     context.user_data["current_user"] = user
@@ -922,14 +894,19 @@ async def process_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     if not entries:
-        await safe_reply(update, "❌ Не увидел слов. Отправь хотя бы одно слово или фразу.")
+        await safe_reply(
+            update, "❌ Не увидел слов. Отправь хотя бы одно слово или фразу."
+        )
         return ConversationHandler.END
 
     context.user_data["add_queue"] = entries
     context.user_data["add_replies"] = []
 
-    await safe_reply(update, "⏳ Обрабатываем слова, это может занять несколько секунд...")
+    await safe_reply(
+        update, "⏳ Обрабатываем слова, это может занять несколько секунд..."
+    )
     return await process_next_word(update, context)
+
 
 async def handle_translation_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -937,7 +914,9 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
 
     data = context.user_data.get("pending_data")
     if not data:
-        await safe_edit_message_text(query, "⚠️ Нет слова для обработки. Попробуй снова через /add.")
+        await safe_edit_message_text(
+            query, "⚠️ Нет слова для обработки. Попробуй снова через /add."
+        )
         return ConversationHandler.END
 
     choice = query.data.replace("translation_choice_", "")
@@ -954,8 +933,17 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
 
         keyboard = InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton("✅ Оставить перевод", callback_data="translation_choice_accept")],
-                [InlineKeyboardButton("✍️ Ввести свой перевод", callback_data="translation_choice_manual")],
+                [
+                    InlineKeyboardButton(
+                        "✅ Оставить перевод", callback_data="translation_choice_accept"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "✍️ Ввести свой перевод",
+                        callback_data="translation_choice_manual",
+                    )
+                ],
             ]
         )
         await safe_edit_message_text(
@@ -971,15 +959,22 @@ async def handle_translation_choice(update: Update, context: ContextTypes.DEFAUL
 
     if choice == "manual":
         context.user_data["awaiting_manual_translation"] = True
-        await safe_edit_message_text(query, f"✍️ Введи перевод для *{data['word']}*", parse_mode="Markdown")
+        await safe_edit_message_text(
+            query, f"✍️ Введи перевод для *{data['word']}*", parse_mode="Markdown"
+        )
         return WAIT_TRANSLATION
 
-    await safe_edit_message_text(query, "⚠️ Неизвестный выбор. Попробуй снова через /add.")
+    await safe_edit_message_text(
+        query, "⚠️ Неизвестный выбор. Попробуй снова через /add."
+    )
     return ConversationHandler.END
+
 
 async def handle_manual_translation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_manual_translation"):
-        await safe_reply(update, "Сначала выбери, как переводить слово, используя кнопки выше.")
+        await safe_reply(
+            update, "Сначала выбери, как переводить слово, используя кнопки выше."
+        )
         return WAIT_TRANSLATION
 
     data = context.user_data.get("pending_data")
@@ -1022,7 +1017,14 @@ async def prompt_photo_selection(update: Update, context: ContextTypes.DEFAULT_T
         auto_bytes = await fetch_image_bytes(word_obj)
         if auto_bytes:
             context.user_data["auto_image_path"] = to_project_relative(auto_path)
-            keyboard_rows.insert(0, [InlineKeyboardButton("✅ Оставить это фото", callback_data="photo_accept")])
+            keyboard_rows.insert(
+                0,
+                [
+                    InlineKeyboardButton(
+                        "✅ Оставить это фото", callback_data="photo_accept"
+                    )
+                ],
+            )
             await safe_reply(
                 update,
                 "Нашёл такое фото. Подходит?\n"
@@ -1035,7 +1037,9 @@ async def prompt_photo_selection(update: Update, context: ContextTypes.DEFAULT_T
             )
             preview_sent = True
     except Exception:
-        logging.exception("Add flow: failed to fetch preview image for %s", data.get("word"))
+        logging.exception(
+            "Add flow: failed to fetch preview image for %s", data.get("word")
+        )
 
     if not preview_sent:
         await safe_reply(
@@ -1056,7 +1060,9 @@ async def finalize_pending_word(update: Update, context: ContextTypes.DEFAULT_TY
 
     user = context.user_data.get("current_user")
     if not user:
-        user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+        user, _ = await get_or_create_user(
+            update.effective_chat.id, update.effective_chat.username
+        )
         context.user_data["current_user"] = user
 
     await save_and_store_reply(user, data, context)
@@ -1070,7 +1076,9 @@ async def handle_photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
     await safe_answer(query)
 
     if not context.user_data.get("pending_data"):
-        await safe_edit_message_text(query, "⚠️ Нет слова для сохранения. Запусти /add заново.")
+        await safe_edit_message_text(
+            query, "⚠️ Нет слова для сохранения. Запусти /add заново."
+        )
         return ConversationHandler.END
 
     action = query.data
@@ -1125,6 +1133,7 @@ async def handle_photo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(update, "Пришли фото или нажми «Без картинки».")
     return WAIT_PHOTO
 
+
 # --- LEARN ---
 async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("learning_stopped"):
@@ -1132,8 +1141,7 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user, _ = await get_or_create_user(
-        update.effective_chat.id,
-        update.effective_chat.username
+        update.effective_chat.id, update.effective_chat.username
     )
 
     logging.info("/learn invoked by %s", update.effective_chat.id)
@@ -1146,9 +1154,9 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-            ])
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
+            )
             await safe_reply(
                 update,
                 f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
@@ -1164,7 +1172,11 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         user_lessons[update.effective_chat.id] = word_list
-        context.user_data["session_info"] = {"correct": 0, "total": len(word_list), "answered": 0}
+        context.user_data["session_info"] = {
+            "correct": 0,
+            "total": len(word_list),
+            "answered": 0,
+        }
         lesson = word_list
 
     word_obj = lesson.pop(0)
@@ -1191,7 +1203,9 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         random.shuffle(all_options)
         if len(all_options) < 2:
             logging.error("Not enough options for word %s", word_obj.word)
-            await safe_reply(update, "⚠️ Не удалось подготовить варианты ответа. Попробуй позже.")
+            await safe_reply(
+                update, "⚠️ Не удалось подготовить варианты ответа. Попробуй позже."
+            )
             return
     except Exception as e:
         logging.exception("Failed to prepare options for %s: %s", word_obj.word, e)
@@ -1205,7 +1219,9 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(text=opt, callback_data=f"ans|{word_obj.id}|{i}")]
         for i, opt in enumerate(all_options)
     ]
-    keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
+    keyboard.append(
+        [InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")]
+    )
     keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
 
     try:
@@ -1234,6 +1250,7 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
+
 # --- REVIEW OLD WORDS ---
 async def review_old_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
@@ -1256,9 +1273,9 @@ async def review_old_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-            ])
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
+            )
             await safe_reply(
                 update,
                 f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
@@ -1269,7 +1286,10 @@ async def review_old_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         word_list = await get_learned_words(user)
         if not word_list:
-            await safe_reply(update, "📭 Пока нет выученных слов для повтора. Сначала изучи их через /learn.")
+            await safe_reply(
+                update,
+                "📭 Пока нет выученных слов для повтора. Сначала изучи их через /learn.",
+            )
             return
 
         user_lessons[lesson_key] = word_list
@@ -1292,10 +1312,14 @@ async def review_old_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
         random.shuffle(all_options)
         if len(all_options) < 2:
             logging.error("Not enough options for review word %s", word_obj.word)
-            await safe_reply(update, "⚠️ Не удалось подготовить варианты ответа. Попробуй позже.")
+            await safe_reply(
+                update, "⚠️ Не удалось подготовить варианты ответа. Попробуй позже."
+            )
             return
     except Exception as e:
-        logging.exception("Failed to prepare review options for %s: %s", word_obj.word, e)
+        logging.exception(
+            "Failed to prepare review options for %s: %s", word_obj.word, e
+        )
         await safe_reply(update, "⚠️ Ошибка подготовки вопроса. Попробуй позже.")
         return
 
@@ -1306,19 +1330,19 @@ async def review_old_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(text=opt, callback_data=f"oldans|{word_obj.id}|{i}")]
         for i, opt in enumerate(all_options)
     ]
-    keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"oldskip|{word_obj.id}")])
+    keyboard.append(
+        [InlineKeyboardButton("⏭ Пропустить", callback_data=f"oldskip|{word_obj.id}")]
+    )
     keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
 
-    msg = (
-        f"💬 *{esc(word_obj.word)}*\n\n"
-        "Выбери правильный перевод на русском:"
-    )
+    msg = f"💬 *{esc(word_obj.word)}*\n\n" "Выбери правильный перевод на русском:"
     await safe_reply(
         update,
         msg,
         parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
 
 # --- HANDLE ANSWER ---
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1440,8 +1464,8 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         response = (
             f"✅ Верно\\! *{esc(item.translation)}* \\= {esc(item.word)}"
-            if is_correct else
-            f"❌ Неверно\\. *{esc(item.translation)}* \\= {esc(item.word)}"
+            if is_correct
+            else f"❌ Неверно\\. *{esc(item.translation)}* \\= {esc(item.word)}"
         )
 
         await query.edit_message_text(response, parse_mode=ParseMode.MARKDOWN_V2)
@@ -1503,10 +1527,13 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await learn(update, context)
 
     # 🎖️ Проверка новых достижений
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     new_achievements = await get_new_achievements(user)
     for a in new_achievements:
         await safe_reply(update, f"🏆 {a}")
+
 
 # --- STOP ---
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1523,12 +1550,16 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("cards_info", None)
     context.user_data.pop("review_session_info", None)
     context.user_data.pop("review_options", None)
-    await update.message.reply_text("🛑 Обучение остановлено. Возвращайся, когда будешь готов 🙌")
+    await update.message.reply_text(
+        "🛑 Обучение остановлено. Возвращайся, когда будешь готов 🙌"
+    )
+
 
 # --- CANCEL ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Отменено.")
     return ConversationHandler.END
+
 
 # --- RUN ---
 def run_telegram_bot():
@@ -1547,9 +1578,15 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("terms", terms))
     app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CallbackQueryHandler(start, pattern="^start$"))
-    app.add_handler(CallbackQueryHandler(start_subscription_checkout, pattern="^subscribe:(monthly|yearly)$"))
+    app.add_handler(
+        CallbackQueryHandler(
+            start_subscription_checkout, pattern="^subscribe:(monthly|yearly)$"
+        )
+    )
     app.add_handler(PreCheckoutQueryHandler(handle_pre_checkout_query))
-    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
+    app.add_handler(
+        MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment)
+    )
     logging.info("Telegram bot is running...")
     # When running inside a background thread (see run.py) the default
     # signal handlers used by run_polling() can't be registered. Setting
@@ -1557,25 +1594,33 @@ def run_telegram_bot():
     # them and avoids "set_wakeup_fd" errors.
     app.run_polling(stop_signals=None)
 
+
 @sync_to_async
 def save_user(user):
     return save_user_service(user)
+
 
 @sync_to_async
 def get_user_word_list(user):
     return get_user_word_list_service(user)
 
+
 @sync_to_async
 def update_irregular_progress(user, base: str, correct: bool):
     return update_irregular_progress_service(user, base, correct)
 
+
 async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     page = context.user_data.get("mywords_page", 0)
 
     words, total = await get_user_word_page(user, page)
     if not words:
-        await safe_reply(update, "📭 У тебя пока нет слов для изучения. Добавь их через /add")
+        await safe_reply(
+            update, "📭 У тебя пока нет слов для изучения. Добавь их через /add"
+        )
         return
 
     lines = []
@@ -1589,9 +1634,13 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if (page + 1) * WORDS_PER_PAGE < total:
         keyboard.append(InlineKeyboardButton("Вперёд ▶️", callback_data="mywords_next"))
 
-    edit_row = [InlineKeyboardButton("✏️ Изменить перевод", callback_data="mywords_edit")]
+    edit_row = [
+        InlineKeyboardButton("✏️ Изменить перевод", callback_data="mywords_edit")
+    ]
     delete_row = [
-        InlineKeyboardButton("🗑 Удалить все", callback_data="mywords_delete_all_confirm"),
+        InlineKeyboardButton(
+            "🗑 Удалить все", callback_data="mywords_delete_all_confirm"
+        ),
         InlineKeyboardButton("❌ Удалить одно", callback_data="mywords_delete_one"),
     ]
 
@@ -1605,9 +1654,7 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target = update.message or update.callback_query.message
     await target.reply_text(
-        "\n".join(lines),
-        parse_mode="Markdown",
-        reply_markup=reply_markup
+        "\n".join(lines), parse_mode="Markdown", reply_markup=reply_markup
     )
 
 
@@ -1615,9 +1662,11 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def update_user_repeat_threshold(user, value: int):
     return set_user_repeat_threshold_service(user, value)
 
+
 @sync_to_async
 def get_user_by_chat(chat_id):
     return get_telegram_user_by_chat_id(chat_id)
+
 
 def _main_settings_text(user):
     repeat_text = f"Слово изучается после *{user.repeat_threshold}* правильных ответов"
@@ -1626,8 +1675,12 @@ def _main_settings_text(user):
     tz_text = format_timezone_short(user.reminder_timezone or "UTC")
 
     interval_map = {1: "каждый день", 2: "через день"}
-    interval_text = interval_map.get(user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней")
-    time_text = user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
+    interval_text = interval_map.get(
+        user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней"
+    )
+    time_text = (
+        user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
+    )
 
     text = (
         "⚙️ *Настройки обучения и напоминаний:*\n\n"
@@ -1640,12 +1693,18 @@ def _main_settings_text(user):
     )
     return text
 
+
 def _main_settings_keyboard():
     return [
         [InlineKeyboardButton("🔁 Повтор", callback_data="settings_repeat")],
-        [InlineKeyboardButton("📅 Повтор старых слов", callback_data="settings_review")],
+        [
+            InlineKeyboardButton(
+                "📅 Повтор старых слов", callback_data="settings_review"
+            )
+        ],
         [InlineKeyboardButton("⏰ Напоминания", callback_data="settings_reminders")],
     ]
+
 
 def _repeat_settings_keyboard():
     return [
@@ -1659,12 +1718,14 @@ def _repeat_settings_keyboard():
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
     ]
 
+
 def _repeat_menu_text(user):
     return (
         "🔁 *Повтор слов*\n\n"
         f"Текущий порог: *{user.repeat_threshold}*\n"
         "Выберите значение:"
     )
+
 
 def _review_settings_keyboard(user: TelegramUser):
     toggle_label = "🔁 Выключить" if user.enable_review_old_words else "🔁 Включить"
@@ -1678,6 +1739,7 @@ def _review_settings_keyboard(user: TelegramUser):
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
     ]
 
+
 def _review_menu_text(user):
     status = "включено" if user.enable_review_old_words else "выключено"
     return (
@@ -1686,24 +1748,38 @@ def _review_menu_text(user):
         f"Интервал: {user.days_before_review} дней"
     )
 
+
 def _reminder_settings_keyboard(user: TelegramUser):
     toggle_label = "🔔 Выключить" if user.reminder_enabled else "🔔 Включить"
     return [
         [InlineKeyboardButton(toggle_label, callback_data="toggle_reminder")],
         [
-            InlineKeyboardButton("📅 Каждый день", callback_data="set_reminder_interval_1"),
-            InlineKeyboardButton("📅 Через день", callback_data="set_reminder_interval_2"),
+            InlineKeyboardButton(
+                "📅 Каждый день", callback_data="set_reminder_interval_1"
+            ),
+            InlineKeyboardButton(
+                "📅 Через день", callback_data="set_reminder_interval_2"
+            ),
         ],
         [InlineKeyboardButton("🌍 Часовой пояс", callback_data="set_reminder_tz")],
-        [InlineKeyboardButton("🕒 Установить время", callback_data="set_reminder_time")],
+        [
+            InlineKeyboardButton(
+                "🕒 Установить время", callback_data="set_reminder_time"
+            )
+        ],
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
     ]
+
 
 def _reminder_menu_text(user):
     reminder_text = "включены" if user.reminder_enabled else "отключены"
     interval_map = {1: "каждый день", 2: "через день"}
-    interval_text = interval_map.get(user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней")
-    time_text = user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
+    interval_text = interval_map.get(
+        user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней"
+    )
+    time_text = (
+        user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
+    )
     tz_text = format_timezone_short(user.reminder_timezone or "UTC")
     return (
         "⏰ *Напоминания*\n\n"
@@ -1713,10 +1789,10 @@ def _reminder_menu_text(user):
         f"Часовой пояс: *{tz_text}*"
     )
 
+
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(
-        update.effective_chat.id,
-        update.effective_chat.username
+        update.effective_chat.id, update.effective_chat.username
     )
 
     text = _main_settings_text(user)
@@ -1726,6 +1802,7 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(_main_settings_keyboard()),
     )
+
 
 async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1818,7 +1895,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
     elif data == "set_reminder_time":
         await query.edit_message_text(
             "🕒 Введите время в формате `HH:MM`, например: `08:30` или `21:00`",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
         return SET_REMINDER_TIME
 
@@ -1829,14 +1906,15 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         )
         return SET_REMINDER_TZ
 
+
 @sync_to_async
 def get_user_progress(user):
     return build_user_progress_service(user)
 
+
 async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, _ = await get_or_create_user(
-        update.effective_chat.id,
-        update.effective_chat.username
+        update.effective_chat.id, update.effective_chat.username
     )
     stats = await get_user_progress(user)
 
@@ -1844,7 +1922,11 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, "📜 У тебя пока нет слов. Добавь их через /add")
         return
 
-    started = stats["start_date"].strftime("%d.%m.%Y") if stats["start_date"] else "неизвестно"
+    started = (
+        stats["start_date"].strftime("%d.%m.%Y")
+        if stats["start_date"]
+        else "неизвестно"
+    )
     message = (
         f"📊 Твоя статистика:\n\n"
         f"🔹 Всего слов: *{stats['total']}*\n"
@@ -1864,13 +1946,16 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await safe_reply(update, message, parse_mode="Markdown")
 
+
 @sync_to_async
 def get_unlearned_words(user, count=10, part_of_speech=None):
     return get_unlearned_words_service(user, count=count, part_of_speech=part_of_speech)
 
+
 @sync_to_async
 def get_learned_words(user):
     return get_learned_words_service(user)
+
 
 @sync_to_async
 def mark_word_unlearned(item_id):
@@ -1881,17 +1966,26 @@ def mark_word_unlearned(item_id):
 def update_user_reminder_time(user, time_obj):
     return update_user_reminder_time_service(user, time_obj)
 
+
 @sync_to_async
 def update_user_timezone(user, tz_value: str):
     return update_user_timezone_service(user, tz_value)
 
+
 async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
 
     def _parse_time(value: str):
         clean = value.replace(" ", "")
-        clean = clean.replace(".", ":").replace("-", ":").replace("—", ":").replace("–", ":")
+        clean = (
+            clean.replace(".", ":")
+            .replace("-", ":")
+            .replace("—", ":")
+            .replace("–", ":")
+        )
         if ":" not in clean and len(clean) == 4 and clean.isdigit():
             clean = f"{clean[:2]}:{clean[2:]}"
         parts = clean.split(":")
@@ -1900,7 +1994,9 @@ async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hours, minutes = parts
         if not (hours.isdigit() and minutes.isdigit()):
             raise ValueError("Not digits")
-        parsed = datetime.strptime(f"{int(hours):02d}:{int(minutes):02d}", "%H:%M").time()
+        parsed = datetime.strptime(
+            f"{int(hours):02d}:{int(minutes):02d}", "%H:%M"
+        ).time()
         return parsed
 
     try:
@@ -1925,14 +2021,20 @@ async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_reminder_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
 
     try:
         normalized = normalize_timezone_value(text)
         await update_user_timezone(user, normalized)
 
         tzinfo = timezone_from_name(normalized)
-        offset = (datetime.now(tzinfo).utcoffset() or timedelta(0)) if tzinfo else timedelta(0)
+        offset = (
+            (datetime.now(tzinfo).utcoffset() or timedelta(0))
+            if tzinfo
+            else timedelta(0)
+        )
         total_minutes = int(offset.total_seconds() // 60)
         sign = "+" if total_minutes >= 0 else "-"
         total_minutes = abs(total_minutes)
@@ -1955,13 +2057,16 @@ async def set_reminder_timezone(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return SET_REMINDER_TZ
 
+
 @sync_to_async
 def get_user_achievements(user):
     return get_user_achievements_service(user)
 
+
 @sync_to_async
 def get_new_achievements(user):
     return get_new_achievements_service(user)
+
 
 @sync_to_async
 def get_user_word_page(user, page: int):
@@ -1986,9 +2091,17 @@ async def _show_delete_one_menu(query, user, page: int):
 
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️ Назад", callback_data=f"mywords_delete_one_page|{page-1}"))
+        nav_row.append(
+            InlineKeyboardButton(
+                "◀️ Назад", callback_data=f"mywords_delete_one_page|{page-1}"
+            )
+        )
     if (page + 1) * WORDS_PER_PAGE < total:
-        nav_row.append(InlineKeyboardButton("Вперёд ▶️", callback_data=f"mywords_delete_one_page|{page+1}"))
+        nav_row.append(
+            InlineKeyboardButton(
+                "Вперёд ▶️", callback_data=f"mywords_delete_one_page|{page+1}"
+            )
+        )
     if nav_row:
         keyboard.append(nav_row)
 
@@ -1998,6 +2111,7 @@ async def _show_delete_one_menu(query, user, page: int):
         "Выбери слово для удаления:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
 
 async def _show_edit_translation_menu(query, user, page: int):
     items, total = await get_user_word_page(user, page)
@@ -2017,9 +2131,17 @@ async def _show_edit_translation_menu(query, user, page: int):
 
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️ Назад", callback_data=f"mywords_edit_page|{page-1}"))
+        nav_row.append(
+            InlineKeyboardButton(
+                "◀️ Назад", callback_data=f"mywords_edit_page|{page-1}"
+            )
+        )
     if (page + 1) * WORDS_PER_PAGE < total:
-        nav_row.append(InlineKeyboardButton("Вперёд ▶️", callback_data=f"mywords_edit_page|{page+1}"))
+        nav_row.append(
+            InlineKeyboardButton(
+                "Вперёд ▶️", callback_data=f"mywords_edit_page|{page+1}"
+            )
+        )
     if nav_row:
         keyboard.append(nav_row)
 
@@ -2029,6 +2151,7 @@ async def _show_edit_translation_menu(query, user, page: int):
         "Выбери слово для изменения перевода:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
 
 async def handle_mywords_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2044,17 +2167,22 @@ async def handle_mywords_pagination(update: Update, context: ContextTypes.DEFAUL
     user_data["mywords_page"] = page
     await mywords(update, context)
 
+
 async def handle_mywords_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await safe_answer(query)
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     data = query.data
 
     if data == "mywords_delete_all_confirm":
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("✅ Да, удалить все", callback_data="mywords_delete_all"),
+                    InlineKeyboardButton(
+                        "✅ Да, удалить все", callback_data="mywords_delete_all"
+                    ),
                     InlineKeyboardButton("❌ Отмена", callback_data="start_mywords"),
                 ]
             ]
@@ -2086,7 +2214,10 @@ async def handle_mywords_delete(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("✅ Да, удалить", callback_data=f"mywords_delete_one_do|{word_id}|{page}"),
+                    InlineKeyboardButton(
+                        "✅ Да, удалить",
+                        callback_data=f"mywords_delete_one_do|{word_id}|{page}",
+                    ),
                     InlineKeyboardButton("❌ Отмена", callback_data="start_mywords"),
                 ]
             ]
@@ -2106,10 +2237,13 @@ async def handle_mywords_delete(update: Update, context: ContextTypes.DEFAULT_TY
         await _show_delete_one_menu(query, user, int(page))
         return
 
+
 async def handle_mywords_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await safe_answer(query)
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     data = query.data
 
     if data == "mywords_edit":
@@ -2143,32 +2277,42 @@ async def handle_mywords_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
         await mywords(update, context)
         return
 
+
 @sync_to_async
 def delete_single_word(user, word_id):
     return delete_word_service(user, word_id)
+
 
 @sync_to_async
 def delete_all_words(user):
     return delete_all_words_service(user)
 
+
 @sync_to_async
 def update_word_translation(user, word_id, translation):
     return update_word_translation_service(user, word_id, translation)
+
 
 @sync_to_async
 def get_available_parts(user):
     return get_available_parts_service(user)
 
+
 @sync_to_async
 def get_ordered_unlearned_words(user, count=10, exclude_ids=None):
-    return get_ordered_unlearned_words_service(user, count=count, exclude_ids=exclude_ids)
+    return get_ordered_unlearned_words_service(
+        user, count=count, exclude_ids=exclude_ids
+    )
+
 
 async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("learning_stopped"):
         context.user_data["learning_stopped"] = False
         return
 
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     lesson = user_lessons.get(f"rev_{update.effective_chat.id}")
     session_info = context.user_data.get("session_info")
 
@@ -2177,9 +2321,9 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-            ])
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
+            )
             await safe_reply(
                 update,
                 f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
@@ -2193,12 +2337,18 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
             return
         user_lessons[f"rev_{update.effective_chat.id}"] = word_list
-        context.user_data["session_info"] = {"correct": 0, "total": len(word_list), "answered": 0}
+        context.user_data["session_info"] = {
+            "correct": 0,
+            "total": len(word_list),
+            "answered": 0,
+        }
         lesson = word_list
 
     word_obj = lesson.pop(0)
 
-    fakes = await get_fake_words(user, exclude_word=word_obj.word, part_of_speech=word_obj.part_of_speech)
+    fakes = await get_fake_words(
+        user, exclude_word=word_obj.word, part_of_speech=word_obj.part_of_speech
+    )
     all_options = fakes + [word_obj.word]
     random.shuffle(all_options)
 
@@ -2209,7 +2359,9 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(text=opt, callback_data=f"rev|{word_obj.id}|{i}")]
         for i, opt in enumerate(all_options)
     ]
-    keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"revskip|{word_obj.id}")])
+    keyboard.append(
+        [InlineKeyboardButton("⏭ Пропустить", callback_data=f"revskip|{word_obj.id}")]
+    )
     keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
 
     msg = f"""💬 *{esc(word_obj.translation)}*
@@ -2222,17 +2374,27 @@ async def learn_reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
+
 @sync_to_async
 def get_fake_words(user, exclude_word, part_of_speech=None, count=3):
-    return get_fake_words_service(exclude_word, part_of_speech=part_of_speech, count=count)
+    return get_fake_words_service(
+        exclude_word, part_of_speech=part_of_speech, count=count
+    )
+
 
 # --- LISTENING ---
 async def listening_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🇬🇧 Написать слово", callback_data="listening_word")],
-        [InlineKeyboardButton("🇷🇺 Написать перевод", callback_data="listening_translate")],
+        [
+            InlineKeyboardButton(
+                "🇷🇺 Написать перевод", callback_data="listening_translate"
+            )
+        ],
     ]
-    await safe_reply(update, "Выбери режим аудирования:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await safe_reply(
+        update, "Выбери режим аудирования:", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def listening_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2316,9 +2478,9 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-            ])
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
+            )
             await safe_reply(
                 update,
                 f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
@@ -2360,11 +2522,9 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(opt, callback_data=f"irrans|{word['base']}|{opt}")]
         for opt in options
     ]
-    keyboard.append([
-        InlineKeyboardButton(
-            "⏭ Пропустить", callback_data=f"irrskip|{word['base']}"
+    keyboard.append(
+        [InlineKeyboardButton("⏭ Пропустить", callback_data=f"irrskip|{word['base']}")]
         )
-    ])
     keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
 
     await safe_reply(
@@ -2406,7 +2566,9 @@ async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_
     is_correct = chosen == correct
 
     response = (
-        f"✅ Верно! {word['base']} → {correct}" if is_correct else f"❌ Неверно. {word['base']} → {correct}"
+        f"✅ Верно! {word['base']} → {correct}"
+        if is_correct
+        else f"❌ Неверно. {word['base']} → {correct}"
     )
     await query.edit_message_text(response)
 
@@ -2419,7 +2581,9 @@ async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_
         context.user_data[info_key] = session
 
     # update user's irregular verb progress
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     if is_correct:
         await update_irregular_progress(user, base, True)
 
@@ -2441,7 +2605,9 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["learning_stopped"] = False
         return
 
-    user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
     logging.info("/listening invoked by %s", update.effective_chat.id)
     lesson = user_lessons.get(f"aud_{update.effective_chat.id}")
     session_info = context.user_data.get("aud_session_info")
@@ -2451,9 +2617,9 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
             correct = session_info.get("correct", 0)
             total = session_info.get("total", 0)
             praise = get_praise(correct, total)
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="start")]
-            ])
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
+            )
             await safe_reply(
                 update,
                 f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
@@ -2467,7 +2633,11 @@ async def listening(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(update, "🎉 Все слова выучены! Добавь новые через /add.")
             return
         user_lessons[f"aud_{update.effective_chat.id}"] = word_list
-        context.user_data["aud_session_info"] = {"correct": 0, "total": len(word_list), "answered": 0}
+        context.user_data["aud_session_info"] = {
+            "correct": 0,
+            "total": len(word_list),
+            "answered": 0,
+        }
         lesson = word_list
 
     word_obj = lesson.pop(0)
@@ -2518,7 +2688,9 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text("Введите перевод текстом.")
             return
 
-        user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+        user, _ = await get_or_create_user(
+            update.effective_chat.id, update.effective_chat.username
+        )
         word_id = context.user_data.pop("edit_translation_word_id")
         context.user_data.pop("edit_translation_page", None)
         item = await update_word_translation(user, word_id, new_translation)
@@ -2552,8 +2724,8 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
         await update_correct_count(item.id, correct=is_correct)
         response = (
             f"✅ Верно\\! *{esc(item.translation)}* — {esc(item.word)}"
-            if is_correct else
-            f"❌ Неверно\\. *{esc(item.translation)}* — {esc(item.word)}"
+            if is_correct
+            else f"❌ Неверно\\. *{esc(item.translation)}* — {esc(item.word)}"
         )
     else:
         correct = item.word.lower()
@@ -2561,8 +2733,8 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
         await update_correct_count(item.id, correct=is_correct)
         response = (
             f"✅ Верно\\! *{esc(item.word)}* — {esc(item.translation)}"
-            if is_correct else
-            f"❌ Неверно\\. *{esc(item.word)}* — {esc(item.translation)}"
+            if is_correct
+            else f"❌ Неверно\\. *{esc(item.word)}* — {esc(item.translation)}"
         )
 
     await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN_V2)
