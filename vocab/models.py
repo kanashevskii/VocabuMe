@@ -273,6 +273,42 @@ class IssuedLearningQuestion(models.Model):
         indexes = [models.Index(fields=["user", "expires_at"], name="vocab_issue_user_id_d712f8_idx")]
 
 
+BACKGROUND_JOB_STATUS_CHOICES = (
+    ("queued", "Queued"),
+    ("running", "Running"),
+    ("succeeded", "Succeeded"),
+    ("failed", "Failed"),
+)
+
+
+class BackgroundJob(models.Model):
+    """Durable work item processed outside the Django request process."""
+
+    kind = models.CharField(max_length=64)
+    priority = models.PositiveSmallIntegerField(default=100)
+    deduplication_key = models.CharField(max_length=255, unique=True)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=16, choices=BACKGROUND_JOB_STATUS_CHOICES, default="queued"
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=3)
+    run_after = models.DateTimeField()
+    locked_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["status", "priority", "run_after"],
+                name="vocab_bgjob_queue_idx",
+            )
+        ]
+        ordering = ["priority", "run_after", "id"]
+
+
 class Achievement(models.Model):
     user = models.ForeignKey('TelegramUser', on_delete=models.CASCADE)
     course_code = models.CharField(

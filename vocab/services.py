@@ -5,7 +5,6 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from difflib import SequenceMatcher
 from pathlib import Path
-from threading import Lock, Thread
 from typing import Iterable
 from urllib.parse import urlparse
 from uuid import UUID
@@ -32,6 +31,7 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     ImageOps = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
+from .jobs import enqueue_job
 from .alphabets import get_alphabet, get_random_alphabet_options
 from .models import (
     AddWordDraft,
@@ -73,10 +73,6 @@ IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
 USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
 DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
 PROFILE_AVATAR_DIR = MEDIA_ROOT / "profile_avatars"
-_IMAGE_OPTIMIZATION_LOCK = Lock()
-_IMAGE_OPTIMIZATION_IN_FLIGHT: set[str] = set()
-_PACK_PREPARATION_LOCK = Lock()
-_PACK_PREPARATION_IN_FLIGHT: set[str] = set()
 logger = logging.getLogger(__name__)
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
 ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -1176,21 +1172,12 @@ def _optimize_image_to_webp(source: Path) -> Path | None:
 def _schedule_image_optimization(source: Path) -> None:
     if Image is None or source.suffix.lower() == ".webp" or not source.exists():
         return
-
-    key = str(source)
-    with _IMAGE_OPTIMIZATION_LOCK:
-        if key in _IMAGE_OPTIMIZATION_IN_FLIGHT:
-            return
-        _IMAGE_OPTIMIZATION_IN_FLIGHT.add(key)
-
-    def _run() -> None:
-        try:
-            _optimize_image_to_webp(source)
-        finally:
-            with _IMAGE_OPTIMIZATION_LOCK:
-                _IMAGE_OPTIMIZATION_IN_FLIGHT.discard(key)
-
-    Thread(target=_run, daemon=True).start()
+    enqueue_job(
+        kind="image_optimize",
+        deduplication_key=f"image-optimize:{source}:{int(source.stat().st_mtime)}",
+        payload={"source_path": str(source)},
+        priority=200,
+    )
 
 
 def _preferred_served_image(source: Path) -> Path:
@@ -2270,22 +2257,12 @@ def ensure_pack_preparation(
     pack_id: str, level_id: str, course_code: str | None = None
 ) -> None:
     active_course = normalize_course_code(course_code)
-    key = f"{active_course}:{pack_id}:{level_id}"
-    with _PACK_PREPARATION_LOCK:
-        if key in _PACK_PREPARATION_IN_FLIGHT:
-            return
-        _PACK_PREPARATION_IN_FLIGHT.add(key)
-
-    def _run() -> None:
-        try:
-            _prepare_pack_level_sync(pack_id, level_id, course_code=active_course)
-        except Exception:
-            logger.exception("Pack preparation failed for %s", key)
-        finally:
-            with _PACK_PREPARATION_LOCK:
-                _PACK_PREPARATION_IN_FLIGHT.discard(key)
-
-    Thread(target=_run, daemon=True).start()
+    enqueue_job(
+        kind="pack_prepare",
+        deduplication_key=f"pack-prepare:{active_course}:{pack_id}:{level_id}",
+        payload={"course_code": active_course, "pack_id": pack_id, "level_id": level_id},
+        priority=200,
+    )
 
 
 def add_pack_words_to_user(
@@ -2611,11 +2588,12 @@ def request_draft_image_generation(
             "updated_at",
         ]
     )
-    Thread(
-        target=_run_draft_image_generation,
-        args=(draft.id, draft.image_generation_version),
-        daemon=True,
-    ).start()
+    enqueue_job(
+        kind="draft_image",
+        deduplication_key=f"draft-image:{draft.id}:{draft.image_generation_version}",
+        payload={"draft_id": draft.id, "version": draft.image_generation_version},
+        priority=10,
+    )
     return draft
 
 
@@ -2687,11 +2665,12 @@ def request_word_image_generation(
             "updated_at",
         ]
     )
-    Thread(
-        target=_run_word_image_generation,
-        args=(item.id, item.image_generation_version),
-        daemon=True,
-    ).start()
+    enqueue_job(
+        kind="word_image",
+        deduplication_key=f"word-image:{item.id}:{item.image_generation_version}",
+        payload={"item_id": item.id, "version": item.image_generation_version},
+        priority=10,
+    )
     return item
 
 
