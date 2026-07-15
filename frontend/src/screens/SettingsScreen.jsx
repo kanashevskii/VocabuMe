@@ -179,7 +179,7 @@ export default function SettingsScreen({
           </label>
         ) : null}
         <label>
-          <span>Упражнений до статуса "выучено"</span>
+          <span>Упражнений до статуса &quot;выучено&quot;</span>
           <small>
             Сколько разных упражнений нужно выполнить, чтобы слово стало
             выученным.

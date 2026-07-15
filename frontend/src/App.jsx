@@ -717,12 +717,7 @@ function App() {
   async function loadCards(options = {}) {
     const { reset = true } = options;
     const data = await api("/api/study/cards?scope=all");
-    setCardQueue((current) => {
-      if (reset) {
-        return data.items;
-      }
-      return data.items;
-    });
+    setCardQueue(data.items);
     if (reset) {
       setCardIndex(0);
       setCardReveal(false);
@@ -836,6 +831,8 @@ function App() {
       setAuth({ loading: false, authenticated: false, user: null, progress: null });
     });
     return () => stopPolling();
+    // App bootstrap is intentionally a once-per-shell request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -875,6 +872,8 @@ function App() {
         setNotice(error.message);
         setAuth((current) => ({ ...current, loading: false }));
       });
+    // Auth is re-run only when identity inputs change, not when notice scope changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.authenticated, isMiniApp, webApp]);
 
   useEffect(() => {
@@ -886,6 +885,8 @@ function App() {
     }
     Promise.all([loadDashboard(), loadStudyCardsOnly(), loadPacks()])
       .catch((error) => setNotice(error.message));
+    // These callbacks intentionally refresh only for the explicit data filters below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.authenticated, deferredSearch, statusFilter, irregularPage, alphabetPage]);
 
   useEffect(() => {
@@ -962,6 +963,8 @@ function App() {
       ]);
     }, 4000);
     return () => window.clearInterval(intervalId);
+    // Polling lifecycle is governed by the pending-image collections.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.authenticated, words, cardQueue]);
 
   useEffect(() => {
@@ -974,6 +977,8 @@ function App() {
     setIsPackExpanded(false);
     void loadPacks();
     void preparePacksInBackground();
+    // Pack reloads are deliberately tied to the app-shell navigation state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.authenticated, showLibraryAdd, libraryMode, activeStudiedLanguage]);
 
   useEffect(() => {
@@ -1006,6 +1011,8 @@ function App() {
       }
     }, 2000);
     return () => stopPolling();
+    // Login polling is scoped to the token and authenticated state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loginToken, auth.authenticated]);
 
   useLayoutEffect(() => {
@@ -1638,7 +1645,7 @@ function App() {
         setAlphabetAudioLoadingSymbol("");
       };
       await audio.play();
-    } catch (error) {
+    } catch {
       setAlphabetAudioLoadingSymbol("");
       setNotice("Не удалось воспроизвести аудио буквы.");
     }
