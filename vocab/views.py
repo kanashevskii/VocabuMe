@@ -15,10 +15,7 @@ from .services import (
     consume_web_login_token,
     create_web_login_token,
     get_billing_payload,
-    get_ordered_unlearned_words,
-    list_words,
     serialize_user,
-    serialize_word,
     upsert_telegram_user,
     EntitlementError,
 )
@@ -94,6 +91,7 @@ from .api.alphabet import (  # noqa: F401 - URL compatibility exports
     alphabet_list,
     alphabet_question,
 )
+from .api.dashboard import dashboard  # noqa: F401 - URL compatibility export
 
 logger = logging.getLogger(__name__)
 MAX_IMAGE_REGENERATIONS = 3
@@ -267,28 +265,5 @@ def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
             "authenticated": True,
             "user": serialize_user(user),
             "progress": build_user_progress(user),
-        }
-    )
-
-
-@require_GET
-def dashboard(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    stats = build_user_progress(user)
-    recent_words = [serialize_word(item) for item in list_words(user, limit=6)]
-    next_cards = [
-        serialize_word(item) for item in get_ordered_unlearned_words(user, count=4)
-    ]
-    return JsonResponse(
-        {
-            "ok": True,
-            "user": serialize_user(user),
-            "progress": stats,
-            "billing": get_billing_payload(user),
-            "recent_words": recent_words,
-            "next_cards": next_cards,
         }
     )

@@ -2,6 +2,7 @@ from vocab import views
 from vocab.api import images
 from vocab.api import alphabet
 from vocab.api import billing
+from vocab.api import dashboard as dashboard_api
 from vocab.api import irregular
 from vocab.api import learning
 from vocab.api import media
@@ -83,3 +84,8 @@ def test_views_keep_legacy_profile_exports(client):
     assert views.settings_view is profile.settings_view
     assert views.profile_avatar is profile.profile_avatar
     assert client.get("/api/settings").status_code == 401
+
+
+def test_views_keep_legacy_dashboard_export(client):
+    assert views.dashboard is dashboard_api.dashboard
+    assert client.get("/api/dashboard").status_code == 401
