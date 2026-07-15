@@ -5,7 +5,6 @@ import mimetypes
 import traceback
 
 from django.conf import settings
-from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http import FileResponse, HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
@@ -18,7 +17,6 @@ from .services import (
     add_words_from_text,
     apply_user_settings,
     build_user_progress,
-    build_alphabet_question,
     consume_web_login_token,
     create_web_login_token,
     create_word_drafts_from_text,
@@ -28,13 +26,12 @@ from .services import (
     finalize_word_draft,
     create_checkout_session,
     get_billing_payload,
-    get_profile_avatar_file,
     get_active_course_code,
+    get_profile_avatar_file,
     get_user_draft,
     get_user_settings_payload,
     get_user_word,
     get_ordered_unlearned_words,
-    list_alphabet_page,
     list_words,
     list_word_packs,
     request_draft_image_generation,
@@ -44,7 +41,6 @@ from .services import (
     serialize_user,
     serialize_draft,
     serialize_word,
-    submit_alphabet_answer,
     update_word_translation,
     upsert_telegram_user,
     word_already_exists,
@@ -98,11 +94,15 @@ from .api.speaking import (  # noqa: F401 - URL compatibility exports
     speaking_answer,
     speaking_question,
 )
+from .api.alphabet import (  # noqa: F401 - URL compatibility exports
+    alphabet_answer,
+    alphabet_list,
+    alphabet_question,
+)
 
 logger = logging.getLogger(__name__)
 MAX_IMAGE_REGENERATIONS = 3
 MAX_ADD_BATCH_WORDS = 10
-QUESTION_SIGNER = TimestampSigner(salt="vocab.alphabet-question")
 
 
 def _current_user(request: HttpRequest) -> TelegramUser | None:
@@ -747,62 +747,3 @@ def packs_add(request: HttpRequest) -> JsonResponse:
             "packs": list_word_packs(user),
         }
     )
-
-
-@require_GET
-def alphabet_list(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    page = max(0, int(request.GET.get("page", 0)))
-    return JsonResponse({"ok": True, **list_alphabet_page(user, page)})
-
-
-@require_GET
-def alphabet_question(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    question = build_alphabet_question(user)
-    question["letter"] = dict(question["letter"])
-    symbol = question.pop("correct_symbol")
-    question["letter"].pop("symbol", None)
-    question["question_token"] = QUESTION_SIGNER.sign(
-        f"{user.id}:{question['course_code']}:{symbol}"
-    )
-    return JsonResponse({"ok": True, "question": question})
-
-
-@require_POST
-def alphabet_answer(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="alphabet-answer", limit=30, window=60, user=user
-    ):
-        return limited
-
-    try:
-        payload = _json_body(request)
-        question_token = str(payload.get("question_token", ""))
-        answer = str(payload.get("answer", ""))
-    except (TypeError, ValueError):
-        return _json_error("Invalid alphabet payload.")
-
-    try:
-        signed_user_id, course_code, symbol = QUESTION_SIGNER.unsign(
-            question_token, max_age=15 * 60
-        ).split(":", 2)
-        if int(signed_user_id) != user.id or course_code != get_active_course_code(
-            user
-        ):
-            return _json_error(
-                "Alphabet question does not belong to this user.", status=403
-            )
-        result = submit_alphabet_answer(user, symbol, answer)
-    except (BadSignature, SignatureExpired, ValueError) as exc:
-        return _json_error(str(exc))
-    return JsonResponse({"ok": True, **result})

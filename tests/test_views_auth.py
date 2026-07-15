@@ -384,7 +384,7 @@ def test_alphabet_question_returns_current_course_payload(client, monkeypatch):
     session["telegram_user_id"] = user.id
     session.save()
     monkeypatch.setattr(
-        "vocab.views.build_alphabet_question",
+        "vocab.api.alphabet.build_alphabet_question",
         lambda current_user: {
             "course_code": "en",
             "letter": {
@@ -434,7 +434,7 @@ def test_alphabet_answer_returns_result_payload(client, monkeypatch):
     session["telegram_user_id"] = user.id
     session.save()
     monkeypatch.setattr(
-        "vocab.views.submit_alphabet_answer",
+        "vocab.api.alphabet.submit_alphabet_answer",
         lambda current_user, symbol, answer: {
             "correct": True,
             "correct_answer": symbol,

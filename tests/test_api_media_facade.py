@@ -1,5 +1,6 @@
 from vocab import views
 from vocab.api import images
+from vocab.api import alphabet
 from vocab.api import irregular
 from vocab.api import learning
 from vocab.api import media
@@ -11,6 +12,13 @@ def test_views_keep_legacy_media_exports():
     assert views.word_audio_prepare is media.word_audio_prepare
     assert views.alphabet_audio is media.alphabet_audio
     assert views.alphabet_audio_prepare is media.alphabet_audio_prepare
+
+
+def test_views_keep_legacy_alphabet_exports(client):
+    assert views.alphabet_list is alphabet.alphabet_list
+    assert views.alphabet_question is alphabet.alphabet_question
+    assert views.alphabet_answer is alphabet.alphabet_answer
+    assert client.get("/api/alphabet/list").status_code == 401
 
 
 def test_views_keep_legacy_image_exports(client):
