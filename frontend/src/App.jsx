@@ -1,5 +1,6 @@
 import {
   startTransition,
+  useCallback,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
@@ -635,6 +636,27 @@ function App() {
     });
   }
 
+  const refreshProgress = useCallback(async () => {
+    const me = await api("/api/auth/me", { cache: "no-store" });
+    if (!me.authenticated) {
+      return;
+    }
+    setAuth((current) => ({
+      ...current,
+      user: me.user || current.user,
+      progress: me.progress || current.progress,
+    }));
+    setDashboard((current) => (
+      current
+        ? {
+            ...current,
+            user: me.user || current.user,
+            progress: me.progress || current.progress,
+          }
+        : current
+    ));
+  }, []);
+
   async function loadDashboard() {
     const [dashboardData, settingsData, wordsData, irregularData, alphabetData] = await Promise.all([
       api("/api/dashboard"),
@@ -815,6 +837,25 @@ function App() {
     });
     return () => stopPolling();
   }, []);
+
+  useEffect(() => {
+    if (!auth.authenticated) {
+      return undefined;
+    }
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshProgress().catch(() => {});
+      }
+    };
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("pageshow", refreshWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("pageshow", refreshWhenVisible);
+    };
+  }, [auth.authenticated, refreshProgress]);
 
   useEffect(() => {
     if (!isMiniApp || auth.authenticated || !webApp?.initData) {
