@@ -600,6 +600,10 @@ def word_image_regenerate(request: HttpRequest, word_id: int) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="image-regeneration", limit=5, window=60, user=user
+    ):
+        return limited
 
     item = get_user_word(user, word_id)
     if item is None:

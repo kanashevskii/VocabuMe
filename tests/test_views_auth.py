@@ -856,6 +856,35 @@ def test_word_image_regenerate_rejects_limit_exhausted(client):
 
 
 @pytest.mark.django_db
+def test_word_image_regenerate_is_rate_limited(client, monkeypatch):
+    cache.clear()
+    user = TelegramUser.objects.create(chat_id=20161, username="tester")
+    item = VocabularyItem.objects.create(
+        user=user,
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="Example",
+        example_translation="Пример",
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+    monkeypatch.setattr(
+        "vocab.views.request_word_image_generation", lambda word, **_kwargs: word
+    )
+
+    for _ in range(5):
+        assert client.post(f"/api/words/{item.id}/image/regenerate").status_code == 200
+
+    response = client.post(f"/api/words/{item.id}/image/regenerate")
+
+    assert response.status_code == 429
+    assert response["Retry-After"] == "60"
+
+
+@pytest.mark.django_db
 def test_packs_add_rejects_non_list_selected_words(client):
     user = TelegramUser.objects.create(chat_id=2017, username="tester")
     session = client.session
