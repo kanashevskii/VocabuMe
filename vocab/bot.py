@@ -641,6 +641,15 @@ def get_praise(correct: int, total: int) -> str:
     return "💡 Не сдавайся и попробуй ещё раз!"
 
 # --- START ---
+def _webapp_url_with_source(source: str) -> str:
+    if not WEBAPP_URL or not source:
+        return WEBAPP_URL
+    parts = urlsplit(WEBAPP_URL)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["src"] = source[:80]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         try:
@@ -648,6 +657,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except BadRequest as exc:
             logging.warning("Callback answer failed (possibly stale): %s", exc)
 
+    start_source = ""
     if context.args:
         start_arg = context.args[0]
         if start_arg.startswith("login_"):
