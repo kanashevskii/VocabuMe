@@ -92,6 +92,13 @@ jobs:
           npm run lint -- --max-warnings 0
           npm run build
 
+      - name: Mobile browser smoke tests
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npx tsc --project tsconfig.playwright.json
+          npm run test:e2e
+
   deploy:
     needs: quality
     if: github.event_name == 'push'
