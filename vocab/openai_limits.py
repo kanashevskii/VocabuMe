@@ -22,13 +22,9 @@ from core.env import env
 
 logger = logging.getLogger(__name__)
 
-OPENAI_REDIS_URL = env(
-    "OPENAI_REDIS_URL", default=env("CELERY_BROKER_URL", default="")
-)
+OPENAI_REDIS_URL = env("OPENAI_REDIS_URL", default=env("CELERY_BROKER_URL", default=""))
 OPENAI_MAX_CONCURRENCY = env("OPENAI_MAX_CONCURRENCY", cast=int, default=8)
-OPENAI_MAX_INFLIGHT_PER_USER = env(
-    "OPENAI_MAX_INFLIGHT_PER_USER", cast=int, default=1
-)
+OPENAI_MAX_INFLIGHT_PER_USER = env("OPENAI_MAX_INFLIGHT_PER_USER", cast=int, default=1)
 OPENAI_SLOT_WAIT_SECONDS = env("OPENAI_SLOT_WAIT_SECONDS", cast=int, default=10)
 OPENAI_SLOT_TTL_SECONDS = env("OPENAI_SLOT_TTL_SECONDS", cast=int, default=300)
 OPENAI_CIRCUIT_FAILURE_THRESHOLD = env(

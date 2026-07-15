@@ -13,7 +13,7 @@ format-backend:
 	$(PYTHON) -m black $(PYTHON_QUALITY_FILES)
 
 format-check:
-	$(PYTHON) -m black --check core/env.py core/logging_config.py core/test_settings.py run.py vocab/openapi.py vocab/tasks.py vocab/tts.py vocab/utils.py tests/test_openapi.py tests/test_telegram_auth.py tests/test_progress_read_model.py tests/test_streaks.py tests/test_utils.py
+	$(PYTHON) -m black --check core vocab tests run.py
 
 lint-backend:
 	$(PYTHON) -m ruff check core vocab

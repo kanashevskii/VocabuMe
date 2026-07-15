@@ -32,7 +32,14 @@ def _is_sensitive_context_key(key: object) -> bool:
     normalized = str(key).strip().lower().replace("-", "_")
     return normalized in _SENSITIVE_CONTEXT_KEYS or any(
         marker in normalized
-        for marker in ("token", "password", "secret", "authorization", "cookie", "api_key")
+        for marker in (
+            "token",
+            "password",
+            "secret",
+            "authorization",
+            "cookie",
+            "api_key",
+        )
     )
 
 

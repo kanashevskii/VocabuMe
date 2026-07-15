@@ -373,9 +373,7 @@ class OpenAIUsageEvent(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(
-                fields=["created_at"], name="vocab_openai_usage_created_idx"
-            ),
+            models.Index(fields=["created_at"], name="vocab_openai_usage_created_idx"),
             models.Index(
                 fields=["user", "created_at"], name="vocab_openai_usage_user_idx"
             ),

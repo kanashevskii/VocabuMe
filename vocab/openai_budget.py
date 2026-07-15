@@ -34,7 +34,9 @@ def _usd_to_microusd(value: str | Decimal) -> int:
     try:
         decimal_value = Decimal(str(value))
     except InvalidOperation as exc:
-        raise ValueError("OpenAI budget configuration must be a decimal USD amount.") from exc
+        raise ValueError(
+            "OpenAI budget configuration must be a decimal USD amount."
+        ) from exc
     if decimal_value < 0:
         raise ValueError("OpenAI budget configuration cannot be negative.")
     return int((decimal_value * MICRO_USD).to_integral_value(rounding=ROUND_HALF_UP))
@@ -79,7 +81,9 @@ class OpenAIBudgetExceeded(RuntimeError):
 
 def _seconds_to_next_utc_day() -> int:
     now = timezone.now()
-    next_day = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    next_day = (now + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     return max(1, int((next_day - now).total_seconds()))
 
 
@@ -87,11 +91,15 @@ def _budget_key() -> str:
     return f"vocabume:openai:budget:{timezone.now().date().isoformat()}"
 
 
-def _estimate_microusd(operation: str, *, model: str, size: str = "", quality: str = "") -> int:
+def _estimate_microusd(
+    operation: str, *, model: str, size: str = "", quality: str = ""
+) -> int:
     if operation == "generate-card-image":
         price = IMAGE_PRICES_USD.get((model, quality, size))
         if price is None:
-            raise OpenAIBudgetExceeded("OpenAI image price is not configured for this request.")
+            raise OpenAIBudgetExceeded(
+                "OpenAI image price is not configured for this request."
+            )
         return _usd_to_microusd(price)
     if operation == "transcribe-speech":
         return OPENAI_TRANSCRIPTION_REQUEST_RESERVE_MICRO_USD
@@ -103,7 +111,9 @@ def _extract_usage(response: object) -> tuple[int, int, int] | None:
     if usage is None:
         return None
     input_tokens = getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", None))
-    output_tokens = getattr(usage, "completion_tokens", getattr(usage, "output_tokens", None))
+    output_tokens = getattr(
+        usage, "completion_tokens", getattr(usage, "output_tokens", None)
+    )
     if input_tokens is None and output_tokens is None:
         return None
     details = getattr(usage, "prompt_tokens_details", None)
@@ -111,11 +121,17 @@ def _extract_usage(response: object) -> tuple[int, int, int] | None:
     return int(input_tokens or 0), int(output_tokens or 0), int(cached_tokens or 0)
 
 
-def _text_cost_microusd(model: str, input_tokens: int, output_tokens: int, cached_tokens: int) -> int:
+def _text_cost_microusd(
+    model: str, input_tokens: int, output_tokens: int, cached_tokens: int
+) -> int:
     try:
-        input_price, output_price, cached_input_price = TEXT_PRICES_PER_MILLION_USD[model]
+        input_price, output_price, cached_input_price = TEXT_PRICES_PER_MILLION_USD[
+            model
+        ]
     except KeyError as exc:
-        raise OpenAIBudgetExceeded(f"OpenAI price is not configured for model {model}.") from exc
+        raise OpenAIBudgetExceeded(
+            f"OpenAI price is not configured for model {model}."
+        ) from exc
     uncached_input = max(0, input_tokens - cached_tokens)
     cost = (
         Decimal(uncached_input) * input_price
@@ -151,7 +167,9 @@ class OpenAIBudgetReservation:
             usage_available=True,
         )
 
-    def record_image_response(self, _response: object, *, size: str, quality: str) -> None:
+    def record_image_response(
+        self, _response: object, *, size: str, quality: str
+    ) -> None:
         self._finalize(
             cost_microusd=_estimate_microusd(
                 self.operation, model=self.model, size=size, quality=quality
@@ -192,7 +210,9 @@ class OpenAIBudgetReservation:
                 usage_available=usage_available,
             )
         except Exception:
-            logger.exception("Failed to persist OpenAI usage event operation=%s", self.operation)
+            logger.exception(
+                "Failed to persist OpenAI usage event operation=%s", self.operation
+            )
         self.finalized = True
 
     def _adjust(self, delta_microusd: int) -> None:
@@ -201,7 +221,9 @@ class OpenAIBudgetReservation:
         try:
             self.client.eval(_ADJUST_BUDGET, 1, self.key, delta_microusd)
         except RedisError as exc:
-            raise OpenAIBudgetExceeded("OpenAI budget ledger is temporarily unavailable.") from exc
+            raise OpenAIBudgetExceeded(
+                "OpenAI budget ledger is temporarily unavailable."
+            ) from exc
 
 
 @contextmanager
@@ -232,7 +254,9 @@ def openai_budget_reservation(
                 )
             )
         except RedisError as exc:
-            raise OpenAIBudgetExceeded("OpenAI budget ledger is temporarily unavailable.") from exc
+            raise OpenAIBudgetExceeded(
+                "OpenAI budget ledger is temporarily unavailable."
+            ) from exc
         if not reserved:
             raise OpenAIBudgetExceeded(
                 "OpenAI daily budget is exhausted. Please try again tomorrow."

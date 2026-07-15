@@ -107,9 +107,7 @@ def _complete_job(job: BackgroundJob, *, external_retry: bool) -> None:
         # Celery schedules the matching retry separately. Keep the durable row
         # unavailable for the same backoff window so a fallback `process_jobs`
         # worker cannot execute the paid operation a second time meanwhile.
-        job.run_after = timezone.now() + timedelta(
-            seconds=min(300, 2**job.attempts)
-        )
+        job.run_after = timezone.now() + timedelta(seconds=min(300, 2**job.attempts))
         job.last_error = str(exc)[:2_000]
         job.locked_at = None
         job.save(

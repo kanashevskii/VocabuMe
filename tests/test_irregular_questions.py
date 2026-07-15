@@ -28,7 +28,10 @@ def test_irregular_question_hides_answer_and_is_consumed_once(monkeypatch):
     assert result["correct"] is True
     issued = IssuedIrregularQuestion.objects.get(id=question["question_id"])
     assert issued.answered_at is not None
-    assert UserCourseProgress.objects.get(user=user, course_code="en").irregular_correct == 1
+    assert (
+        UserCourseProgress.objects.get(user=user, course_code="en").irregular_correct
+        == 1
+    )
     with pytest.raises(ValueError, match="already answered"):
         submit_issued_irregular_answer(
             user, str(question["question_id"]), f"{verb['past']} {verb['participle']}"
