@@ -244,6 +244,20 @@ class VocabularyItem(models.Model):
                 name="unique_user_course_normalized_word",
             )
         ]
+        indexes = [
+            models.Index(
+                fields=["user", "course_code", "-updated_at", "-id"],
+                name="vocab_word_list_idx",
+            ),
+            models.Index(
+                fields=["user", "course_code", "is_learned", "-created_at", "-id"],
+                name="vocab_word_new_idx",
+            ),
+            models.Index(
+                fields=["user", "course_code", "is_learned", "updated_at", "id"],
+                name="vocab_word_review_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.word} ({self.user})"

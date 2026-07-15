@@ -455,13 +455,15 @@ def get_daily_entitlement_usage(
     user: TelegramUser, target_date: date | None = None
 ) -> UserDailyEntitlementUsage:
     usage_date = target_date or timezone.localdate()
+    day_start, day_end = _application_day_window(usage_date)
     usage, created = UserDailyEntitlementUsage.objects.get_or_create(
         user=user,
         usage_date=usage_date,
         defaults={
             "new_items_added": VocabularyItem.objects.filter(
                 user=user,
-                created_at__date=usage_date,
+                created_at__gte=day_start,
+                created_at__lt=day_end,
             ).count(),
             "extra_image_regenerations": 0,
         },
@@ -491,6 +493,7 @@ def reserve_new_items_for_today(user: TelegramUser, count: int) -> None:
     if count <= 0:
         return
     usage_date = timezone.localdate()
+    day_start, day_end = _application_day_window(usage_date)
     with transaction.atomic():
         try:
             usage, _ = UserDailyEntitlementUsage.objects.get_or_create(
@@ -498,7 +501,9 @@ def reserve_new_items_for_today(user: TelegramUser, count: int) -> None:
                 usage_date=usage_date,
                 defaults={
                     "new_items_added": VocabularyItem.objects.filter(
-                        user=user, created_at__date=usage_date
+                        user=user,
+                        created_at__gte=day_start,
+                        created_at__lt=day_end,
                     ).count(),
                 },
             )
@@ -2020,19 +2025,13 @@ def list_word_packs(
 
     existing_user_words = (
         set(
-            VocabularyItem.objects.filter(user=user).values_list(
-                "normalized_word", flat=True
-            )
-        )
-        if user
-        else set()
-    )
-    if user:
-        existing_user_words = set(
             VocabularyItem.objects.filter(
                 user=user, course_code=active_course
             ).values_list("normalized_word", flat=True)
         )
+        if user
+        else set()
+    )
     packs = []
     for pack in definitions:
         levels = [
@@ -3591,6 +3590,13 @@ def _learning_local_date(user: TelegramUser) -> date:
 def _learning_day_window(user: TelegramUser, day: date) -> tuple[datetime, datetime]:
     user_timezone = timezone_from_name(user.reminder_timezone or "UTC")
     start = datetime.combine(day, datetime_time.min, tzinfo=user_timezone)
+    return start, start + timedelta(days=1)
+
+
+def _application_day_window(day: date) -> tuple[datetime, datetime]:
+    """Return the application's timezone-aware UTC-compatible day range."""
+    app_timezone = timezone.get_current_timezone()
+    start = datetime.combine(day, datetime_time.min, tzinfo=app_timezone)
     return start, start + timedelta(days=1)
 
 
