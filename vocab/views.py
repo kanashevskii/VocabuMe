@@ -267,3 +267,17 @@ def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
             "progress": build_user_progress(user),
         }
     )
+
+
+# Auth endpoints are implemented in ``vocab.api.auth``.  Rebind after the
+# legacy definitions while downstream integrations still import ``vocab.views``.
+from .api.auth import (  # noqa: E402,F811,F401
+    auth_logout,
+    auth_me,
+    auth_poll_link,
+    auth_request_link,
+    auth_telegram_webapp,
+    auth_telegram_widget,
+    auth_web_login,
+    auth_web_register,
+)

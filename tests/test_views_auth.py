@@ -104,7 +104,7 @@ def test_auth_poll_link_rejects_get_to_keep_token_consumption_explicit(client):
 @pytest.mark.django_db
 def test_auth_telegram_widget_uses_verified_payload(client, monkeypatch):
     monkeypatch.setattr(
-        "vocab.views.verify_login_widget",
+        "vocab.api.auth.verify_login_widget",
         lambda payload, token, max_age_seconds: {
             "id": "301",
             "username": "telegram_user",
@@ -126,7 +126,7 @@ def test_auth_telegram_widget_uses_verified_payload(client, monkeypatch):
 @pytest.mark.django_db
 def test_auth_telegram_webapp_uses_verified_payload(client, monkeypatch):
     monkeypatch.setattr(
-        "vocab.views.verify_webapp_init_data",
+        "vocab.api.auth.verify_webapp_init_data",
         lambda init_data, token, max_age_seconds: {
             "user": {"id": 302, "username": "webapp_user"}
         },
@@ -309,7 +309,7 @@ def test_webapp_header_takes_precedence_over_session(client, monkeypatch):
     session["telegram_user_id"] = session_user.id
     session.save()
     monkeypatch.setattr(
-        "vocab.views.verify_webapp_init_data",
+        "vocab.api.auth.verify_webapp_init_data",
         lambda init_data, token, max_age_seconds: {
             "user": {"id": header_user.chat_id, "username": "header"}
         },
