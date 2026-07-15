@@ -20,7 +20,10 @@ export default defineConfig({
   webServer: {
     command: `./node_modules/.bin/vite --host ${serverUrl.hostname} --port ${serverUrl.port}`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    // Never accidentally run VocabuMe assertions against an unrelated local
+    // app that happens to occupy the configured port. Reuse is opt-in for
+    // developers who intentionally started this project's Vite server.
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
     timeout: 120_000,
   },
   projects: [
