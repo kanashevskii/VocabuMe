@@ -104,6 +104,19 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "core.wsgi.application"
 
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="")
+CELERY_TASK_DEFAULT_QUEUE = "vocabume-high"
+CELERY_TASK_ROUTES = {
+    "vocab.tasks.process_background_job_high": {"queue": "vocabume-high"},
+    "vocab.tasks.process_background_job_low": {"queue": "vocabume-low"},
+}
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_TASK_SOFT_TIME_LIMIT = 270
+
 # Bounded request bodies protect JSON endpoints and speech uploads before they
 # reach application code.  The web server must enforce the same limit.
 DATA_UPLOAD_MAX_MEMORY_SIZE = env("DATA_UPLOAD_MAX_MEMORY_SIZE", cast=int, default=12 * 1024 * 1024)
