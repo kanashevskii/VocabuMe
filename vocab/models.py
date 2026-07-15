@@ -466,6 +466,9 @@ class AppErrorLog(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["created_at"], name="vocab_error_log_created_idx")
+        ]
 
     def __str__(self):
         return f"{self.category}:{self.level} {self.path or '-'}"

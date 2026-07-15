@@ -33,6 +33,16 @@ pg_restore --clean --if-exists --no-owner --dbname=vocabume_restore_test vocabum
 
 Record the backup timestamp, restore duration, migration version, row-count sanity checks, and who validated the restore. Never use a restore drill against the live database.
 
+## Error-log retention
+
+Client diagnostics are authenticated and redacted before they are stored in `AppErrorLog`, but they still contain operational metadata. Run the following daily through the approved scheduler/operations process; do not enable a new worker or cron loop without an owner and a cost/retry review:
+
+```bash
+python manage.py purge_error_logs --days 30
+```
+
+The command deletes only records older than the selected retention window and reports the number deleted. Test it first against an isolated database when changing the retention period.
+
 ## Worker and queue safety
 
 High-priority user work is isolated on `vocabume-high`. Do not send pack warm-up, backfill, or other paid/bulk work there. Before enabling low-priority workers or Celery beat, identify whether tasks call Telegram, OpenAI, TTS, or a payment provider; cap retries and concurrency first.
