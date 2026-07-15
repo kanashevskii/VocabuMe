@@ -7,8 +7,9 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Iterable, cast
 from urllib.parse import urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 import logging
+import os
 import random
 import re
 import secrets
@@ -1811,7 +1812,9 @@ def save_user_avatar(user: TelegramUser, uploaded_file) -> TelegramUser:
         raise ValueError("Обработка изображений временно недоступна.")
 
     PROFILE_AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    _remove_user_avatar_file(user)
+    previous_avatar_file = get_profile_avatar_file(user)
+    output_path = PROFILE_AVATAR_DIR / f"user_{user.id}.webp"
+    temporary_path = PROFILE_AVATAR_DIR / f".{output_path.name}.{uuid4().hex}.tmp"
     try:
         uploaded_file.seek(0)
         with Image.open(uploaded_file) as img:
@@ -1819,15 +1822,21 @@ def save_user_avatar(user: TelegramUser, uploaded_file) -> TelegramUser:
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
             img.thumbnail((512, 512))
-            output_path = PROFILE_AVATAR_DIR / f"user_{user.id}.webp"
-            img.save(output_path, format="WEBP", quality=84, method=6)
+            img.save(temporary_path, format="WEBP", quality=84, method=6)
+        os.replace(temporary_path, output_path)
     except Exception as exc:
+        temporary_path.unlink(missing_ok=True)
         raise ValueError("Не удалось обработать изображение.") from exc
 
     user.avatar_path = str(output_path.relative_to(PROJECT_ROOT))
     user.avatar_updated_at = timezone.now()
     user.custom_avatar_url = ""
     user.save(update_fields=["avatar_path", "avatar_updated_at", "custom_avatar_url"])
+    if previous_avatar_file and previous_avatar_file != output_path:
+        try:
+            previous_avatar_file.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Failed to delete replaced avatar file %s", previous_avatar_file)
     return user
 
 
