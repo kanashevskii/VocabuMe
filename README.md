@@ -1,242 +1,101 @@
 # VocabuMe
 
-VocabuMe is a language product for expats and relocants that now runs in three connected surfaces:
-- Telegram bot
-- Telegram Mini App
-- Website with Telegram-based sign-in
+VocabuMe is a shared language-learning product for relocants. It has three surfaces backed by one Django application: a Telegram bot, a Telegram Mini App, and a website. Telegram identity, dictionary state, subscription entitlement, and learning progress are shared across all of them.
 
-All three surfaces share the same `TelegramUser`, dictionary, settings, and learning progress.
+Production: <https://vocabume.k1prod.com> · Bot: [@VocabuMe_bot](https://t.me/VocabuMe_bot) · API: [`/api/docs`](https://vocabume.k1prod.com/api/docs)
 
-Links:
-- Telegram bot: [@VocabuMe_bot](https://t.me/VocabuMe_bot)
+## Product and usage terms
 
-## Usage terms
+VocabuMe focuses on practical English and Georgian for relocation: scenario packs, vocabulary capture, flashcards, multiple-choice practice, listening, irregular verbs, progress, reminders, and Premium access.
 
-VocabuMe is provided for personal, non-commercial use only.
+It is provided for **personal, non-commercial use only**. Commercial use, resale, sublicensing, paid access, white-label use, or use inside commercial products requires the author's prior written permission. See [TERMS.md](TERMS.md).
 
-Commercial use, resale, sublicensing, paid access, white-label use, use inside commercial products, or any other commercial exploitation is prohibited without prior written permission from the author.
+## Architecture
 
-If you want to use VocabuMe commercially, obtain explicit written permission first.
+The backend is Django; the Mini App is React + Vite. The browser build in `frontend/dist` is served by Django. PostgreSQL is the source of truth; Redis provides the shared rate-limit/cache store and Celery broker/result backend.
 
-## Current product scope
-
-VocabuMe supports:
-- relocation scenario packs for real-life tasks after moving
-- English and Georgian study tracks with separate progress
-- adding words and phrases in batch
-- flashcards
-- multiple-choice practice
-- listening mode
-- irregular verbs training
-- personal dictionary management
-- shared progress and achievements
-- reminders and learning settings
-
-## Go-to-market focus
-
-VocabuMe is no longer positioned as "just an English words app".
-
-The current product focus is:
-- languages for relocation
-- expats and people who already moved or are about to move
-- scenario-based vocabulary for survival and adaptation:
-  - bank
-  - rent
-  - documents
-  - bills
-  - small repair and everyday бытовые situations
-
-The core promise is practical:
-- not "learn English in general"
-- but "handle real situations after moving with the words and phrases you actually need"
-
-Near-term product direction:
-- keep the existing word repetition workflow
-- sell full access to relocation packs
-- expand toward AI-assisted dialogue simulation with feedback for real scenarios
-
-## Stack
-
-- Python
-- Django
-- React
-- Vite
-- python-telegram-bot
-- PostgreSQL
-- OpenAI
-- Nginx
-
-## Repo structure
-
-- [frontend](frontend) - React SPA for Telegram Mini App and website
-- [vocab/bot.py](vocab/bot.py) - Telegram bot flows
-- [vocab/views.py](vocab/views.py) - SPA entry and API endpoints
-- [vocab/services.py](vocab/services.py) - shared application logic
-- [vocab/telegram_auth.py](vocab/telegram_auth.py) - Telegram auth verification
-- [run.py](run.py) - local combined runner for bot, reminders, and Django server
-- [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) - prioritized execution backlog
-
-## Environment
-
-Minimum requirements:
-- Python 3.10+
-- PostgreSQL
-- Node.js 20+
-- Telegram bot token
-- OpenAI API key
-
-Key environment variables:
-- `DEBUG`
-- `SECRET_KEY`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_HOST`
-- `DB_PORT`
-- `TELEGRAM_TOKEN`
-- `TELEGRAM_PAYMENTS_PROVIDER_TOKEN`
-- `TELEGRAM_BOT_USERNAME`
-- `WEBAPP_URL`
-- `OPENAI_API_KEY`
-- `ALERT_CHAT_ID`
-- `CSRF_TRUSTED_ORIGINS`
-
-See [.env.example](.env.example).
-
-Configuration rules:
-- `SECRET_KEY`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `TELEGRAM_TOKEN`, and `OPENAI_API_KEY` are required.
-- `TELEGRAM_PAYMENTS_PROVIDER_TOKEN` is required to enable Premium checkout via Telegram Payments.
-- The app fails fast on startup if any required secret/config value is missing or empty.
-- Generate a strong Django key with `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`.
-
-## Local setup
-
-1. Install the pinned development and test dependencies.
-
-```bash
-pip install -r requirements-dev.txt
+```text
+Telegram Bot ─────┐
+Telegram Mini App ├─> Django HTTP API ─> application services ─> PostgreSQL
+Website ──────────┘          │                       │
+                             └─> Redis ─> Celery high-priority worker
 ```
 
-2. Install frontend dependencies.
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing identity, learning state, background work, or deployment topology.
+
+## Repository map
+
+- [frontend](frontend): React/Vite app shell for the Mini App and website.
+- [vocab/services.py](vocab/services.py): shared business logic.
+- [vocab/views.py](vocab/views.py): HTTP API and authentication flows.
+- [vocab/telegram_auth.py](vocab/telegram_auth.py): verified Telegram auth helpers.
+- [vocab/bot.py](vocab/bot.py): Telegram bot interactions.
+- [vocab/openapi.py](vocab/openapi.py): hand-maintained public API contract.
+- [vocab/migrations](vocab/migrations): Django database migrations.
+- [deploy/systemd](deploy/systemd): versioned worker unit templates.
+
+## Quick start
+
+Prerequisites: Python 3.10+, Node.js 20+, PostgreSQL 16+, Redis 7+, and a Telegram bot token. Copy `.env.example` to `.env`; never commit the resulting file. Required values are validated at startup.
 
 ```bash
-cd frontend && npm install
-```
-
-3. Create `.env` from `.env.example`.
-
-4. Apply migrations.
-
-```bash
+make install-dev
+cd frontend && npm ci && cd ..
+cp .env.example .env
 python manage.py migrate --noinput
+make build-frontend
+DEBUG=true VOCABUME_PROCESS=web python run.py
 ```
 
-5. Build frontend assets.
+Open <http://127.0.0.1:8000>. Start bot and worker processes separately:
 
 ```bash
-cd frontend && npm run build
+VOCABUME_PROCESS=bot python run.py
+celery -A core worker --loglevel=INFO --queues=vocabume-high --concurrency=2
 ```
 
-6. Run the app locally.
+For a containerized local stack, set real secrets in `.env` and run:
 
 ```bash
-python run.py
+docker compose up --build migrate
+docker compose up --build web bot worker-high
 ```
 
-This starts:
-- Telegram bot
-- reminder loop
-- Django server on `0.0.0.0:8000`
+`worker-low` and `beat` are intentionally separate because they may trigger background generation or reminders; enable them only after reviewing cost and retry behaviour.
 
-## Testing
+## Configuration
 
-Run the backend safety-net suite:
+See [.env.example](.env.example) for the complete local template. In production set `DEBUG=False`, secure cookie/HSTS settings, `CSRF_TRUSTED_ORIGINS`, and use a shared Redis cache:
 
-```bash
-python -m pytest -q
+```dotenv
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/1
+CACHE_BACKEND=django.core.cache.backends.redis.RedisCache
+CACHE_LOCATION=redis://127.0.0.1:6379/2
 ```
 
-Run the focused backend coverage report:
+Do not print or paste `SECRET_KEY`, database passwords, Telegram tokens, payment provider tokens, or OpenAI keys into logs, issues, or pull requests.
+
+## Quality gate
+
+Run the production-equivalent checks before opening a pull request:
 
 ```bash
-python -m pytest --cov=vocab.services --cov=vocab.views --cov=core.env --cov-report=term-missing -q
-```
-
-`pytest` uses [core/test_settings.py](core/test_settings.py), which switches tests to SQLite so the suite can run without PostgreSQL `CREATE DATABASE` privileges.
-
-Dependency files:
-
-- [requirements-prod.in](requirements-prod.in) lists direct production dependencies.
-- [requirements-prod.lock](requirements-prod.lock) is the complete, known-good production lock.
-- [requirements-dev.txt](requirements-dev.txt) adds pinned development/test tooling.
-- `requirements.txt` remains a production-compatible alias for deployment tooling.
-
-Validate that the direct dependency manifest matches the lock:
-
-```bash
-make check-dependency-lock
-```
-
-## Code Quality
-
-Backend:
-
-```bash
-python -m black --check core/env.py core/logging_config.py core/settings.py core/test_settings.py run.py vocab/services.py vocab/views.py vocab/openai_utils.py vocab/reminders.py vocab/management/commands/send_reminders.py tests
-python -m flake8 core/env.py core/logging_config.py core/settings.py core/test_settings.py run.py vocab/services.py vocab/views.py vocab/openai_utils.py vocab/reminders.py vocab/management/commands/send_reminders.py tests
-python -m mypy core/env.py core/settings.py core/test_settings.py run.py
-```
-
-Frontend:
-
-```bash
-cd frontend && npm run lint
-cd frontend && npm run build
-```
-
-Shortcut commands:
-
-```bash
-make format-backend
 make quality
+DEBUG=false python manage.py check --deploy
+DJANGO_SETTINGS_MODULE=core.test_settings python manage.py makemigrations --check --dry-run
 ```
 
-## Frontend notes
+`make quality` verifies pinned dependencies, formatting, Ruff, MyPy, tests with coverage, dependency vulnerabilities, frontend linting, and the frontend build. The GitHub Actions workflow repeats this against PostgreSQL and deploys `main` only after it succeeds.
 
-The frontend is a mobile-first app shell intended for Telegram WebView first, but it also works as a normal website.
+For frontend/mobile work, also test a real mobile viewport for Today, Learn, Words, Progress, and More, including a short viewport height.
 
-Auth paths:
-- Telegram Mini App via `initData`
-- web login via Telegram deep link token flow
+## API and operations
 
-The frontend build output is served by Django from `frontend/dist`.
+The live OpenAPI contract and Swagger UI are public at [`/api/openapi.json`](https://vocabume.k1prod.com/api/openapi.json) and [`/api/docs`](https://vocabume.k1prod.com/api/docs). Mutating endpoints require verified Telegram Mini App `initData` or an authenticated session; the contract does not expose secrets.
 
-## Production notes
+Deployment, rollback, worker ownership, backups, and smoke-test expectations are documented in [docs/OPERATIONS.md](docs/OPERATIONS.md). Report a vulnerability according to [SECURITY.md](SECURITY.md), not through a public issue.
 
-Production checklist:
-- set `DEBUG=False`
-- build frontend with `cd frontend && npm ci && npm run build`
-- configure `WEBAPP_URL`, `TELEGRAM_BOT_USERNAME`, and `CSRF_TRUSTED_ORIGINS`
-- proxy `vocabume.k1prod.com` to Django
-- serve `/static/` from `frontend/dist`
-- enable SSL
+## Contributing
 
-For Telegram website login widget flows, the bot domain must be configured in BotFather:
-- `/setdomain`
-- `vocabume.k1prod.com`
-
-## Operational notes
-
-- If you update normalization logic for old words, run:
-
-```bash
-python scripts/clean_existing_words.py
-```
-
-- Local audio endpoints require TTS dependencies from [requirements.txt](requirements.txt).
-
-## License
-
-This repository is not provided under an open commercial license.
-
-Use is limited by the terms above: personal non-commercial use only unless separate written permission is granted by the author.
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Keep migrations reversible, preserve cross-surface state, and avoid dependency upgrades unrelated to the change.
