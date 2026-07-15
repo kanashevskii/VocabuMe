@@ -115,6 +115,39 @@ class UserCourseProgress(models.Model):
         return f"{self.user} [{self.course_code}]"
 
 
+class UserStudyDay(models.Model):
+    """Auditable, qualified learning activity for one course and local date."""
+
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
+    study_date = models.DateField()
+    correct_answers = models.PositiveIntegerField(default=0)
+    streak_qualified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "course_code", "study_date"],
+                name="unique_user_course_study_day",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "course_code", "-study_date"],
+                name="vocab_study_day_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user} [{self.course_code}] {self.study_date}"
+
+
 class UserDailyEntitlementUsage(models.Model):
     user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
     usage_date = models.DateField()
@@ -160,8 +193,12 @@ class UserSubscription(models.Model):
     cancelled_at = models.DateTimeField(null=True, blank=True)
     source = models.CharField(max_length=20, default="telegram")
     invoice_payload = models.CharField(max_length=255, blank=True, default="")
-    telegram_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
-    provider_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
+    telegram_payment_charge_id = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+    provider_payment_charge_id = models.CharField(
+        max_length=255, blank=True, default=""
+    )
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -187,8 +224,12 @@ class PaymentAttempt(models.Model):
     paid_at = models.DateTimeField(null=True, blank=True)
     failed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
-    telegram_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
-    provider_payment_charge_id = models.CharField(max_length=255, blank=True, default="")
+    telegram_payment_charge_id = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+    provider_payment_charge_id = models.CharField(
+        max_length=255, blank=True, default=""
+    )
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -284,7 +325,11 @@ class IssuedLearningQuestion(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["user", "expires_at"], name="vocab_issue_user_id_d712f8_idx")]
+        indexes = [
+            models.Index(
+                fields=["user", "expires_at"], name="vocab_issue_user_id_d712f8_idx"
+            )
+        ]
 
 
 BACKGROUND_JOB_STATUS_CHOICES = (
@@ -324,7 +369,7 @@ class BackgroundJob(models.Model):
 
 
 class Achievement(models.Model):
-    user = models.ForeignKey('TelegramUser', on_delete=models.CASCADE)
+    user = models.ForeignKey("TelegramUser", on_delete=models.CASCADE)
     course_code = models.CharField(
         max_length=10,
         choices=STUDIED_LANGUAGE_CHOICES,
@@ -338,6 +383,7 @@ class Achievement(models.Model):
 
     def __str__(self):
         return f"{self.code} for {self.user.username or self.user.chat_id}"
+
 
 class IrregularVerbProgress(models.Model):
     """Track user's progress for each irregular verb."""
@@ -360,8 +406,12 @@ class IrregularVerbProgress(models.Model):
 
 
 class WebLoginToken(models.Model):
-    token = models.CharField(max_length=64, unique=True, default=generate_web_login_token)
-    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE, null=True, blank=True)
+    token = models.CharField(
+        max_length=64, unique=True, default=generate_web_login_token
+    )
+    user = models.ForeignKey(
+        TelegramUser, on_delete=models.CASCADE, null=True, blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
@@ -402,7 +452,9 @@ class AddWordDraft(models.Model):
 
 
 class AppErrorLog(models.Model):
-    user = models.ForeignKey(TelegramUser, on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey(
+        TelegramUser, on_delete=models.SET_NULL, null=True, blank=True
+    )
     category = models.CharField(max_length=50, default="server")
     level = models.CharField(max_length=20, default="error")
     message = models.TextField()

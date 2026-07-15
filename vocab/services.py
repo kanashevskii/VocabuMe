@@ -47,6 +47,7 @@ from .models import (
     UserDailyEntitlementUsage,
     UserSubscription,
     UserCourseProgress,
+    UserStudyDay,
     VocabularyItem,
     WebLoginToken,
     WORD_PRIORITY_CHOICES,
@@ -1101,8 +1102,8 @@ def build_user_progress(user: TelegramUser) -> dict:
             user, course_code=active_course
         ),
         "streak_days": _active_streak_days(course_progress, today),
-        "study_days": course_progress.total_study_days,
-        "studied_today": course_progress.last_study_date == today,
+        "study_days": _qualified_study_days_count(course_progress),
+        "studied_today": _is_study_day_qualified(course_progress, today),
         "learned_today": learned_today,
         "learned_week": learned_week,
         "learned_month": learned_month,
@@ -3560,27 +3561,78 @@ def _application_day_window(day: date) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+STREAK_QUALIFYING_CORRECT_ANSWERS = 5
+
+
+def _latest_qualified_study_day(progress: UserCourseProgress) -> UserStudyDay | None:
+    return (
+        UserStudyDay.objects.filter(
+            user=progress.user,
+            course_code=progress.course_code,
+            streak_qualified_at__isnull=False,
+        )
+        .order_by("-study_date")
+        .first()
+    )
+
+
 def _active_streak_days(progress: UserCourseProgress, today: date) -> int:
-    """Hide a historical streak once the learner has missed a full calendar day."""
-    if progress.last_study_date not in {today, today - timedelta(days=1)}:
+    """Return a streak only when its latest day has auditable qualified activity."""
+    latest_day = _latest_qualified_study_day(progress)
+    if latest_day is None or latest_day.study_date != progress.last_study_date:
+        return 0
+    if latest_day.study_date not in {today, today - timedelta(days=1)}:
         return 0
     return progress.consecutive_days
 
 
+def _is_study_day_qualified(progress: UserCourseProgress, day: date) -> bool:
+    return UserStudyDay.objects.filter(
+        user=progress.user,
+        course_code=progress.course_code,
+        study_date=day,
+        streak_qualified_at__isnull=False,
+    ).exists()
+
+
+def _qualified_study_days_count(progress: UserCourseProgress) -> int:
+    return UserStudyDay.objects.filter(
+        user=progress.user,
+        course_code=progress.course_code,
+        streak_qualified_at__isnull=False,
+    ).count()
+
+
 def update_learning_streak(user: TelegramUser) -> TelegramUser:
-    progress = get_or_create_user_course_progress(user)
+    """Record a correct answer and qualify a streak only after a real study block."""
     today = _learning_local_date(user)
-    if progress.last_study_date == today:
-        return user
+    active_course = get_active_course_code(user)
+    with transaction.atomic():
+        study_day, _ = UserStudyDay.objects.get_or_create(
+            user=user,
+            course_code=active_course,
+            study_date=today,
+        )
+        study_day = UserStudyDay.objects.select_for_update().get(pk=study_day.pk)
+        study_day.correct_answers += 1
+        study_day.save(update_fields=["correct_answers", "updated_at"])
+        if (
+            study_day.correct_answers < STREAK_QUALIFYING_CORRECT_ANSWERS
+            or study_day.streak_qualified_at is not None
+        ):
+            return user
 
-    if progress.last_study_date and (today - progress.last_study_date).days == 1:
-        progress.consecutive_days += 1
-    else:
-        progress.consecutive_days = 1
-
-    progress.total_study_days += 1
-    progress.last_study_date = today
-    progress.save(
-        update_fields=["consecutive_days", "total_study_days", "last_study_date"]
-    )
+        progress = get_or_create_user_course_progress(user, active_course)
+        progress = UserCourseProgress.objects.select_for_update().get(pk=progress.pk)
+        if progress.last_study_date and (today - progress.last_study_date).days == 1:
+            progress.consecutive_days += 1
+        else:
+            progress.consecutive_days = 1
+        progress.total_study_days += 1
+        progress.last_study_date = today
+        progress.save(
+            update_fields=["consecutive_days", "total_study_days", "last_study_date"]
+        )
+        study_day.streak_qualified_at = timezone.now()
+        study_day.save(update_fields=["streak_qualified_at", "updated_at"])
     return user
