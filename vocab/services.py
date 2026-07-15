@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -282,6 +282,17 @@ def get_or_create_user_course_progress(
         user=user, course_code=normalized
     )
     return progress
+
+
+def get_user_course_progress(
+    user: TelegramUser, course_code: str | None = None
+) -> UserCourseProgress:
+    """Read course progress without creating a row from a read-only request."""
+    active_course = normalize_course_code(course_code or get_active_course_code(user))
+    progress = UserCourseProgress.objects.filter(
+        user=user, course_code=active_course
+    ).first()
+    return progress or UserCourseProgress(user=user, course_code=active_course)
 
 
 def _image_generation_stale_before() -> datetime:
@@ -740,7 +751,7 @@ def get_pack_item_translation(entry: dict) -> str:
 
 def get_course_progress_stats(user: TelegramUser, course_code: str | None = None) -> dict:
     active_course = normalize_course_code(course_code or get_active_course_code(user))
-    progress = get_or_create_user_course_progress(user, active_course)
+    progress = get_user_course_progress(user, active_course)
     today = _learning_local_date(user)
     learned = VocabularyItem.objects.filter(
         user=user, course_code=active_course, is_learned=True
@@ -1079,7 +1090,7 @@ def get_pending_achievement_highlights(
 
 def build_user_progress(user: TelegramUser) -> dict:
     active_course = get_active_course_code(user)
-    course_progress = get_or_create_user_course_progress(user, active_course)
+    course_progress = get_user_course_progress(user, active_course)
     total = VocabularyItem.objects.filter(user=user, course_code=active_course).count()
     learned = VocabularyItem.objects.filter(
         user=user, course_code=active_course, is_learned=True
@@ -1092,8 +1103,12 @@ def build_user_progress(user: TelegramUser) -> dict:
         user=user, course_code=active_course
     ).aggregate(Min("created_at"))["created_at__min"]
     today = _learning_local_date(user)
+    day_start, day_end = _learning_day_window(user, today)
     learned_today = VocabularyItem.objects.filter(
-        user=user, course_code=active_course, learned_at__date=today
+        user=user,
+        course_code=active_course,
+        learned_at__gte=day_start,
+        learned_at__lt=day_end,
     ).count()
     current_moment = timezone.now()
     week_window_start = current_moment - timedelta(days=7)
@@ -1113,12 +1128,10 @@ def build_user_progress(user: TelegramUser) -> dict:
                 vocabularyitem__is_learned=True,
             ),
         )
-    ).order_by("-learned_count")
+    )
 
     total_users = user_stats.count()
-    better_than = sum(
-        1 for candidate in user_stats if candidate.learned_count < learned
-    )
+    better_than = user_stats.filter(learned_count__lt=learned).count()
     rank_percent = round(100 * (1 - better_than / total_users)) if total_users else None
 
     return {
@@ -3569,6 +3582,12 @@ def _learning_local_date(user: TelegramUser) -> date:
     """Return the current calendar date in the learner's configured timezone."""
     user_timezone = timezone_from_name(user.reminder_timezone or "UTC")
     return timezone.now().astimezone(user_timezone).date()
+
+
+def _learning_day_window(user: TelegramUser, day: date) -> tuple[datetime, datetime]:
+    user_timezone = timezone_from_name(user.reminder_timezone or "UTC")
+    start = datetime.combine(day, datetime_time.min, tzinfo=user_timezone)
+    return start, start + timedelta(days=1)
 
 
 def _active_streak_days(progress: UserCourseProgress, today: date) -> int:

@@ -746,7 +746,10 @@ function App() {
 
   async function loadLearnQuestion(excludeIds = [], questionCount = 0) {
     const ids = excludeIds.filter(Boolean);
-    const data = await api(`/api/learn/question?exclude_ids=${encodeURIComponent(ids.join(","))}`);
+    const data = await api("/api/learn/question", {
+      method: "POST",
+      body: JSON.stringify({ exclude_ids: ids }),
+    });
     setLearnSessionLimit(data.session_limit || 12);
     setLearnSelection("");
     setLearnTextAnswer("");
@@ -945,7 +948,10 @@ function App() {
     stopPolling();
     pollRef.current = window.setInterval(async () => {
       try {
-        const data = await api(`/api/auth/telegram/poll/${loginToken}`);
+        const data = await api(`/api/auth/telegram/poll/${loginToken}`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
         if (data.authenticated) {
           stopPolling();
           setAuth({ loading: false, authenticated: true, user: data.user, progress: data.progress });

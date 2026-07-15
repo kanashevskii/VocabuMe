@@ -78,7 +78,7 @@ def test_auth_poll_link_authenticates_bound_token(client):
     token.user = user
     token.save(update_fields=["user"])
 
-    response = client.get(f"/api/auth/telegram/poll/{token.token}")
+    response = client.post(f"/api/auth/telegram/poll/{token.token}")
 
     assert response.status_code == 200
     payload = response.json()
@@ -88,10 +88,17 @@ def test_auth_poll_link_authenticates_bound_token(client):
 
 @pytest.mark.django_db
 def test_auth_poll_link_returns_not_authenticated_for_unknown_token(client):
-    response = client.get("/api/auth/telegram/poll/unknown-token")
+    response = client.post("/api/auth/telegram/poll/unknown-token")
 
     assert response.status_code == 200
     assert response.json() == {"ok": True, "authenticated": False}
+
+
+@pytest.mark.django_db
+def test_auth_poll_link_rejects_get_to_keep_token_consumption_explicit(client):
+    response = client.get("/api/auth/telegram/poll/unknown-token")
+
+    assert response.status_code == 405
 
 
 @pytest.mark.django_db
@@ -282,12 +289,26 @@ def test_learn_question_returns_empty_when_service_has_no_question(client, monke
     session.save()
     monkeypatch.setattr("vocab.views.issue_learning_question", lambda user, exclude_ids=None: None)
 
-    response = client.get("/api/learn/question")
+    response = client.post(
+        "/api/learn/question", data=json.dumps({"exclude_ids": []}), content_type="application/json"
+    )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["empty"] is True
     assert payload["session_limit"] == 50
+
+
+@pytest.mark.django_db
+def test_learn_question_rejects_get_to_keep_question_issuance_explicit(client):
+    user = TelegramUser.objects.create(chat_id=20_051, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.get("/api/learn/question")
+
+    assert response.status_code == 405
 
 
 @pytest.mark.django_db

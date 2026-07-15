@@ -191,18 +191,12 @@ def _current_user(request: HttpRequest) -> TelegramUser | None:
             telegram_id = int(telegram_user["id"])
         except (KeyError, TypeError, ValueError, TelegramAuthError):
             return None
-        user = upsert_telegram_user(
-            chat_id=telegram_id, username=telegram_user.get("username")
-        )
-        request.session[SESSION_USER_KEY] = user.id
-        return user
+        return TelegramUser.objects.filter(chat_id=telegram_id).first()
 
     user_id = request.session.get(SESSION_USER_KEY)
     if not user_id:
         return None
     user = get_telegram_user_by_id(user_id)
-    if user is None:
-        request.session.pop(SESSION_USER_KEY, None)
     return user
 
 
@@ -355,7 +349,7 @@ def auth_web_login(request: HttpRequest) -> JsonResponse:
     return _json_error("Email/password login is no longer supported. Use Telegram login.", status=410)
 
 
-@require_GET
+@require_POST
 def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
     user = consume_web_login_token(token)
     if user is None:
@@ -881,22 +875,24 @@ def packs_add(request: HttpRequest) -> JsonResponse:
     )
 
 
-@require_GET
+@require_POST
 def learn_question(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
 
-    raw_exclude = [
-        chunk.strip()
-        for chunk in request.GET.get("exclude_ids", "").split(",")
-        if chunk.strip()
-    ]
+    try:
+        payload = _json_body(request)
+    except ValueError as exc:
+        return _json_error(str(exc))
+    raw_exclude = payload.get("exclude_ids", [])
+    if not isinstance(raw_exclude, list):
+        return _json_error("exclude_ids must be an array.")
     exclude_ids: list[int] = []
-    for chunk in raw_exclude:
+    for chunk in raw_exclude[:50]:
         try:
             exclude_ids.append(int(chunk))
-        except ValueError:
+        except (TypeError, ValueError):
             continue
 
     question = issue_learning_question(user, exclude_ids=exclude_ids)
