@@ -13,7 +13,6 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import AddWordDraft, TelegramUser, VocabularyItem
 from .services import (
-    add_pack_words_to_user,
     add_words_from_text,
     apply_user_settings,
     build_user_progress,
@@ -26,14 +25,12 @@ from .services import (
     finalize_word_draft,
     create_checkout_session,
     get_billing_payload,
-    get_active_course_code,
     get_profile_avatar_file,
     get_user_draft,
     get_user_settings_payload,
     get_user_word,
     get_ordered_unlearned_words,
     list_words,
-    list_word_packs,
     request_draft_image_generation,
     refresh_draft_language_data,
     request_word_image_generation,
@@ -44,7 +41,6 @@ from .services import (
     update_word_translation,
     upsert_telegram_user,
     word_already_exists,
-    ensure_pack_preparation,
     EntitlementError,
 )
 from .telegram_auth import (
@@ -93,6 +89,11 @@ from .api.learning import (  # noqa: F401 - URL compatibility exports
 from .api.speaking import (  # noqa: F401 - URL compatibility exports
     speaking_answer,
     speaking_question,
+)
+from .api.packs import (  # noqa: F401 - URL compatibility exports
+    packs_add,
+    packs_prepare,
+    packs_view,
 )
 from .api.alphabet import (  # noqa: F401 - URL compatibility exports
     alphabet_answer,
@@ -682,68 +683,5 @@ def profile_avatar(request: HttpRequest) -> JsonResponse | FileResponse:
             "ok": True,
             "user": serialize_user(user),
             "settings": get_user_settings_payload(user),
-        }
-    )
-
-
-@require_GET
-def packs_view(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    return JsonResponse({"ok": True, "packs": list_word_packs(user)})
-
-
-@require_POST
-def packs_prepare(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="pack-preparation", limit=2, window=60, user=user
-    ):
-        return limited
-    active_course = get_active_course_code(user)
-    for pack in list_word_packs(user):
-        for level in pack["levels"]:
-            ensure_pack_preparation(pack["id"], level["id"], course_code=active_course)
-    return JsonResponse({"ok": True})
-
-
-@require_POST
-def packs_add(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="pack-add", limit=5, window=60, user=user
-    ):
-        return limited
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    pack_id = str(payload.get("pack_id", "")).strip()
-    level_id = str(payload.get("level_id", "")).strip()
-    selected_words = payload.get("selected_words") or []
-    if not isinstance(selected_words, list):
-        return _json_error("selected_words must be a list.")
-
-    try:
-        result = add_pack_words_to_user(
-            user, pack_id, level_id, [str(word) for word in selected_words]
-        )
-    except EntitlementError as exc:
-        return _json_entitlement_error(user, exc)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    return JsonResponse(
-        {
-            "ok": True,
-            **result,
-            "progress": build_user_progress(user),
-            "packs": list_word_packs(user),
         }
     )
