@@ -1,6 +1,7 @@
 from vocab import views
 from vocab.api import images
 from vocab.api import alphabet
+from vocab.api import billing
 from vocab.api import irregular
 from vocab.api import learning
 from vocab.api import media
@@ -69,3 +70,9 @@ def test_views_keep_legacy_word_exports(client):
     assert views.word_detail is words_api.word_detail
     assert views.word_image_regenerate is words_api.word_image_regenerate
     assert client.get("/api/words").status_code == 401
+
+
+def test_views_keep_legacy_billing_exports(client):
+    assert views.billing_status is billing.billing_status
+    assert views.billing_checkout is billing.billing_checkout
+    assert client.get("/api/billing").status_code == 401

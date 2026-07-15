@@ -592,7 +592,7 @@ def test_billing_checkout_returns_invoice_link(client, monkeypatch):
     session.save()
 
     monkeypatch.setattr(
-        "vocab.views.create_checkout_session",
+        "vocab.api.billing.create_checkout_session",
         lambda current_user, plan_code, billing_period, return_source="miniapp": {
             "attempt_id": 1,
             "invoice_payload": "sub:test",

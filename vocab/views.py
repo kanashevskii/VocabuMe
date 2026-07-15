@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-import traceback
 
 from django.conf import settings
 from django.http import FileResponse, HttpRequest, JsonResponse
@@ -18,7 +17,6 @@ from .services import (
     consume_web_login_token,
     create_web_login_token,
     delete_user_avatar,
-    create_checkout_session,
     get_billing_payload,
     get_profile_avatar_file,
     get_user_settings_payload,
@@ -44,10 +42,7 @@ from .api.common import (
     login as _login,
 )
 from .api.docs import api_docs, openapi_schema  # noqa: F401 - URL compatibility exports
-from .api.errors import (
-    client_error_log,  # noqa: F401 - URL compatibility export
-    log_app_error as _log_app_error,
-)
+from .api.errors import client_error_log  # noqa: F401 - URL compatibility export
 from .api.media import (  # noqa: F401 - URL compatibility exports
     alphabet_audio,
     alphabet_audio_prepare,
@@ -91,6 +86,10 @@ from .api.words import (  # noqa: F401 - URL compatibility exports
     word_draft_save,
     word_image_regenerate,
     words,
+)
+from .api.billing import (  # noqa: F401 - URL compatibility exports
+    billing_checkout,
+    billing_status,
 )
 from .api.alphabet import (  # noqa: F401 - URL compatibility exports
     alphabet_answer,
@@ -295,53 +294,6 @@ def dashboard(request: HttpRequest) -> JsonResponse:
             "next_cards": next_cards,
         }
     )
-
-
-@require_GET
-def billing_status(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    return JsonResponse({"ok": True, "billing": get_billing_payload(user)})
-
-
-@require_POST
-def billing_checkout(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="billing-checkout", limit=5, window=60, user=user
-    ):
-        return limited
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    try:
-        checkout = create_checkout_session(
-            user,
-            plan_code=(payload.get("plan_code") or "premium").strip().lower(),
-            billing_period=(payload.get("billing_period") or "monthly").strip().lower(),
-            return_source=(payload.get("source") or "miniapp").strip().lower(),
-        )
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-    except Exception as exc:
-        logger.exception("billing checkout failed")
-        _log_app_error(
-            request,
-            user=user,
-            category="billing",
-            status_code=500,
-            message=f"billing checkout failed: {exc}",
-            context={"traceback": traceback.format_exc()[-4000:]},
-        )
-        return _json_error("Не удалось начать оплату. Попробуй ещё раз.", status=500)
-
-    return JsonResponse({"ok": True, **checkout, "billing": get_billing_payload(user)})
 
 
 @require_http_methods(["GET", "POST"])
