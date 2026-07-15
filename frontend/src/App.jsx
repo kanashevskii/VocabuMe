@@ -22,6 +22,7 @@ import { api, reportClientError } from "./lib/api";
 import ProgressScreen from "./screens/ProgressScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import TodayScreen from "./screens/TodayScreen";
+import MoreScreen from "./screens/MoreScreen";
 
 function getSessionPraise(correct, total) {
   if (!total) {
@@ -459,7 +460,8 @@ function App() {
       return "Список";
     }
     if (primaryTab === "progress") return "Прогресс";
-    return primaryTab === "more" ? "Настройки" : "Практика";
+    if (primaryTab === "more") return "Ещё";
+    return "Практика";
   }, [primaryTab, libraryMode, showLibraryAdd]);
 
   const currentCard = cardQueue[cardIndex];
@@ -3243,6 +3245,9 @@ function App() {
           progressSecondaryStats={progressSecondaryStats}
         />
       );
+    }
+    if (primaryTab === "more") {
+      return <MoreScreen busy={busy} onLogout={logoutWeb} onSelectLanguage={selectStudiedLanguage} onSetPracticePause={setTemporaryPracticePause} settings={settings} />;
     }
     return renderMore();
   }

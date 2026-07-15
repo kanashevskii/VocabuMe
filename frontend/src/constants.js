@@ -3,7 +3,7 @@ export const PRIMARY_TABS = [
   { id: "learn", label: "Практика" },
   { id: "words", label: "Словарь" },
   { id: "progress", label: "Прогресс" },
-  { id: "more", label: "⚙️", compact: true },
+  { id: "more", label: "Ещё" },
 ];
 
 export const LIBRARY_MODES = [

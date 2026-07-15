@@ -5,7 +5,7 @@ const TAB_ICONS = {
   learn: "⭕",
   words: "📘",
   progress: "📊",
-  more: "⚙️",
+  more: "☰",
 };
 
 export default function BottomNav({
