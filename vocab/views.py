@@ -17,7 +17,6 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import AddWordDraft, TelegramUser, VocabularyItem
 from .alphabets import get_alphabet_letter
-from .irregular_verbs import IRREGULAR_VERBS
 from .openai_utils import transcribe_speech_file
 from .openai_limits import openai_user_scope
 from .services import (
@@ -26,7 +25,6 @@ from .services import (
     apply_user_settings,
     issue_learning_question,
     build_user_progress,
-    build_irregular_question,
     build_alphabet_question,
     build_speaking_question,
     consume_web_login_token,
@@ -61,13 +59,15 @@ from .services import (
     get_issued_speaking_question,
     submit_issued_speaking_answer,
     submit_alphabet_answer,
-    update_learning_streak,
-    update_irregular_progress,
     update_word_translation,
     upsert_telegram_user,
     word_already_exists,
     ensure_pack_preparation,
     EntitlementError,
+)
+from .application.irregular_questions import (
+    issue_irregular_question,
+    submit_issued_irregular_answer,
 )
 from .telegram_auth import (
     TelegramAuthError,
@@ -1084,7 +1084,7 @@ def irregular_question(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
-    return JsonResponse({"ok": True, "question": build_irregular_question()})
+    return JsonResponse({"ok": True, "question": issue_irregular_question(user)})
 
 
 @require_POST
@@ -1099,28 +1099,16 @@ def irregular_answer(request: HttpRequest) -> JsonResponse:
 
     try:
         payload = _json_body(request)
-        base = str(payload.get("base", "")).strip()
+        question_id = str(payload.get("question_id", ""))
         answer = str(payload.get("answer", "")).strip()
     except (TypeError, ValueError):
         return _json_error("Invalid irregular payload.")
 
-    verb = next((item for item in IRREGULAR_VERBS if item["base"] == base), None)
-    if verb is None:
-        return _json_error("Irregular verb not found.", status=404)
-    correct_pair = f"{verb['past']} {verb['participle']}"
-    correct = answer == correct_pair
-    if correct:
-        update_irregular_progress(user, base, True)
-        update_learning_streak(user)
-    return JsonResponse(
-        {
-            "ok": True,
-            "correct": correct,
-            "correct_answer": correct_pair,
-            "points_earned": 1 if correct else 0,
-            "progress": build_user_progress(user),
-        }
-    )
+    try:
+        result = submit_issued_irregular_answer(user, question_id, answer)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+    return JsonResponse({"ok": True, **result})
 
 
 @require_GET

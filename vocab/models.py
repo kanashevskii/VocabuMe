@@ -332,6 +332,29 @@ class IssuedLearningQuestion(models.Model):
         ]
 
 
+class IssuedIrregularQuestion(models.Model):
+    """One server-issued irregular-verb attempt, consumed exactly once."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    course_code = models.CharField(
+        max_length=10,
+        choices=STUDIED_LANGUAGE_CHOICES,
+        default=DEFAULT_STUDIED_LANGUAGE,
+    )
+    verb_base = models.CharField(max_length=50)
+    expires_at = models.DateTimeField()
+    answered_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["user", "expires_at"], name="vocab_irregular_issue_idx"
+            )
+        ]
+
+
 BACKGROUND_JOB_STATUS_CHOICES = (
     ("queued", "Queued"),
     ("running", "Running"),

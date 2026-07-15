@@ -1575,7 +1575,7 @@ function App() {
       const data = await api("/api/irregular/answer", {
         method: "POST",
         body: JSON.stringify({
-          base: irregularQuestion.verb.base,
+          question_id: irregularQuestion.question_id,
           answer
         })
       });
@@ -1681,7 +1681,7 @@ function App() {
     try {
       const data = await api("/api/irregular/answer", {
         method: "POST",
-        body: JSON.stringify({ base: irregularQuestion.verb.base, answer: "" })
+        body: JSON.stringify({ question_id: irregularQuestion.question_id, answer: "" })
       });
       setIrregularResult({ ...data, skipped: true });
     } catch (error) {
