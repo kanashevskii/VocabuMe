@@ -9,7 +9,7 @@ User=eduard
 Group=eduard
 WorkingDirectory=/home/eduard/englishbot
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/eduard/englishbot/venv/bin/celery -A core worker --loglevel=INFO --queues=vocabume-high --concurrency=2 --hostname=vocabume-high@%%h
+ExecStart=/home/eduard/englishbot/venv/bin/celery -A core worker --loglevel=INFO --queues=vocabume-high --concurrency=2 --hostname=vocabume-high@%H
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=310

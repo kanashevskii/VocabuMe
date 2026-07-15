@@ -20,16 +20,32 @@ logger = logging.getLogger(__name__)
 def enqueue_job(
     *, kind: str, deduplication_key: str, payload: dict[str, Any], priority: int
 ) -> BackgroundJob:
-    job, created = BackgroundJob.objects.get_or_create(
-        deduplication_key=deduplication_key,
-        defaults={
-            "kind": kind,
-            "priority": priority,
-            "payload": payload,
-            "run_after": timezone.now(),
-        },
-    )
-    if created and settings.CELERY_BROKER_URL:
+    with transaction.atomic():
+        job, created = BackgroundJob.objects.get_or_create(
+            deduplication_key=deduplication_key,
+            defaults={
+                "kind": kind,
+                "priority": priority,
+                "payload": payload,
+                "run_after": timezone.now(),
+            },
+        )
+        requeued = False
+        if not created and job.status == "failed":
+            requeued = (
+                BackgroundJob.objects.filter(id=job.id, status="failed").update(
+                    status="queued",
+                    attempts=0,
+                    run_after=timezone.now(),
+                    locked_at=None,
+                    last_error="",
+                )
+                == 1
+            )
+            if requeued:
+                job.refresh_from_db()
+
+    if (created or requeued) and settings.CELERY_BROKER_URL:
         queue = "vocabume-high" if priority < 100 else "vocabume-low"
 
         def dispatch() -> None:

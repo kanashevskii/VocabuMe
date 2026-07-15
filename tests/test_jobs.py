@@ -26,6 +26,32 @@ def test_enqueue_job_is_idempotent():
 
 
 @pytest.mark.django_db
+def test_enqueue_job_requeues_a_failed_idempotent_job():
+    job = enqueue_job(
+        kind="word_image",
+        deduplication_key="word-image:failed:1",
+        payload={"item_id": 1, "version": 1},
+        priority=10,
+    )
+    job.status = "failed"
+    job.attempts = job.max_attempts
+    job.last_error = "temporary outage"
+    job.save(update_fields=["status", "attempts", "last_error"])
+
+    retried = enqueue_job(
+        kind="word_image",
+        deduplication_key="word-image:failed:1",
+        payload={"item_id": 1, "version": 1},
+        priority=10,
+    )
+
+    assert retried.id == job.id
+    assert retried.status == "queued"
+    assert retried.attempts == 0
+    assert retried.last_error == ""
+
+
+@pytest.mark.django_db
 def test_run_one_job_marks_success(monkeypatch):
     job = enqueue_job(
         kind="word_image",
