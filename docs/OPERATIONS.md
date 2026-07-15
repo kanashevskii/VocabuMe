@@ -47,6 +47,8 @@ The command deletes only records older than the selected retention window and re
 
 High-priority user work is isolated on `vocabume-high`. Do not send pack warm-up, backfill, or other paid/bulk work there. Before enabling low-priority workers or Celery beat, identify whether tasks call Telegram, OpenAI, TTS, or a payment provider; cap retries and concurrency first.
 
+OpenAI requests use Redis-backed global and per-user concurrency limits. They also use a short circuit breaker: after `OPENAI_CIRCUIT_FAILURE_THRESHOLD` consecutive provider failures, new requests fail fast for `OPENAI_CIRCUIT_RESET_SECONDS`. This prevents a provider outage from turning queued retries into a spend and latency incident. Redis unavailability fails closed in production; do not work around it by increasing concurrency or disabling the breaker during an incident. Inspect the provider error rate and Redis health first.
+
 ## Incident triage
 
 For a 5xx/502, establish facts in this order: reverse proxy status, Gunicorn service status, local `/api/app-config`, recent application logs, database connectivity, Redis/worker status, then the changed deploy/migration. Use one batched SSH session for an investigation rather than repeated reconnects.
