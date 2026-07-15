@@ -5,9 +5,11 @@ import ast
 import re
 import base64
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from core.env import get_openai_api_key
+from vocab.openai_budget import openai_budget_reservation
 from vocab.openai_limits import current_openai_user_id, openai_slot
 
 client = OpenAI(api_key=get_openai_api_key())
@@ -37,9 +39,24 @@ def _strip_code_fences(text: str) -> str:
     return stripped
 
 
-def openai_request_slot(label: str):
-    """Compatibility facade for the Redis-backed OpenAI concurrency limiter."""
-    return openai_slot(label, user_id=current_openai_user_id())
+@contextmanager
+def openai_request_slot(
+    label: str,
+    *,
+    model: str = TEXT_MODEL,
+    size: str = "",
+    quality: str = "",
+):
+    """Reserve spend and shared provider capacity for one OpenAI request."""
+    with openai_budget_reservation(
+        label,
+        model=model,
+        user_id=current_openai_user_id(),
+        size=size,
+        quality=quality,
+    ) as reservation:
+        with openai_slot(label, user_id=current_openai_user_id()):
+            yield reservation
 
 
 def _parse_model_json(payload: str) -> dict:
@@ -204,11 +221,13 @@ def generate_word_data(
     lang = detect_language(word)
     if course_code == "en" and lang == "ru":
         prompt_translate = f'Translate the Russian word or phrase "{word}" to English. Just give the main English equivalent.'
-        with openai_request_slot("translate-ru-to-en"):
+        with openai_request_slot("translate-ru-to-en") as usage:
             translation_resp = client.chat.completions.create(
                 model=TEXT_MODEL,
                 messages=[{"role": "user", "content": prompt_translate}],
+                max_completion_tokens=1024,
             )
+            usage.record_chat_response(translation_resp)
         word = _strip_code_fences(translation_resp.choices[0].message.content)
 
     effective_part = part_hint or _infer_part_from_translation(translation_hint)
@@ -220,11 +239,13 @@ def generate_word_data(
             word, effective_part, translation_hint, course_code=course_code, extra_note=prompt_note
         )
         try:
-            with openai_request_slot("generate-word-data"):
+            with openai_request_slot("generate-word-data") as usage:
                 response = client.chat.completions.create(
                     model=TEXT_MODEL,
                     messages=[{"role": "user", "content": prompt}],
+                    max_completion_tokens=1024,
                 )
+                usage.record_chat_response(response)
             content = response.choices[0].message.content.strip()
             parsed = _parse_model_json(content)
             if effective_part:
@@ -317,11 +338,13 @@ Input:
 {json.dumps(payload, ensure_ascii=False)}
 """
     try:
-        with openai_request_slot("generate-word-data-batch"):
+        with openai_request_slot("generate-word-data-batch") as usage:
             response = client.chat.completions.create(
                 model=TEXT_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                max_completion_tokens=1024,
             )
+            usage.record_chat_response(response)
         content = response.choices[0].message.content.strip()
         parsed = _parse_model_json(content)
         if not isinstance(parsed, list) or len(parsed) != len(entries):
@@ -391,11 +414,13 @@ Rules:
 - Keep it suitable for a clean educational flashcard.
 """
     try:
-        with openai_request_slot("build-visual-prompt"):
+        with openai_request_slot("build-visual-prompt") as usage:
             response = client.chat.completions.create(
                 model=TEXT_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                max_completion_tokens=1024,
             )
+            usage.record_chat_response(response)
         content = response.choices[0].message.content.strip()
         parsed = _parse_model_json(content)
         return parsed.get("prompt", "").strip() or None
@@ -412,12 +437,17 @@ def generate_card_image(prompt: str, slug: str) -> str:
     response = None
     for attempt in range(6):
         try:
-            with openai_request_slot("generate-card-image"):
+            with openai_request_slot(
+                "generate-card-image", model=IMAGE_MODEL, size="1024x1024", quality="low"
+            ) as usage:
                 response = client.images.generate(
                     model=IMAGE_MODEL,
                     prompt=prompt,
                     size="1024x1024",
                     quality="low",
+                )
+                usage.record_image_response(
+                    response, size="1024x1024", quality="low"
                 )
             break
         except RateLimitError as exc:
@@ -436,11 +466,12 @@ def generate_card_image(prompt: str, slug: str) -> str:
 
 def transcribe_speech_file(audio_path: str) -> str:
     with open(audio_path, "rb") as audio_file:
-        with openai_request_slot("transcribe-speech"):
+        with openai_request_slot("transcribe-speech", model=TRANSCRIBE_MODEL) as usage:
             response = client.audio.transcriptions.create(
                 model=TRANSCRIBE_MODEL,
                 file=audio_file,
                 language="en",
             )
+            usage.record_chat_response(response)
     text = getattr(response, "text", "") or ""
     return text.strip()

@@ -355,6 +355,33 @@ class IssuedIrregularQuestion(models.Model):
         ]
 
 
+class OpenAIUsageEvent(models.Model):
+    """Auditable cost estimate for one OpenAI request."""
+
+    user = models.ForeignKey(
+        TelegramUser, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    operation = models.CharField(max_length=64)
+    model = models.CharField(max_length=128)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    cached_input_tokens = models.PositiveIntegerField(default=0)
+    image_count = models.PositiveSmallIntegerField(default=0)
+    cost_microusd = models.PositiveBigIntegerField()
+    usage_available = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["created_at"], name="vocab_openai_usage_created_idx"
+            ),
+            models.Index(
+                fields=["user", "created_at"], name="vocab_openai_usage_user_idx"
+            ),
+        ]
+
+
 BACKGROUND_JOB_STATUS_CHOICES = (
     ("queued", "Queued"),
     ("running", "Running"),

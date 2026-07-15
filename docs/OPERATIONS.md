@@ -49,6 +49,8 @@ High-priority user work is isolated on `vocabume-high`. Do not send pack warm-up
 
 OpenAI requests use Redis-backed global and per-user concurrency limits. They also use a short circuit breaker: after `OPENAI_CIRCUIT_FAILURE_THRESHOLD` consecutive provider failures, new requests fail fast for `OPENAI_CIRCUIT_RESET_SECONDS`. This prevents a provider outage from turning queued retries into a spend and latency incident. Redis unavailability fails closed in production; do not work around it by increasing concurrency or disabling the breaker during an incident. Inspect the provider error rate and Redis health first.
 
+`OPENAI_DAILY_BUDGET_USD` is a UTC-day, production-wide spend cap and defaults to `5.00`. Each call reserves budget atomically in Redis before it reaches OpenAI, then reconciles against returned token usage; image calls use the configured model/size/quality price. `OpenAIUsageEvent` is the audit ledger in PostgreSQL. Treat a budget-exhausted response as a capacity condition: do not retry it aggressively, and only raise the cap after inspecting the usage events and the OpenAI invoice.
+
 ## Incident triage
 
 For a 5xx/502, establish facts in this order: reverse proxy status, Gunicorn service status, local `/api/app-config`, recent application logs, database connectivity, Redis/worker status, then the changed deploy/migration. Use one batched SSH session for an investigation rather than repeated reconnects.
