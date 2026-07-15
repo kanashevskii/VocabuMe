@@ -23,6 +23,39 @@ MAX_CLIENT_ERROR_MESSAGE_LENGTH = 1_000
 CLIENT_ERROR_CATEGORIES = {"client", "network", "ui", "api"}
 CLIENT_ERROR_LEVELS = {"warning", "error"}
 _SENSITIVE_CONTEXT_KEYS = {"password", "token", "init_data", "audio"}
+MAX_CONTEXT_DEPTH = 3
+MAX_CONTEXT_ITEMS = 20
+MAX_CONTEXT_STRING_LENGTH = 500
+
+
+def _is_sensitive_context_key(key: object) -> bool:
+    normalized = str(key).strip().lower().replace("-", "_")
+    return normalized in _SENSITIVE_CONTEXT_KEYS or any(
+        marker in normalized
+        for marker in ("token", "password", "secret", "authorization", "cookie", "api_key")
+    )
+
+
+def _safe_context_value(value: object, *, depth: int = 0) -> object:
+    if depth >= MAX_CONTEXT_DEPTH:
+        return "[truncated]"
+    if isinstance(value, str):
+        return value[:MAX_CONTEXT_STRING_LENGTH]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        safe: dict[str, object] = {}
+        for key, nested_value in list(value.items())[:MAX_CONTEXT_ITEMS]:
+            if _is_sensitive_context_key(key):
+                continue
+            safe[str(key)[:100]] = _safe_context_value(nested_value, depth=depth + 1)
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [
+            _safe_context_value(item, depth=depth + 1)
+            for item in value[:MAX_CONTEXT_ITEMS]
+        ]
+    return str(value)[:MAX_CONTEXT_STRING_LENGTH]
 
 
 def safe_context(payload: dict | None) -> dict:
@@ -30,15 +63,10 @@ def safe_context(payload: dict | None) -> dict:
     if not payload:
         return {}
     safe: dict[str, object] = {}
-    for key, value in payload.items():
-        if key.lower() in _SENSITIVE_CONTEXT_KEYS:
+    for key, value in list(payload.items())[:MAX_CONTEXT_ITEMS]:
+        if _is_sensitive_context_key(key):
             continue
-        if isinstance(value, str):
-            safe[key] = value[:500]
-        elif isinstance(value, (int, float, bool)) or value is None:
-            safe[key] = value
-        else:
-            safe[key] = str(value)
+        safe[str(key)[:100]] = _safe_context_value(value)
     return safe
 
 

@@ -238,6 +238,34 @@ def test_client_error_log_persists_context(client):
 
 
 @pytest.mark.django_db
+def test_client_error_log_redacts_nested_secrets(client):
+    user = TelegramUser.objects.create(chat_id=20040, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    response = client.post(
+        "/api/client-error",
+        data=json.dumps(
+            {
+                "category": "client",
+                "level": "error",
+                "message": "boom",
+                "meta": {
+                    "request": {"authorization": "Bearer secret", "ok": True},
+                    "items": [{"access_token": "secret"}, "visible"],
+                },
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    context = AppErrorLog.objects.get().context
+    assert context["meta"] == {"request": {"ok": True}, "items": [{}, "visible"]}
+
+
+@pytest.mark.django_db
 def test_client_error_log_requires_authenticated_user(client):
     response = client.post(
         "/api/client-error",
