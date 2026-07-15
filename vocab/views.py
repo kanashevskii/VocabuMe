@@ -15,7 +15,7 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
-from .models import AddWordDraft, AppErrorLog, TelegramUser, VocabularyItem
+from .models import AddWordDraft, TelegramUser, VocabularyItem
 from .alphabets import get_alphabet_letter
 from .irregular_verbs import IRREGULAR_VERBS
 from .openai_utils import transcribe_speech_file
@@ -83,14 +83,14 @@ from .api.common import (
     login as _login,
 )
 from .api.docs import api_docs, openapi_schema  # noqa: F401 - URL compatibility exports
+from .api.errors import (
+    client_error_log,  # noqa: F401 - URL compatibility export
+    log_app_error as _log_app_error,
+)
 
 logger = logging.getLogger(__name__)
 MAX_IMAGE_REGENERATIONS = 3
 MAX_ADD_BATCH_WORDS = 10
-MAX_CLIENT_ERROR_BODY_BYTES = 16 * 1024
-MAX_CLIENT_ERROR_MESSAGE_LENGTH = 1_000
-CLIENT_ERROR_CATEGORIES = {"client", "network", "ui", "api"}
-CLIENT_ERROR_LEVELS = {"warning", "error"}
 QUESTION_SIGNER = TimestampSigner(salt="vocab.alphabet-question")
 
 
@@ -130,47 +130,6 @@ def _safe_unlink(path: str) -> None:
         os.remove(path)
     except OSError:
         logger.warning("Failed to remove temp file %s", path)
-
-
-def _safe_context(payload: dict | None) -> dict:
-    if not payload:
-        return {}
-    safe: dict[str, object] = {}
-    for key, value in payload.items():
-        if key.lower() in {"password", "token", "init_data", "audio"}:
-            continue
-        if isinstance(value, str):
-            safe[key] = value[:500]
-        elif isinstance(value, (int, float, bool)) or value is None:
-            safe[key] = value
-        else:
-            safe[key] = str(value)
-    return safe
-
-
-def _log_app_error(
-    request: HttpRequest,
-    *,
-    message: str,
-    category: str = "server",
-    level: str = "error",
-    status_code: int | None = None,
-    user: TelegramUser | None = None,
-    context: dict | None = None,
-) -> None:
-    try:
-        AppErrorLog.objects.create(
-            user=user or _current_user(request),
-            category=category,
-            level=level,
-            message=message[:4000],
-            path=request.path[:255],
-            method=request.method[:10],
-            status_code=status_code,
-            context=_safe_context(context),
-        )
-    except Exception:
-        logger.exception("Failed to persist AppErrorLog for %s", request.path)
 
 
 @ensure_csrf_cookie
@@ -313,48 +272,6 @@ def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
             "progress": build_user_progress(user),
         }
     )
-
-
-@csrf_exempt
-@require_POST
-def client_error_log(request: HttpRequest) -> JsonResponse:
-    user = _current_user(request)
-    if user is None:
-        return _json_error("Authentication required.", status=401)
-    if limited := _enforce_request_limit(
-        request, scope="client-error", limit=30, window=60, user=user
-    ):
-        return limited
-    if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_CLIENT_ERROR_BODY_BYTES:
-        return _json_error("Client error payload is too large.", status=413)
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    category = str(payload.get("category") or "client").lower()
-    level = str(payload.get("level") or "error").lower()
-    if category not in CLIENT_ERROR_CATEGORIES or level not in CLIENT_ERROR_LEVELS:
-        return _json_error("Invalid client error payload.")
-    status_code = payload.get("status_code")
-    if not isinstance(status_code, int) or not 100 <= status_code <= 599:
-        status_code = None
-    _log_app_error(
-        request,
-        user=user,
-        category=category,
-        level=level,
-        status_code=status_code,
-        message=str(payload.get("message") or "Client-side error")[
-            :MAX_CLIENT_ERROR_MESSAGE_LENGTH
-        ],
-        context={
-            "url": payload.get("url", ""),
-            "detail": str(payload.get("detail", ""))[:1_000],
-            "meta": payload.get("meta", {}),
-        },
-    )
-    return JsonResponse({"ok": True})
 
 
 def _get_draft_for_user(
