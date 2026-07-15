@@ -138,8 +138,8 @@ def test_activate_subscription_from_successful_payment_marks_user_premium():
         invoice_payload=attempt["invoice_payload"],
         telegram_payment_charge_id="tg_charge",
         provider_payment_charge_id="provider_charge",
-        amount_minor=699,
-        currency="USD",
+        amount_minor=199,
+        currency="XTR",
     )
 
     assert subscription.status == "active"
@@ -158,11 +158,11 @@ def test_create_checkout_session_returns_invoice_link(monkeypatch):
             self.token = token
 
         async def create_invoice_link(self, **kwargs):
+            assert kwargs["provider_token"] == ""
+            assert kwargs["currency"] == "XTR"
+            assert kwargs["prices"][0].amount == 999
             return "https://t.me/invoice/test"
 
-    monkeypatch.setattr(
-        "vocab.services.get_telegram_payments_provider_token", lambda: "provider"
-    )
     monkeypatch.setattr("vocab.services.Bot", FakeBot)
 
     result = create_checkout_session(
@@ -171,10 +171,15 @@ def test_create_checkout_session_returns_invoice_link(monkeypatch):
 
     assert result["invoice_link"] == "https://t.me/invoice/test"
     assert result["plan"]["billing_period"] == "yearly"
+    assert result["plan"]["telegram_stars_amount"] == 999
+    assert result["plan"]["telegram_stars_currency"] == "XTR"
     assert (
         PaymentAttempt.objects.get(invoice_payload=result["invoice_payload"]).plan.code
         == "premium_yearly"
     )
+    attempt = PaymentAttempt.objects.get(invoice_payload=result["invoice_payload"])
+    assert attempt.amount_minor == 999
+    assert attempt.currency == "XTR"
 
 
 @pytest.mark.django_db
