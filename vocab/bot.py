@@ -665,10 +665,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Ссылка для входа недействительна или уже использована. Запроси новую на сайте.",
                 )
             return
+        start_source = re.sub(r"[^a-zA-Z0-9_.:-]+", "-", start_arg).strip("-")[:80]
+        if start_source and update.effective_chat:
+            user, _ = await get_or_create_user(update.effective_chat.id, update.effective_chat.username)
+            logging.info(
+                "Acquisition start source=%s user_id=%s chat_id=%s username=%s",
+                start_source,
+                user.id,
+                update.effective_chat.id,
+                update.effective_chat.username or "",
+            )
 
     keyboard = []
     if WEBAPP_URL:
-        keyboard.append([InlineKeyboardButton("🚀 Открыть VocabuMe", web_app=WebAppInfo(url=WEBAPP_URL))])
+        keyboard.append([
+            InlineKeyboardButton(
+                "🚀 Открыть VocabuMe",
+                web_app=WebAppInfo(url=_webapp_url_with_source(start_source)),
+            )
+        ])
 
     await safe_reply(
         update,
