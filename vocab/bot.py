@@ -36,7 +36,6 @@ from telegram.ext import (
     filters,
 )
 from asgiref.sync import sync_to_async
-from .models import TelegramUser
 from .monetization import TELEGRAM_STARS_CURRENCY, get_telegram_stars_prices_for_user
 from .services import (
     activate_subscription_for_successful_payment as activate_subscription_for_successful_payment_service,
@@ -85,12 +84,21 @@ from .integrations.telegram.messaging import (
     safe_reply,
     safe_telegram_request as _safe_telegram_request,
 )
+from .integrations.telegram.settings_ui import (
+    main_settings_keyboard as _main_settings_keyboard,
+    main_settings_text as _main_settings_text,
+    reminder_menu_text as _reminder_menu_text,
+    reminder_settings_keyboard as _reminder_settings_keyboard,
+    repeat_menu_text as _repeat_menu_text,
+    repeat_settings_keyboard as _repeat_settings_keyboard,
+    review_menu_text as _review_menu_text,
+    review_settings_keyboard as _review_settings_keyboard,
+)
 from .utils import (
     clean_word,
     translate_to_ru,
     normalize_timezone_value,
     timezone_from_name,
-    format_timezone_short,
 )
 from .tts import generate_tts_audio, generate_temp_audio
 from django.db import IntegrityError
@@ -1666,128 +1674,6 @@ def update_user_repeat_threshold(user, value: int):
 @sync_to_async
 def get_user_by_chat(chat_id):
     return get_telegram_user_by_chat_id(chat_id)
-
-
-def _main_settings_text(user):
-    repeat_text = f"Слово изучается после *{user.repeat_threshold}* правильных ответов"
-    review_text = "включено" if user.enable_review_old_words else "выключено"
-    reminder_text = "включены" if user.reminder_enabled else "отключены"
-    tz_text = format_timezone_short(user.reminder_timezone or "UTC")
-
-    interval_map = {1: "каждый день", 2: "через день"}
-    interval_text = interval_map.get(
-        user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней"
-    )
-    time_text = (
-        user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
-    )
-
-    text = (
-        "⚙️ *Настройки обучения и напоминаний:*\n\n"
-        f"🔁 {repeat_text}\n"
-        f"📅 Повтор старых слов: *{review_text}*\n"
-        f"⏰ Напоминания: *{reminder_text}*\n"
-        f"🌍 Часовой пояс: *{tz_text}*\n"
-        f"📅 Интервал: *{interval_text}*\n"
-        f"🕒 Время: *{time_text}*"
-    )
-    return text
-
-
-def _main_settings_keyboard():
-    return [
-        [InlineKeyboardButton("🔁 Повтор", callback_data="settings_repeat")],
-        [
-            InlineKeyboardButton(
-                "📅 Повтор старых слов", callback_data="settings_review"
-            )
-        ],
-        [InlineKeyboardButton("⏰ Напоминания", callback_data="settings_reminders")],
-    ]
-
-
-def _repeat_settings_keyboard():
-    return [
-        [
-            InlineKeyboardButton("1", callback_data="set_repeat_1"),
-            InlineKeyboardButton("2", callback_data="set_repeat_2"),
-            InlineKeyboardButton("3", callback_data="set_repeat_3"),
-            InlineKeyboardButton("4", callback_data="set_repeat_4"),
-            InlineKeyboardButton("5", callback_data="set_repeat_5"),
-        ],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
-    ]
-
-
-def _repeat_menu_text(user):
-    return (
-        "🔁 *Повтор слов*\n\n"
-        f"Текущий порог: *{user.repeat_threshold}*\n"
-        "Выберите значение:"
-    )
-
-
-def _review_settings_keyboard(user: TelegramUser):
-    toggle_label = "🔁 Выключить" if user.enable_review_old_words else "🔁 Включить"
-    return [
-        [InlineKeyboardButton(toggle_label, callback_data="toggle_review")],
-        [
-            InlineKeyboardButton("⏱ Неделя", callback_data="set_review_days_7"),
-            InlineKeyboardButton("📆 Месяц", callback_data="set_review_days_30"),
-            InlineKeyboardButton("🗓 3 месяца", callback_data="set_review_days_90"),
-        ],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
-    ]
-
-
-def _review_menu_text(user):
-    status = "включено" if user.enable_review_old_words else "выключено"
-    return (
-        "📅 *Повтор старых слов*\n\n"
-        f"Сейчас: *{status}*\n"
-        f"Интервал: {user.days_before_review} дней"
-    )
-
-
-def _reminder_settings_keyboard(user: TelegramUser):
-    toggle_label = "🔔 Выключить" if user.reminder_enabled else "🔔 Включить"
-    return [
-        [InlineKeyboardButton(toggle_label, callback_data="toggle_reminder")],
-        [
-            InlineKeyboardButton(
-                "📅 Каждый день", callback_data="set_reminder_interval_1"
-            ),
-            InlineKeyboardButton(
-                "📅 Через день", callback_data="set_reminder_interval_2"
-            ),
-        ],
-        [InlineKeyboardButton("🌍 Часовой пояс", callback_data="set_reminder_tz")],
-        [
-            InlineKeyboardButton(
-                "🕒 Установить время", callback_data="set_reminder_time"
-            )
-        ],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_settings")],
-    ]
-
-
-def _reminder_menu_text(user):
-    reminder_text = "включены" if user.reminder_enabled else "отключены"
-    interval_map = {1: "каждый день", 2: "через день"}
-    interval_text = interval_map.get(
-        user.reminder_interval_days, f"каждые {user.reminder_interval_days} дней"
-    )
-    time_text = (
-        user.reminder_time.strftime("%H:%M") if user.reminder_time else "не задано"
-    )
-    tz_text = format_timezone_short(user.reminder_timezone or "UTC")
-    return (
-        "⏰ *Напоминания*\n\n"
-        f"Сейчас: *{reminder_text}*\n"
-        f"Интервал: *{interval_text}*\n"
-        f"Время: *{time_text}*\n"
-        f"Часовой пояс: *{tz_text}*"
-    )
 
 
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
