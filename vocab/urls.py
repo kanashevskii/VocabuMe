@@ -4,6 +4,8 @@ from . import views
 
 urlpatterns = [
     path("", views.spa_index, name="spa-index"),
+    path("api/openapi.json", views.openapi_schema, name="openapi-schema"),
+    path("api/docs", views.api_docs, name="api-docs"),
     path("api/app-config", views.app_config, name="app-config"),
     path("api/auth/me", views.auth_me, name="auth-me"),
     path("api/auth/logout", views.auth_logout, name="auth-logout"),
