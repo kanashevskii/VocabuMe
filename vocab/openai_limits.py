@@ -12,6 +12,7 @@ import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 
 from redis import Redis
@@ -52,9 +53,27 @@ end
 return 1
 """
 
+_current_user_id: ContextVar[int | None] = ContextVar(
+    "openai_current_user_id", default=None
+)
+
 
 class OpenAIConcurrencyExceeded(RuntimeError):
     """Raised when OpenAI capacity is exhausted or its limiter is unavailable."""
+
+
+@contextmanager
+def openai_user_scope(user_id: int | None) -> Iterator[None]:
+    """Attach a trusted application user to nested OpenAI client calls."""
+    token = _current_user_id.set(user_id)
+    try:
+        yield
+    finally:
+        _current_user_id.reset(token)
+
+
+def current_openai_user_id() -> int | None:
+    return _current_user_id.get()
 
 
 @lru_cache(maxsize=1)

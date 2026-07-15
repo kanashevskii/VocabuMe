@@ -70,6 +70,7 @@ from .openai_utils import (
     generate_word_data,
     generate_word_data_batch,
 )
+from .openai_limits import openai_user_scope
 from .selectors.progress import get_rank_percent
 from .utils import (
     clean_word,
@@ -1450,11 +1451,12 @@ def add_words_from_text(
             skipped.append({"word": entry.word, "reason": "duplicate"})
             continue
 
-        word_data = generate_word_data(
-            entry.word,
-            translation_hint=entry.translation_hint,
-            course_code=get_active_course_code(user),
-        )
+        with openai_user_scope(user.id):
+            word_data = generate_word_data(
+                entry.word,
+                translation_hint=entry.translation_hint,
+                course_code=get_active_course_code(user),
+            )
         if not word_data:
             failed.append({"word": entry.word, "reason": "generation_failed"})
             continue
@@ -1505,16 +1507,17 @@ def create_word_drafts_from_text(
         skipped = []
         failed = []
 
-        batch_generated = generate_word_data_batch(
-            [
-                {
-                    "word": entry.word,
-                    "translation_hint": entry.translation_hint,
-                    "course_code": get_active_course_code(user),
-                }
-                for entry in entries
-            ]
-        )
+        with openai_user_scope(user.id):
+            batch_generated = generate_word_data_batch(
+                [
+                    {
+                        "word": entry.word,
+                        "translation_hint": entry.translation_hint,
+                        "course_code": get_active_course_code(user),
+                    }
+                    for entry in entries
+                ]
+            )
 
         for entry, generated in zip(entries, batch_generated, strict=False):
             if word_already_exists(user, entry.word):
@@ -1564,11 +1567,12 @@ def create_word_drafts_from_text(
     if word_already_exists(user, entry.word):
         raise ValueError("This word already exists.")
 
-    generated = generate_word_data(
-        entry.word,
-        translation_hint=entry.translation_hint,
-        course_code=get_active_course_code(user),
-    )
+    with openai_user_scope(user.id):
+        generated = generate_word_data(
+            entry.word,
+            translation_hint=entry.translation_hint,
+            course_code=get_active_course_code(user),
+        )
     if not generated:
         raise ValueError("Could not prepare the word data.")
 
@@ -2442,12 +2446,13 @@ def create_word_draft(
 
 
 def refresh_draft_language_data(draft: AddWordDraft, translation: str) -> AddWordDraft:
-    generated = generate_word_data(
-        draft.word,
-        part_hint=draft.part_of_speech,
-        translation_hint=translation,
-        course_code=draft.course_code,
-    )
+    with openai_user_scope(draft.user_id):
+        generated = generate_word_data(
+            draft.word,
+            part_hint=draft.part_of_speech,
+            translation_hint=translation,
+            course_code=draft.course_code,
+        )
     if generated:
         draft.translation = translation
         draft.translation_confirmed = True
@@ -2482,12 +2487,19 @@ def refresh_draft_language_data(draft: AddWordDraft, translation: str) -> AddWor
 
 
 def _build_item_image(
-    word: str, translation: str, part_of_speech: str, example: str, slug: str
+    word: str,
+    translation: str,
+    part_of_speech: str,
+    example: str,
+    slug: str,
+    *,
+    user_id: int | None = None,
 ) -> tuple[str, str] | None:
-    visual_prompt = build_visual_prompt(word, translation, part_of_speech, example)
-    if not visual_prompt:
-        return None
-    image_path = generate_card_image(visual_prompt, slug)
+    with openai_user_scope(user_id):
+        visual_prompt = build_visual_prompt(word, translation, part_of_speech, example)
+        if not visual_prompt:
+            return None
+        image_path = generate_card_image(visual_prompt, slug)
     return visual_prompt, image_path
 
 
@@ -2504,6 +2516,7 @@ def _run_draft_image_generation(draft_id: int, version: int) -> None:
             draft.part_of_speech,
             draft.example,
             f"{draft.user_id}_{draft.normalized_word}_{int(time.time())}",
+            user_id=draft.user_id,
         )
         try:
             latest = AddWordDraft.objects.get(id=draft_id)

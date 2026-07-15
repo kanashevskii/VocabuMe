@@ -1,6 +1,12 @@
 import pytest
+from contextlib import nullcontext
 
-from vocab.openai_limits import OpenAIConcurrencyExceeded, openai_slot
+from vocab.openai_limits import (
+    OpenAIConcurrencyExceeded,
+    openai_slot,
+    openai_user_scope,
+)
+from vocab.openai_utils import openai_request_slot
 
 
 class FakeRedis:
@@ -47,3 +53,19 @@ def test_openai_slot_rejects_parallel_operation_for_same_user(monkeypatch):
                 pass
 
     assert client.values == {}
+
+
+def test_openai_request_slot_uses_trusted_user_scope(monkeypatch):
+    captured: dict[str, int | str | None] = {}
+
+    def fake_slot(label, *, user_id=None):
+        captured.update(label=label, user_id=user_id)
+        return nullcontext()
+
+    monkeypatch.setattr("vocab.openai_utils.openai_slot", fake_slot)
+
+    with openai_user_scope(42):
+        with openai_request_slot("word-data"):
+            pass
+
+    assert captured == {"label": "word-data", "user_id": 42}

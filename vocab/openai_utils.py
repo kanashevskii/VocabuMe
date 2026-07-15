@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from core.env import get_openai_api_key
-from vocab.openai_limits import openai_slot
+from vocab.openai_limits import current_openai_user_id, openai_slot
 
 client = OpenAI(api_key=get_openai_api_key())
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +39,7 @@ def _strip_code_fences(text: str) -> str:
 
 def openai_request_slot(label: str):
     """Compatibility facade for the Redis-backed OpenAI concurrency limiter."""
-    return openai_slot(label)
+    return openai_slot(label, user_id=current_openai_user_id())
 
 
 def _parse_model_json(payload: str) -> dict:

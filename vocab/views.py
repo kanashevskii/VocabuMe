@@ -19,6 +19,7 @@ from .models import AddWordDraft, TelegramUser, VocabularyItem
 from .alphabets import get_alphabet_letter
 from .irregular_verbs import IRREGULAR_VERBS
 from .openai_utils import transcribe_speech_file
+from .openai_limits import openai_user_scope
 from .services import (
     add_pack_words_to_user,
     add_words_from_text,
@@ -884,7 +885,8 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
                 temp_file.write(chunk)
             temp_path = temp_file.name
 
-        transcript = transcribe_speech_file(temp_path)
+        with openai_user_scope(user.id):
+            transcript = transcribe_speech_file(temp_path)
         return JsonResponse(
             {"ok": True, **submit_issued_speaking_answer(user, question_id, transcript)}
         )
