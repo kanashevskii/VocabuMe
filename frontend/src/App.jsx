@@ -245,9 +245,6 @@ function App() {
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
-  const [webAuthMode, setWebAuthMode] = useState("login");
-  const [webEmail, setWebEmail] = useState("");
-  const [webPassword, setWebPassword] = useState("");
   const pollRef = useRef(null);
   const stageRef = useRef(null);
   const alphabetAudioRef = useRef(null);
@@ -1106,39 +1103,6 @@ function App() {
       setShowLibraryAdd(false);
       setAuth({ loading: false, authenticated: false, user: null, progress: null });
       setNotice("Выход выполнен.");
-    } catch (error) {
-      handleActionError(error);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitWebAuth(event) {
-    event.preventDefault();
-    if (!webEmail.trim()) {
-      setNotice("Укажи email.");
-      return;
-    }
-    if (!webPassword) {
-      setNotice("Укажи пароль.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const endpoint = webAuthMode === "register" ? "/api/auth/web/register" : "/api/auth/web/login";
-      const data = await api(endpoint, {
-        method: "POST",
-        body: JSON.stringify({
-          email: webEmail.trim(),
-          password: webPassword,
-        }),
-      });
-      stopPolling();
-      setLoginLink("");
-      setLoginToken("");
-      setAuth({ loading: false, authenticated: true, user: data.user, progress: data.progress });
-      setNotice(webAuthMode === "register" ? "Web-аккаунт создан." : "Вход выполнен.");
     } catch (error) {
       handleActionError(error);
     } finally {
@@ -3297,14 +3261,6 @@ function App() {
             onOpenLogin={requestLoginLink}
             loginLink={loginLink}
             loginPending={busy}
-            webAuthMode={webAuthMode}
-            onChangeWebAuthMode={setWebAuthMode}
-            onSubmitWebAuth={submitWebAuth}
-            webAuthPending={busy}
-            webEmail={webEmail}
-            webPassword={webPassword}
-            onWebEmailChange={setWebEmail}
-            onWebPasswordChange={setWebPassword}
           />
         </main>
       </div>

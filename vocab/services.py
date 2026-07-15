@@ -15,7 +15,6 @@ import secrets
 import time
 
 from asgiref.sync import async_to_sync
-from django.contrib.auth.hashers import check_password, make_password
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Min, Q
 from django.utils import timezone
@@ -972,53 +971,6 @@ def get_telegram_user_by_id(user_id: int) -> TelegramUser | None:
 
 def get_telegram_user_by_chat_id(chat_id: int) -> TelegramUser | None:
     return TelegramUser.objects.filter(chat_id=chat_id).first()
-
-
-def _next_web_chat_id() -> int:
-    last_web_user = (
-        TelegramUser.objects.filter(chat_id__lt=0).order_by("chat_id").first()
-    )
-    if not last_web_user:
-        return -1
-    return last_web_user.chat_id - 1
-
-
-def normalize_email(email: str) -> str:
-    return (email or "").strip().lower()
-
-
-def create_web_user(email: str, password: str) -> TelegramUser:
-    normalized_email = normalize_email(email)
-    if not normalized_email:
-        raise ValueError("Email is required.")
-    if len(password or "") < 8:
-        raise ValueError("Password must be at least 8 characters.")
-    if TelegramUser.objects.filter(email=normalized_email).exists():
-        raise ValueError("A user with this email already exists.")
-
-    username = normalized_email.split("@", 1)[0][:255] or "webuser"
-    return TelegramUser.objects.create(
-        chat_id=_next_web_chat_id(),
-        username=username,
-        email=normalized_email,
-        password_hash=make_password(password),
-        auth_provider="web",
-    )
-
-
-def authenticate_web_user(email: str, password: str) -> TelegramUser | None:
-    normalized_email = normalize_email(email)
-    if not normalized_email or not password:
-        return None
-
-    user = TelegramUser.objects.filter(
-        email=normalized_email, auth_provider="web"
-    ).first()
-    if not user or not user.password_hash:
-        return None
-    if not check_password(password, user.password_hash):
-        return None
-    return user
 
 
 def get_achievement_stats(

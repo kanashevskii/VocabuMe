@@ -19,7 +19,6 @@ from vocab.models import (
 )
 from vocab.services import (
     activate_subscription_for_successful_payment,
-    authenticate_web_user,
     add_pack_words_to_user,
     apply_user_settings,
     build_alphabet_question,
@@ -28,12 +27,10 @@ from vocab.services import (
     build_listening_question,
     build_user_progress,
     build_speaking_question,
-    clear_stale_image_generation_flags,
     consume_web_login_token,
     create_bot_payment_attempt,
     create_checkout_session,
     create_web_login_token,
-    create_web_user,
     create_word_draft,
     create_word_drafts_from_text,
     create_word,
@@ -74,34 +71,6 @@ from vocab.services import (
     is_course_word_answer_correct,
     EntitlementError,
 )
-
-
-@pytest.mark.django_db
-def test_create_web_user_normalizes_email_and_hashes_password():
-    user = create_web_user("  User@Example.COM ", "supersecret")
-
-    assert user.email == "user@example.com"
-    assert user.auth_provider == "web"
-    assert user.has_selected_studied_language is False
-    assert user.chat_id < 0
-    assert user.password_hash
-    assert user.password_hash != "supersecret"
-
-
-@pytest.mark.django_db
-def test_create_web_user_rejects_duplicate_email_case_insensitive():
-    create_web_user("user@example.com", "supersecret")
-
-    with pytest.raises(ValueError, match="already exists"):
-        create_web_user("USER@example.com", "anothersecret")
-
-
-@pytest.mark.django_db
-def test_authenticate_web_user_returns_matching_user():
-    user = create_web_user("user@example.com", "supersecret")
-
-    assert authenticate_web_user("USER@example.com", "supersecret") == user
-    assert authenticate_web_user("user@example.com", "wrong-password") is None
 
 
 @pytest.mark.django_db
