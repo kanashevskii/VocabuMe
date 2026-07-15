@@ -103,6 +103,7 @@ jobs:
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_KEY: ${{ secrets.SSH_KEY }}
       REMOTE_PATH: ${{ secrets.REMOTE_PATH }}
+      RUNTIME_USER: eduard
       SYSTEMD_SERVICE: englishbot.service
     steps:
       - name: Checkout

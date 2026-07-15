@@ -18,6 +18,12 @@ for name in "${required_vars[@]}"; do
   fi
 done
 
+RUNTIME_USER="${RUNTIME_USER:-eduard}"
+if [[ ! "$RUNTIME_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+  echo "RUNTIME_USER must be a valid Unix username" >&2
+  exit 1
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 KEY_FILE="$(mktemp)"
@@ -61,4 +67,4 @@ rsync -az --delete \
   "$ROOT_DIR/" "${SSH_USER}@${SSH_HOST}:${REMOTE_PATH}/"
 
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" \
-  "sudo chown -R '${SSH_USER}:${SSH_USER}' '${REMOTE_PATH}' && cd '${REMOTE_PATH}' && if [ -x .venv/bin/python ]; then PYTHON_BIN=.venv/bin/python; elif [ -x venv/bin/python ]; then PYTHON_BIN=venv/bin/python; elif command -v python3 >/dev/null 2>&1; then PYTHON_BIN=python3; elif command -v python >/dev/null 2>&1; then PYTHON_BIN=python; else echo 'Python interpreter not found on remote host' >&2; exit 127; fi && ( \"\$PYTHON_BIN\" -m pip uninstall --yes gTTS deep-translator >/dev/null 2>&1 || true ) && \"\$PYTHON_BIN\" -m pip install --disable-pip-version-check --no-input -r requirements-prod.lock && \"\$PYTHON_BIN\" -m pip check && \"\$PYTHON_BIN\" manage.py check --deploy && \"\$PYTHON_BIN\" manage.py migrate --noinput && if sudo systemctl is-enabled --quiet vocabume-worker-high.service; then sudo systemctl restart vocabume-worker-high.service && sudo systemctl is-active vocabume-worker-high.service; fi && sudo systemctl restart '${SYSTEMD_SERVICE}' && sudo systemctl is-active '${SYSTEMD_SERVICE}' && for attempt in \$(seq 1 15); do if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/api/app-config >/dev/null; then exit 0; fi; sleep 2; done; echo 'Web health check failed after restart.' >&2; sudo journalctl -u '${SYSTEMD_SERVICE}' -n 100 --no-pager >&2; exit 1"
+  "sudo chown -R '${RUNTIME_USER}:${RUNTIME_USER}' '${REMOTE_PATH}' && cd '${REMOTE_PATH}' && if [ -x .venv/bin/python ]; then PYTHON_BIN=.venv/bin/python; elif [ -x venv/bin/python ]; then PYTHON_BIN=venv/bin/python; elif command -v python3 >/dev/null 2>&1; then PYTHON_BIN=python3; elif command -v python >/dev/null 2>&1; then PYTHON_BIN=python; else echo 'Python interpreter not found on remote host' >&2; exit 127; fi && ( \"\$PYTHON_BIN\" -m pip uninstall --yes gTTS deep-translator >/dev/null 2>&1 || true ) && \"\$PYTHON_BIN\" -m pip install --disable-pip-version-check --no-input -r requirements-prod.lock && \"\$PYTHON_BIN\" -m pip check && \"\$PYTHON_BIN\" manage.py check --deploy && \"\$PYTHON_BIN\" manage.py migrate --noinput && if sudo systemctl is-enabled --quiet vocabume-worker-high.service; then sudo systemctl restart vocabume-worker-high.service && sudo systemctl is-active vocabume-worker-high.service; fi && sudo systemctl restart '${SYSTEMD_SERVICE}' && sudo systemctl is-active '${SYSTEMD_SERVICE}' && for attempt in \$(seq 1 15); do if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/api/app-config >/dev/null; then exit 0; fi; sleep 2; done; echo 'Web health check failed after restart.' >&2; sudo journalctl -u '${SYSTEMD_SERVICE}' -n 100 --no-pager >&2; exit 1"
