@@ -2,35 +2,21 @@ from __future__ import annotations
 
 import logging
 
-from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import render
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET
 
-from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
+from core.env import get_telegram_bot_username, get_webapp_url
 from .models import TelegramUser
 from .services import (
-    build_user_progress,
-    consume_web_login_token,
-    create_web_login_token,
     get_billing_payload,
-    serialize_user,
-    upsert_telegram_user,
     EntitlementError,
 )
-from .telegram_auth import (
-    TelegramAuthError,
-    verify_login_widget,
-    verify_webapp_init_data,
-)
+from .telegram_auth import verify_webapp_init_data
 from .api.common import (
-    SESSION_USER_KEY,
     current_user as _resolve_current_user,
-    enforce_request_limit as _enforce_request_limit,
-    json_body as _json_body,
     json_error as _json_error,
-    login as _login,
 )
 from .api.docs import api_docs, openapi_schema  # noqa: F401 - URL compatibility exports
 from .api.errors import client_error_log  # noqa: F401 - URL compatibility export
@@ -145,133 +131,9 @@ def app_config(request: HttpRequest) -> JsonResponse:
     )
 
 
-@csrf_exempt
-@require_POST
-def auth_telegram_widget(request: HttpRequest) -> JsonResponse:
-    if limited := _enforce_request_limit(
-        request, scope="auth-widget", limit=20, window=60
-    ):
-        return limited
-    try:
-        payload = _json_body(request)
-        verified = verify_login_widget(
-            payload, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS
-        )
-    except (ValueError, TelegramAuthError) as exc:
-        return _json_error(str(exc), status=400)
-
-    telegram_id = int(verified["id"])
-    username = verified.get("username")
-    user = upsert_telegram_user(chat_id=telegram_id, username=username)
-    return _login(request, user)
-
-
-@csrf_exempt
-@require_POST
-def auth_telegram_webapp(request: HttpRequest) -> JsonResponse:
-    if limited := _enforce_request_limit(
-        request, scope="auth-webapp", limit=20, window=60
-    ):
-        return limited
-    try:
-        payload = _json_body(request)
-        init_data = payload.get("init_data", "")
-        verified = verify_webapp_init_data(
-            init_data, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS
-        )
-    except (ValueError, TelegramAuthError) as exc:
-        return _json_error(str(exc), status=400)
-
-    telegram_user = verified.get("user")
-    if not isinstance(telegram_user, dict):
-        return _json_error("Telegram user was not provided.", status=400)
-    telegram_id = telegram_user.get("id")
-    if isinstance(telegram_id, bool) or not isinstance(telegram_id, int):
-        return _json_error("Telegram user was not provided.", status=400)
-
-    username = telegram_user.get("username")
-    user = upsert_telegram_user(
-        chat_id=telegram_id,
-        username=username if isinstance(username, str) else None,
-    )
-    return _login(request, user)
-
-
-@require_POST
-def auth_logout(request: HttpRequest) -> JsonResponse:
-    request.session.flush()
-    return JsonResponse({"ok": True})
-
-
-@require_GET
-def auth_me(request: HttpRequest) -> JsonResponse:
-    user = _current_user(request)
-    return JsonResponse(
-        {
-            "ok": True,
-            "authenticated": user is not None,
-            "user": serialize_user(user) if user else None,
-            "progress": build_user_progress(user) if user else None,
-        }
-    )
-
-
-@require_POST
-def auth_request_link(request: HttpRequest) -> JsonResponse:
-    if limited := _enforce_request_limit(
-        request, scope="auth-link", limit=5, window=60
-    ):
-        return limited
-    login_token = create_web_login_token()
-    deep_link = (
-        f"https://t.me/{get_telegram_bot_username()}"
-        f"?start=login_{login_token.token}"
-    )
-    return JsonResponse(
-        {
-            "ok": True,
-            "token": login_token.token,
-            "deep_link": deep_link,
-            "expires_at": login_token.expires_at.isoformat(),
-        }
-    )
-
-
-@require_POST
-def auth_web_register(request: HttpRequest) -> JsonResponse:
-    return _json_error(
-        "Email/password registration is no longer supported. Use Telegram login.",
-        status=410,
-    )
-
-
-@require_POST
-def auth_web_login(request: HttpRequest) -> JsonResponse:
-    return _json_error(
-        "Email/password login is no longer supported. Use Telegram login.", status=410
-    )
-
-
-@require_POST
-def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
-    user = consume_web_login_token(token)
-    if user is None:
-        return JsonResponse({"ok": True, "authenticated": False})
-    request.session.cycle_key()
-    request.session[SESSION_USER_KEY] = user.id
-    return JsonResponse(
-        {
-            "ok": True,
-            "authenticated": True,
-            "user": serialize_user(user),
-            "progress": build_user_progress(user),
-        }
-    )
-
-
-# Auth endpoints are implemented in ``vocab.api.auth``.  Rebind after the
-# legacy definitions while downstream integrations still import ``vocab.views``.
-from .api.auth import (  # noqa: E402,F811,F401
+# Auth endpoints are implemented in ``vocab.api.auth`` while integrations still
+# import ``vocab.views``.
+from .api.auth import (  # noqa: E402,F401
     auth_logout,
     auth_me,
     auth_poll_link,
