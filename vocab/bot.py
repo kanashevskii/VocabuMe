@@ -914,7 +914,9 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["cards_queue"] = lesson
 
     if not word_obj.example_translation:
-        word_obj.example_translation = translate_to_ru(word_obj.example)
+        word_obj.example_translation = await asyncio.to_thread(
+            translate_to_ru, word_obj.example
+        )
         await sync_to_async(word_obj.save)()
 
     session = context.user_data.get("cards_info", {"total": 0, "shown": 0})
@@ -1314,7 +1316,9 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if not word_obj.example_translation:
-        word_obj.example_translation = translate_to_ru(word_obj.example)
+        word_obj.example_translation = await asyncio.to_thread(
+            translate_to_ru, word_obj.example
+        )
         await sync_to_async(word_obj.save)()
 
     try:
