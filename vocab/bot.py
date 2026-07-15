@@ -3,10 +3,7 @@ import random
 import re
 import html
 import asyncio
-import hashlib
-from pathlib import Path
-from urllib.parse import quote_plus, urlencode, urlsplit, urlunsplit, parse_qsl
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
 
@@ -75,6 +72,12 @@ from .services import (
     word_already_exists as word_already_exists_service,
 )
 from .openai_utils import generate_word_data, detect_language
+from .integrations.images import (
+    USER_IMAGE_DIR,
+    compute_image_cache_path,
+    fetch_image_bytes,
+    to_project_relative,
+)
 from .utils import (
     clean_word,
     translate_to_ru,
@@ -93,18 +96,6 @@ ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
 WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MEDIA_ROOT = PROJECT_ROOT / "media"
-IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
-USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
-
-
-def _to_project_relative(path: Path) -> str:
-    try:
-        return str(path.relative_to(PROJECT_ROOT))
-    except Exception:
-        return str(path)
-
 # Память сессии (временно)
 user_lessons: dict = {}
 
@@ -114,137 +105,6 @@ SET_REMINDER_TZ = 2
 MAX_IRREGULAR_PER_SESSION = 10
 IRREGULARS_PER_PAGE = 20
 IRREGULAR_MASTERY_THRESHOLD = 5
-
-def _stable_seed(key: str) -> int:
-    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
-    return int(digest, 16) % 1_000_000
-
-
-def compute_image_cache_path(word_obj) -> Path:
-    cache_key = f"{getattr(word_obj, 'id', '')}_{getattr(word_obj, 'word', '')}"
-    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", cache_key) or "word"
-    return IMAGE_CACHE_DIR / f"{slug}.jpg"
-
-
-def get_image_queries(word_obj) -> list[str]:
-    word = getattr(word_obj, "word", "") or ""
-    translation = getattr(word_obj, "translation", "") or ""
-    example = getattr(word_obj, "example", "") or ""
-    part = (getattr(word_obj, "part_of_speech", "") or "").lower()
-
-    queries: list[str] = []
-    seen = set()
-
-    def add(q: str):
-        q = q.strip()
-        if q and q not in seen:
-            seen.add(q)
-            queries.append(q)
-
-    add(word)
-    if translation and translation != word:
-        add(translation)
-    if word and translation:
-        add(f"{word} {translation}")
-
-    if part.startswith("verb"):
-        add(f"{word} verb action")
-        add(f"{translation} глагол действие")
-    elif part.startswith("adjective"):
-        add(f"{word} adjective")
-        add(f"{translation} прилагательное")
-
-    if example:
-        # берём первые несколько слов примера, чтобы уточнить контекст
-        truncated = " ".join(example.split()[:6])
-        add(truncated)
-
-    return queries
-
-
-def get_image_urls(word_obj, seed: int = 0) -> list[str]:
-    """
-    Возвращает список URL для подходящих фото (без API-ключа).
-    Делаем несколько запросов (EN/ru/комбо) и разные провайдеры с детерминированным сидом, чтобы уменьшить одинаковые картинки.
-    """
-    urls: list[str] = []
-    queries = get_image_queries(word_obj)
-    if not queries:
-        return urls
-
-    for idx, query in enumerate(queries):
-        sig = (seed + idx * 137) % 1_000_000
-        q = quote_plus(query)
-        urls.append(f"https://source.unsplash.com/random/?{q}&sig={sig}")
-        urls.append(f"https://loremflickr.com/1280/720/{q}?lock={sig}")
-
-    # запасной генератор без текста — чтобы хоть что-то отдать
-    urls.append(f"https://picsum.photos/seed/{seed}/1280/720")
-    return urls
-
-
-async def fetch_image_bytes(word_obj) -> bytes | None:
-    """
-    Скачивает картинку из списка провайдеров и кладёт в кэш на диск, чтобы карточки открывались быстрее.
-    """
-    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    manual_path = getattr(word_obj, "image_path", "") or ""
-    if manual_path:
-        manual_file = Path(manual_path)
-        if not manual_file.is_absolute():
-            manual_file = PROJECT_ROOT / manual_file
-        try:
-            resolved = manual_file.resolve(strict=True)
-        except FileNotFoundError:
-            resolved = None
-        except Exception:
-            resolved = None
-
-        if resolved is not None:
-            allowed_roots = (IMAGE_CACHE_DIR.resolve(), USER_IMAGE_DIR.resolve())
-            if any(resolved.is_relative_to(root) for root in allowed_roots):
-                try:
-                    return resolved.read_bytes()
-                except Exception:
-                    logging.warning("Failed to read manual image %s", resolved)
-            else:
-                logging.warning("Rejected unsafe image_path outside media dirs: %s", resolved)
-
-    cache_key = f"{getattr(word_obj, 'id', '')}_{getattr(word_obj, 'word', '')}"
-    seed = _stable_seed(cache_key or (word_obj.translation or ""))
-
-    cache_path = compute_image_cache_path(word_obj)
-
-    if cache_path.exists():
-        try:
-            return cache_path.read_bytes()
-        except Exception:
-            logging.warning("Failed to read image cache %s, will refetch", cache_path)
-
-    urls = get_image_urls(word_obj, seed)
-
-    def download(url: str) -> bytes | None:
-        try:
-            req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urlopen(req, timeout=8) as resp:
-                ctype = resp.headers.get("Content-Type", "")
-                if "image" not in ctype:
-                    raise ValueError(f"Unexpected content-type: {ctype}")
-                return resp.read()
-        except Exception as e:  # noqa: BLE001 — логируем и идём к следующему урлу
-            logging.warning("Image fetch failed for %s: %s", url, e)
-            return None
-
-    for url in urls:
-        data = await asyncio.to_thread(download, url)
-        if data:
-            try:
-                cache_path.write_bytes(data)
-            except Exception:
-                logging.warning("Failed to write image cache %s", cache_path)
-            return data
-    return None
 
 async def finalize_add_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replies = context.user_data.pop("add_replies", [])
@@ -1161,7 +1021,7 @@ async def prompt_photo_selection(update: Update, context: ContextTypes.DEFAULT_T
         auto_path = compute_image_cache_path(word_obj)
         auto_bytes = await fetch_image_bytes(word_obj)
         if auto_bytes:
-            context.user_data["auto_image_path"] = _to_project_relative(auto_path)
+            context.user_data["auto_image_path"] = to_project_relative(auto_path)
             keyboard_rows.insert(0, [InlineKeyboardButton("✅ Оставить это фото", callback_data="photo_accept")])
             await safe_reply(
                 update,
@@ -1253,7 +1113,7 @@ async def handle_photo_upload(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await file.download_to_drive(custom_path=str(dest))
 
-    data["image_path"] = _to_project_relative(dest)
+    data["image_path"] = to_project_relative(dest)
     context.user_data["pending_data"] = data
     context.user_data.pop("auto_image_path", None)
 
