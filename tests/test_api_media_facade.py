@@ -1,4 +1,5 @@
 from vocab import views
+from vocab.api import images
 from vocab.api import media
 
 
@@ -7,3 +8,10 @@ def test_views_keep_legacy_media_exports():
     assert views.word_audio_prepare is media.word_audio_prepare
     assert views.alphabet_audio is media.alphabet_audio
     assert views.alphabet_audio_prepare is media.alphabet_audio_prepare
+
+
+def test_views_keep_legacy_image_exports(client):
+    assert views.word_image is images.word_image
+    assert views.draft_image is images.draft_image
+    assert client.get("/api/image/1").status_code == 401
+    assert client.get("/api/draft-image/1").status_code == 401

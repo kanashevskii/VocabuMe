@@ -34,7 +34,6 @@ from .services import (
     finalize_word_draft,
     create_checkout_session,
     get_billing_payload,
-    get_draft_image_file,
     get_profile_avatar_file,
     get_active_course_code,
     get_user_draft,
@@ -90,6 +89,10 @@ from .api.media import (  # noqa: F401 - URL compatibility exports
     alphabet_audio_prepare,
     word_audio,
     word_audio_prepare,
+)
+from .api.images import (  # noqa: F401 - URL compatibility exports
+    draft_image,
+    word_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -908,64 +911,6 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
         return _json_error("Speech recognition is temporarily unavailable.", status=503)
     finally:
         _safe_unlink(temp_path)
-
-
-@require_GET
-def word_image(request: HttpRequest, word_id: int) -> JsonResponse | FileResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    item = get_user_word(user, word_id)
-    if item is None:
-        return _json_error("Word not found.", status=404)
-
-    image_path = get_word_image_file(item)
-    if image_path is None:
-        return _json_error("Image not found.", status=404)
-
-    content_type, _ = mimetypes.guess_type(image_path.name)
-    try:
-        return FileResponse(
-            open(image_path, "rb"), content_type=content_type or "image/jpeg"
-        )
-    except OSError:
-        logger.exception(
-            "Image file open failed for user=%s word_id=%s path=%s",
-            user.id,
-            word_id,
-            image_path,
-        )
-        return _json_error("Image is temporarily unavailable.", status=503)
-
-
-@require_GET
-def draft_image(request: HttpRequest, draft_id: int) -> JsonResponse | FileResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    draft = _get_draft_for_user(user, draft_id)
-    if isinstance(draft, JsonResponse):
-        return draft
-
-    image_path = get_draft_image_file(draft)
-    if image_path is None:
-        return _json_error("Image not found.", status=404)
-
-    content_type, _ = mimetypes.guess_type(image_path.name)
-    try:
-        return FileResponse(
-            open(image_path, "rb"), content_type=content_type or "image/png"
-        )
-    except OSError:
-        logger.exception(
-            "Draft image open failed for user=%s draft_id=%s path=%s",
-            user.id,
-            draft_id,
-            image_path,
-        )
-        return _json_error("Image is temporarily unavailable.", status=503)
 
 
 @require_GET
