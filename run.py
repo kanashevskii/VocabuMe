@@ -1,10 +1,9 @@
 import os
 import sys
-import threading
-import time
 import logging
 import atexit
 import signal
+import asyncio
 from pathlib import Path
 
 from django.core.management import call_command, execute_from_command_line
@@ -14,7 +13,6 @@ from core.env import env, get_telegram_token
 from core.logging_config import setup_logging
 
 LOCK_FILE = "/tmp/englishbot.lock"
-_shutdown_event = threading.Event()
 _lock_handle = None
 
 
@@ -69,7 +67,6 @@ def ensure_single_instance():
     def _signal_handler(signum, frame):
         """Handle shutdown signals gracefully."""
         logging.info(f"Received signal {signum}, initiating graceful shutdown...")
-        _shutdown_event.set()
         # Call sys.exit() to terminate the process gracefully
         # The atexit handler will call _cleanup() which is now idempotent
         # This ensures cleanup happens even if the signal handler is called
@@ -93,31 +90,22 @@ django.setup()
 from vocab.bot import run_telegram_bot
 
 
-def send_alert(message: str):
+async def _send_alert(message: str):
     chat_id = env("ALERT_CHAT_ID", default=None)
     token = env("TELEGRAM_TOKEN", default=None)
     if not chat_id or not token:
         return
     try:
-        Bot(token=token).send_message(chat_id=chat_id, text=message)
+        await Bot(token=token).send_message(chat_id=chat_id, text=message)
     except Exception as e:
         logging.exception("Failed to send alert: %s", e)
 
 
-def reminder_loop():
-    while not _shutdown_event.is_set():
-        try:
-            call_command("send_reminders")
-        except Exception as e:
-            logging.exception("send_reminders failed: %s", e)
-            send_alert(f"send_reminders failed: {e}")
-        # Check shutdown event with timeout instead of blocking sleep
-        if _shutdown_event.wait(timeout=60):
-            break
-
-
 def run_server():
-    # Disable Django's autoreloader to avoid starting duplicate bot instances
+    if not env("DEBUG", cast=bool, default=False):
+        raise RuntimeError(
+            "run.py web is development-only. Run Django behind Gunicorn/Uvicorn in production."
+        )
     execute_from_command_line(
         [
             "manage.py",
@@ -130,23 +118,19 @@ def run_server():
 
 def main():
     get_telegram_token()
-
-    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    bot_thread.start()
-
-    reminder_thread = threading.Thread(target=reminder_loop, daemon=True)
-    reminder_thread.start()
-
-    try:
+    process = os.environ.get("VOCABUME_PROCESS", "web").lower()
+    if process == "web":
         run_server()
-    except KeyboardInterrupt:
-        logging.info("KeyboardInterrupt received, shutting down...")
-    finally:
-        # Wait a moment for threads to finish
-        logging.info("Waiting for threads to finish...")
-        _shutdown_event.set()
-        # Give threads a moment to clean up (they're daemon threads, so they'll be killed on exit)
-        time.sleep(0.5)
+    elif process == "bot":
+        run_telegram_bot()
+    elif process == "reminders":
+        call_command("send_reminders")
+    elif process == "alert":
+        message = os.environ.get("VOCABUME_ALERT_MESSAGE", "")
+        if message:
+            asyncio.run(_send_alert(message))
+    else:
+        raise ValueError("VOCABUME_PROCESS must be one of: web, bot, reminders, alert.")
 
 
 if __name__ == "__main__":

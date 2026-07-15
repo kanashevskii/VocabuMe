@@ -1661,6 +1661,9 @@ def run_telegram_bot():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_error_handler(on_telegram_error)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("paysupport", payment_support))
+    app.add_handler(CommandHandler("support", payment_support))
+    app.add_handler(CommandHandler("terms", terms))
     app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CallbackQueryHandler(start, pattern="^start$"))
     app.add_handler(CallbackQueryHandler(start_subscription_checkout, pattern="^subscribe:(monthly|yearly)$"))
@@ -1909,7 +1912,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(
             _review_menu_text(user),
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard()),
+            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard(user)),
         )
 
     elif data == "toggle_reminder":
