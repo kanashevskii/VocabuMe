@@ -6,7 +6,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.11.11-slim-bookworm AS runtime
+FROM python:3.10.16-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,9 +18,9 @@ RUN python -m venv /opt/venv \
     && groupadd --gid 10001 vocabume \
     && useradd --uid 10001 --gid vocabume --create-home --shell /usr/sbin/nologin vocabume
 
-COPY requirements.txt ./
+COPY requirements-prod.lock ./
 RUN pip install --upgrade pip==25.0.1 \
-    && pip install -r requirements.txt
+    && pip install --no-cache-dir -r requirements-prod.lock
 
 COPY --chown=vocabume:vocabume . ./
 COPY --from=frontend-build --chown=vocabume:vocabume /app/frontend/dist ./frontend/dist

@@ -111,10 +111,10 @@ Configuration rules:
 
 ## Local setup
 
-1. Install backend dependencies.
+1. Install the pinned development and test dependencies.
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 2. Install frontend dependencies.
@@ -163,6 +163,19 @@ python -m pytest --cov=vocab.services --cov=vocab.views --cov=core.env --cov-rep
 ```
 
 `pytest` uses [core/test_settings.py](core/test_settings.py), which switches tests to SQLite so the suite can run without PostgreSQL `CREATE DATABASE` privileges.
+
+Dependency files:
+
+- [requirements-prod.in](requirements-prod.in) lists direct production dependencies.
+- [requirements-prod.lock](requirements-prod.lock) is the complete, known-good production lock.
+- [requirements-dev.txt](requirements-dev.txt) adds pinned development/test tooling.
+- `requirements.txt` remains a production-compatible alias for deployment tooling.
+
+Validate that the direct dependency manifest matches the lock:
+
+```bash
+make check-dependency-lock
+```
 
 ## Code Quality
 

@@ -1,0 +1,9 @@
+# Development and test-only tools. Production uses requirements-prod.lock only.
+-r requirements-prod.lock
+black==26.5.1
+coverage==7.15.1
+flake8==7.3.0
+mypy==2.3.0
+pytest==9.1.1
+pytest-cov==7.1.0
+pytest-django==4.12.0
