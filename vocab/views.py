@@ -26,10 +26,8 @@ from .services import (
     build_learning_question,
     issue_learning_question,
     build_user_progress,
-    build_choice_question,
     build_irregular_question,
     build_alphabet_question,
-    build_listening_question,
     build_speaking_question,
     consume_web_login_token,
     create_web_login_token,
@@ -64,8 +62,6 @@ from .services import (
     submit_issued_learning_answer,
     get_issued_speaking_question,
     submit_issued_speaking_answer,
-    submit_choice_answer,
-    submit_listening_answer,
     submit_alphabet_answer,
     evaluate_speaking_answer,
     update_learning_streak,
@@ -943,69 +939,31 @@ def learn_answer(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 def practice_question(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    mode = request.GET.get("mode", "classic")
-    if mode not in {"classic", "reverse", "review"}:
-        return _json_error("Unknown practice mode.")
-    question = build_choice_question(user, mode)
-    if question is None:
-        return JsonResponse({"ok": True, "empty": True})
-    return JsonResponse({"ok": True, "question": question})
+    return _json_error(
+        "This endpoint is retired. Use /api/learn/question instead.", status=410
+    )
 
 
 @require_POST
 def practice_answer(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    try:
-        payload = _json_body(request)
-        word_id = int(payload.get("word_id"))
-        answer = str(payload.get("answer", ""))
-        mode = str(payload.get("mode", "classic"))
-    except (TypeError, ValueError):
-        return _json_error("Invalid practice answer payload.")
-
-    return JsonResponse(
-        {"ok": True, **submit_choice_answer(user, word_id, answer, mode)}
+    return _json_error(
+        "This endpoint is retired. Submit a server-issued learning question instead.",
+        status=410,
     )
 
 
 @require_GET
 def listening_question(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    mode = request.GET.get("mode", "word")
-    if mode not in {"word", "translate"}:
-        return _json_error("Unknown listening mode.")
-    question = build_listening_question(user, mode)
-    if question is None:
-        return JsonResponse({"ok": True, "empty": True})
-    return JsonResponse({"ok": True, "question": question})
+    return _json_error(
+        "This endpoint is retired. Use /api/learn/question instead.", status=410
+    )
 
 
 @require_POST
 def listening_answer(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    try:
-        payload = _json_body(request)
-        word_id = int(payload.get("word_id"))
-        answer = str(payload.get("answer", ""))
-        mode = str(payload.get("mode", "word"))
-    except (TypeError, ValueError):
-        return _json_error("Invalid listening answer payload.")
-
-    return JsonResponse(
-        {"ok": True, **submit_listening_answer(user, word_id, answer, mode)}
+    return _json_error(
+        "This endpoint is retired. Submit a server-issued learning question instead.",
+        status=410,
     )
 
 
@@ -1230,6 +1188,10 @@ def irregular_answer(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="irregular-answer", limit=30, window=60, user=user
+    ):
+        return limited
 
     try:
         payload = _json_body(request)
@@ -1288,6 +1250,10 @@ def alphabet_answer(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := _enforce_request_limit(
+        request, scope="alphabet-answer", limit=30, window=60, user=user
+    ):
+        return limited
 
     try:
         payload = _json_body(request)

@@ -506,7 +506,7 @@ def test_learn_answer_rejects_unknown_or_missing_question(client):
 
 
 @pytest.mark.django_db
-def test_practice_question_rejects_unknown_mode(client):
+def test_practice_question_is_retired(client):
     user = TelegramUser.objects.create(chat_id=2007, username="tester")
     session = client.session
     session["telegram_user_id"] = user.id
@@ -514,28 +514,26 @@ def test_practice_question_rejects_unknown_mode(client):
 
     response = client.get("/api/practice/question?mode=bad")
 
-    assert response.status_code == 400
-    assert response.json()["error"] == "Unknown practice mode."
+    assert response.status_code == 410
 
 
 @pytest.mark.django_db
-def test_practice_question_returns_empty_when_service_has_no_question(
-    client, monkeypatch
-):
+def test_practice_answer_is_retired(client):
     user = TelegramUser.objects.create(chat_id=2008, username="tester")
     session = client.session
     session["telegram_user_id"] = user.id
     session.save()
-    monkeypatch.setattr("vocab.views.build_choice_question", lambda user, mode: None)
+    response = client.post(
+        "/api/practice/answer",
+        data=json.dumps({"word_id": 1, "answer": "answer", "mode": "classic"}),
+        content_type="application/json",
+    )
 
-    response = client.get("/api/practice/question")
-
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "empty": True}
+    assert response.status_code == 410
 
 
 @pytest.mark.django_db
-def test_listening_question_rejects_unknown_mode(client):
+def test_listening_question_is_retired(client):
     user = TelegramUser.objects.create(chat_id=2009, username="tester")
     session = client.session
     session["telegram_user_id"] = user.id
@@ -543,12 +541,11 @@ def test_listening_question_rejects_unknown_mode(client):
 
     response = client.get("/api/listening/question?mode=bad")
 
-    assert response.status_code == 400
-    assert response.json()["error"] == "Unknown listening mode."
+    assert response.status_code == 410
 
 
 @pytest.mark.django_db
-def test_listening_answer_invalid_payload_returns_error(client):
+def test_listening_answer_is_retired(client):
     user = TelegramUser.objects.create(chat_id=2010, username="tester")
     session = client.session
     session["telegram_user_id"] = user.id
@@ -560,8 +557,7 @@ def test_listening_answer_invalid_payload_returns_error(client):
         content_type="application/json",
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"] == "Invalid listening answer payload."
+    assert response.status_code == 410
 
 
 @pytest.mark.django_db
