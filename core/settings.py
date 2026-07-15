@@ -123,6 +123,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 60.0,
         "options": {"queue": "vocabume-low"},
     },
+    "clear-stale-image-generation-flags-every-five-minutes": {
+        "task": "vocab.tasks.clear_stale_image_generation_flags",
+        "schedule": 300.0,
+        "options": {"queue": "vocabume-low"},
+    },
 }
 
 # Bounded request bodies protect JSON endpoints and speech uploads before they
