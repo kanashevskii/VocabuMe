@@ -1,9 +1,17 @@
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
-from vocab.models import PaymentAttempt, TelegramUser, UserSubscription
+from vocab.models import (
+    PaymentAttempt,
+    TelegramUser,
+    UserDailyEntitlementUsage,
+    UserSubscription,
+)
 from vocab.services import (
     activate_subscription_for_successful_payment,
     create_bot_payment_attempt,
+    reserve_new_items_for_today,
     validate_telegram_pre_checkout,
 )
 
@@ -93,3 +101,40 @@ def test_pre_checkout_rejects_an_attempt_that_was_already_paid():
     )
     assert valid is False
     assert "недействителен" in reason
+
+
+@pytest.mark.django_db(transaction=True)
+def test_payment_activation_acquires_a_postgres_row_lock():
+    if connection.vendor != "postgresql":
+        pytest.skip("Row-lock SQL is verified by the PostgreSQL CI job.")
+
+    user = TelegramUser.objects.create(chat_id=31_006, username="payment-lock")
+    attempt = _payment_attempt(user)
+
+    with CaptureQueriesContext(connection) as queries:
+        _activate(attempt)
+
+    assert any(
+        "FOR UPDATE" in query["sql"].upper()
+        and "VOCAB_PAYMENTATTEMPT" in query["sql"].upper()
+        for query in queries.captured_queries
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_entitlement_reservation_acquires_a_postgres_row_lock():
+    if connection.vendor != "postgresql":
+        pytest.skip("Row-lock SQL is verified by the PostgreSQL CI job.")
+
+    user = TelegramUser.objects.create(chat_id=31_007, username="entitlement-lock")
+
+    with CaptureQueriesContext(connection) as queries:
+        reserve_new_items_for_today(user, count=1)
+
+    usage = UserDailyEntitlementUsage.objects.get(user=user)
+    assert usage.new_items_added == 1
+    assert any(
+        "FOR UPDATE" in query["sql"].upper()
+        and "VOCAB_USERDAILYENTITLEMENTUSAGE" in query["sql"].upper()
+        for query in queries.captured_queries
+    )
