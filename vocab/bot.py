@@ -39,7 +39,7 @@ from telegram.ext import (
     filters,
 )
 from asgiref.sync import sync_to_async
-from .models import TelegramUser, VocabularyItem, Achievement, IrregularVerbProgress
+from .models import TelegramUser
 from .monetization import TELEGRAM_STARS_CURRENCY, get_telegram_stars_prices_for_user
 from .services import (
     activate_subscription_for_successful_payment as activate_subscription_for_successful_payment_service,
@@ -64,7 +64,6 @@ from .services import (
     get_user_word_page as get_user_word_page_service,
     get_unlearned_words as get_unlearned_words_service,
     reset_word_progress as reset_word_progress_service,
-    resolve_shared_image_path,
     save_user as save_user_service,
     set_user_repeat_threshold as set_user_repeat_threshold_service,
     update_user_reminder_time as update_user_reminder_time_service,
@@ -85,8 +84,6 @@ from .utils import (
 )
 from .tts import generate_tts_audio, generate_temp_audio
 from django.db import IntegrityError
-from django.db.models import Count, Q, Min
-from django.utils.timezone import now
 from datetime import timedelta, datetime
 from types import SimpleNamespace
 
@@ -109,7 +106,7 @@ def _to_project_relative(path: Path) -> str:
         return str(path)
 
 # Память сессии (временно)
-user_lessons = {}
+user_lessons: dict = {}
 
 SET_REMINDER_TIME = 1
 SET_REMINDER_TZ = 2
@@ -804,7 +801,7 @@ async def handle_successful_payment(update: Update, context: ContextTypes.DEFAUL
             amount_minor=payment.total_amount,
             currency=payment.currency,
         )
-    except Exception as exc:
+    except Exception:
         logging.exception("Failed to activate subscription after successful payment")
         await safe_reply(
             update,
@@ -827,14 +824,12 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = context.user_data.get("cards_info")
     lesson = context.user_data.get("cards_queue")
     callback_data = update.callback_query.data if update.callback_query else None
-    is_next_batch = callback_data == "cards_next_batch"
     is_fresh_start = update.message or callback_data == "start_learn_cards"
     is_start = (
         update.message
         or callback_data in ("start_learn_cards", "cards_next_batch")
     )
     is_repeat = callback_data == "cards_repeat"
-    previous_batch_ids = context.user_data.get("cards_last_batch_ids") if is_next_batch else None
     seen_ids = context.user_data.get("cards_seen_ids", [])
 
     if is_fresh_start:
@@ -1348,9 +1343,6 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     keyboard.append([InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip|{word_obj.id}")])
     keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
-
-    transcription = word_obj.transcription or ""
-    example_text = word_obj.example or ""
 
     try:
         audio_path = await generate_tts_audio(
@@ -2485,7 +2477,7 @@ async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     word = lesson.pop(0)
     correct = f"{word['past']} {word['participle']}"
-    options = [correct] + word["wrong_pairs"]
+    options = [correct] + list(word["wrong_pairs"])
     unique_options = []
     for opt in options:
         if opt not in unique_options:

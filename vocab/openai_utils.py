@@ -238,7 +238,7 @@ def generate_word_data(
     part_hint: str | None = None,
     translation_hint: str | None = None,
     course_code: str = "en",
-) -> dict:
+) -> dict | None:
     lang = detect_language(word)
     if course_code == "en" and lang == "ru":
         prompt_translate = f'Translate the Russian word or phrase "{word}" to English. Just give the main English equivalent.'

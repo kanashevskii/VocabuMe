@@ -2,10 +2,12 @@ import re
 import string
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from deep_translator import GoogleTranslator
+
+import requests
 
 PUNCTUATION = string.punctuation.replace("'", "")
 _punct_regex = re.compile(f"[{re.escape(PUNCTUATION)}]")
+
 
 def clean_word(word: str) -> str:
     """Return word lowercased with punctuation removed (except apostrophes)."""
@@ -17,11 +19,29 @@ def clean_word(word: str) -> str:
 
 
 def translate_to_ru(text: str) -> str:
-    """Translate the given text to Russian using GoogleTranslator."""
+    """Translate text through Google Translate's public endpoint.
+
+    This is a best-effort enrichment path: callers must tolerate an empty value.
+    """
+    value = text.strip()
+    if not value:
+        return ""
     try:
-        return GoogleTranslator(source="auto", target="ru").translate(text)
-    except Exception as e:
-        print("Translation error:", e)
+        response = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "auto", "tl": "ru", "dt": "t", "q": value},
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        segments = payload[0] if isinstance(payload, list) and payload else []
+        translation = "".join(
+            segment[0]
+            for segment in segments
+            if isinstance(segment, list) and segment and isinstance(segment[0], str)
+        )
+        return translation.strip()
+    except (requests.RequestException, TypeError, ValueError):
         return ""
 
 

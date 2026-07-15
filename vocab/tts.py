@@ -1,15 +1,11 @@
-import os
 import hashlib
+import logging
+import os
 import re
 import shutil
-import edge_tts
-import logging
-from edge_tts.exceptions import NoAudioReceived
 
-try:
-    from gtts import gTTS
-except ImportError:  # pragma: no cover - depends on runtime env
-    gTTS = None
+import edge_tts
+from edge_tts.exceptions import NoAudioReceived
 
 AUDIO_DIR = "media/audio"
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -36,6 +32,7 @@ def sanitize_filename(text: str) -> str:
     normalized = normalized.strip("_")[:40] or "audio"
     return normalized
 
+
 def get_plain_path(text: str, language_code: str | None = None) -> str:
     """Return path for a TTS file named after the text."""
     lang = normalize_tts_language(text, language_code)
@@ -51,6 +48,7 @@ def get_hashed_path(text: str, language_code: str | None = None) -> str:
     filename = f"{hashed}.mp3"
     return os.path.join(AUDIO_DIR, filename)
 
+
 def get_audio_path(text: str, language_code: str | None = None) -> str:
     """
     Return path for a TTS file.
@@ -65,6 +63,7 @@ def get_audio_path(text: str, language_code: str | None = None) -> str:
         return hashed_path
     return plain_path
 
+
 def _is_valid_audio(path: str) -> bool:
     try:
         return os.path.exists(path) and os.path.getsize(path) > 0
@@ -73,10 +72,7 @@ def _is_valid_audio(path: str) -> bool:
 
 
 async def generate_tts_audio(text: str, language_code: str | None = None) -> str:
-    """
-    Generate or return the path of a TTS file named after the text.
-    gTTS — основной, edge-tts — резерв.
-    """
+    """Generate or return a cached TTS file using edge-tts."""
     if not text or not text.strip():
         raise ValueError("Empty text for TTS")
 
@@ -90,22 +86,7 @@ async def generate_tts_audio(text: str, language_code: str | None = None) -> str
     if _is_valid_audio(plain_path):
         return plain_path
 
-    # Primary: gTTS when installed.
     last_err = None
-    if gTTS is not None:
-        try:
-            tts = gTTS(text, lang=lang)
-            tts.save(plain_path)
-            if _is_valid_audio(plain_path):
-                logging.info("gTTS generated audio for %s", text)
-                return plain_path
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            logging.exception("gTTS failed for %s: %s", text, exc)
-    else:
-        logging.warning("gTTS is not installed, falling back to edge-tts for %s", text)
-
-    # Fallback: edge-tts с несколькими голосами
     attempts = 2
     voices = VOICE_BY_LANGUAGE.get(lang, VOICE_BY_LANGUAGE["en"])
     for voice in voices:
@@ -116,13 +97,17 @@ async def generate_tts_audio(text: str, language_code: str | None = None) -> str
                 if _is_valid_audio(plain_path):
                     logging.info("edge-tts generated audio for %s with %s", text, voice)
                     return plain_path
-                logging.warning("Generated empty TTS for %s with %s, retrying", text, voice)
+                logging.warning(
+                    "Generated empty TTS for %s with %s, retrying", text, voice
+                )
             except NoAudioReceived as exc:
                 last_err = exc
                 logging.warning("No audio received for %s with %s", text, voice)
             except Exception as exc:  # noqa: BLE001 logging to avoid silent failures
                 last_err = exc
-                logging.exception("TTS generation failed for %s with %s: %s", text, voice, exc)
+                logging.exception(
+                    "TTS generation failed for %s with %s: %s", text, voice, exc
+                )
 
     # cleanup empty file so we don't keep sending empty mp3
     if os.path.exists(plain_path) and os.path.getsize(plain_path) == 0:

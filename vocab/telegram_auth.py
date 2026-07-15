@@ -20,8 +20,12 @@ def _build_check_string(data: dict) -> str:
 
 
 def _validate_auth_date(auth_date_raw: object, max_age_seconds: int) -> None:
+    if not isinstance(auth_date_raw, (str, int, float)) or isinstance(
+        auth_date_raw, bool
+    ):
+        raise TelegramAuthError("Invalid Telegram auth date.")
     try:
-        auth_date = int(auth_date_raw or 0)
+        auth_date = int(auth_date_raw)
     except (TypeError, ValueError) as exc:
         raise TelegramAuthError("Invalid Telegram auth date.") from exc
     now = time()

@@ -23,7 +23,6 @@ from .services import (
     add_pack_words_to_user,
     add_words_from_text,
     apply_user_settings,
-    build_learning_question,
     issue_learning_question,
     build_user_progress,
     build_irregular_question,
@@ -58,15 +57,12 @@ from .services import (
     serialize_user,
     serialize_draft,
     serialize_word,
-    submit_learning_text_answer,
     submit_issued_learning_answer,
     get_issued_speaking_question,
     submit_issued_speaking_answer,
     submit_alphabet_answer,
-    evaluate_speaking_answer,
     update_learning_streak,
     update_irregular_progress,
-    update_word_progress,
     update_word_translation,
     upsert_telegram_user,
     word_already_exists,
@@ -140,7 +136,7 @@ def _safe_unlink(path: str) -> None:
 def _safe_context(payload: dict | None) -> dict:
     if not payload:
         return {}
-    safe = {}
+    safe: dict[str, object] = {}
     for key, value in payload.items():
         if key.lower() in {"password", "token", "init_data", "audio"}:
             continue

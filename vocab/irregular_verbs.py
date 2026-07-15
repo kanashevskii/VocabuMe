@@ -66,7 +66,7 @@ for v in IRREGULAR_VERBS:
     past = v["past"]
     part = v["participle"]
     base = v["base"]
-    v["wrong_pairs"] = list(
+    v["wrong_pairs"] = list(  # type: ignore[assignment]
         {
             f"{past} {base}",
             f"{base} {part}",

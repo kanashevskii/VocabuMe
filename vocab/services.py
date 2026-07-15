@@ -5,7 +5,7 @@ from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, cast
 from urllib.parse import urlparse
 from uuid import UUID
 import logging
@@ -1027,9 +1027,9 @@ def get_user_achievements(
 ) -> list[str]:
     stats = get_achievement_stats(user, course_code=course_code)
     return [
-        item["text"]
+        str(item["text"])
         for item in ACHIEVEMENT_DEFINITIONS
-        if stats[item["kind"]] >= item["threshold"]
+        if stats[str(item["kind"])] >= cast(int, item["threshold"])
     ]
 
 
@@ -1047,9 +1047,12 @@ def get_new_achievements(
 
     for item in ACHIEVEMENT_DEFINITIONS:
         code = f"{item['kind']}_{item['threshold']}"
-        if stats[item["kind"]] >= item["threshold"] and code not in earned:
+        if (
+            stats[str(item["kind"])] >= cast(int, item["threshold"])
+            and code not in earned
+        ):
             Achievement.objects.create(user=user, course_code=active_course, code=code)
-            new_achievements.append(item["text"])
+            new_achievements.append(str(item["text"]))
     return new_achievements
 
 
@@ -3463,7 +3466,8 @@ def build_irregular_question() -> dict:
     verb = random.choice(IRREGULAR_VERBS)
     correct_pair = f"{verb['past']} {verb['participle']}"
     options = []
-    for candidate in [correct_pair] + verb["wrong_pairs"] + get_random_pairs(verb, 2):
+    wrong_pairs = list(verb["wrong_pairs"])
+    for candidate in [correct_pair] + wrong_pairs + get_random_pairs(verb, 2):
         if candidate not in options:
             options.append(candidate)
     random.shuffle(options)
