@@ -164,6 +164,10 @@ function makeAchievementKey(text, courseCode = "en") {
   return `${courseCode}:${text}`;
 }
 
+function waitForAudioPreparation(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
 function App() {
   const [config, setConfig] = useState({ bot_username: "", webapp_url: "" });
   const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null, progress: null });
@@ -188,6 +192,7 @@ function App() {
   const [wordImageVersions] = useState({});
   const [wordImageErrors, setWordImageErrors] = useState({});
   const [regeneratingWordId, setRegeneratingWordId] = useState(null);
+  const [audioRevision, setAudioRevision] = useState(0);
   const [addText, setAddText] = useState("");
   const [packs, setPacks] = useState([]);
   const [packsLoading, setPacksLoading] = useState(false);
@@ -461,6 +466,35 @@ function App() {
   }, [primaryTab, libraryMode, showLibraryAdd]);
 
   const currentCard = cardQueue[cardIndex];
+  const prepareAudio = useCallback(async (endpoint, payload) => {
+    for (const delay of [0, 600, 1200, 2400]) {
+      if (delay) {
+        await waitForAudioPreparation(delay);
+      }
+      const response = await api(endpoint, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (response.ready) {
+        setAudioRevision((revision) => revision + 1);
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    if (currentCard?.id) {
+      prepareAudio(`/api/audio/${currentCard.id}/prepare`, {}).catch(() => {});
+    }
+  }, [currentCard?.id, prepareAudio]);
+
+  useEffect(() => {
+    if (learnQuestion?.item?.id) {
+      prepareAudio(`/api/audio/${learnQuestion.item.id}/prepare`, {}).catch(() => {});
+    }
+  }, [learnQuestion?.item?.id, prepareAudio]);
+
   const noticeScope = useMemo(() => {
     if (!auth.authenticated) {
       return "auth";
@@ -1630,7 +1664,17 @@ function App() {
     }
     setAlphabetAudioLoadingSymbol(symbol);
     try {
-      const audio = new Audio(`/api/alphabet/audio?symbol=${encodeURIComponent(symbol)}`);
+      const ready = await prepareAudio(
+        "/api/alphabet/audio/prepare",
+        { symbol },
+      );
+      if (!ready) {
+        setNotice("Аудио ещё готовится. Попробуй снова через несколько секунд.");
+        return;
+      }
+      const audio = new Audio(
+        `/api/alphabet/audio?symbol=${encodeURIComponent(symbol)}&v=${audioRevision}`,
+      );
       alphabetAudioRef.current = audio;
       audio.onended = () => {
         if (alphabetAudioRef.current === audio) {
@@ -2143,7 +2187,7 @@ function App() {
               ) : null}
               <p className="transcription">/{currentCard.transcription || "no IPA"}/</p>
               <p className="example">{currentCard.example}</p>
-              <audio controls src={`/api/audio/${currentCard.id}`} className="audio-player" />
+              <audio controls src={`/api/audio/${currentCard.id}?v=${audioRevision}`} className="audio-player" />
             </div>
             <div className="study-side">
               {cardReveal ? (
@@ -2369,7 +2413,7 @@ function App() {
           ) : null}
           {isListening ? (
             <form className="stack-form quiz-panel-tight" onSubmit={handleLearnListeningSubmit}>
-              <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
+              <audio controls src={`/api/audio/${learnQuestion.item.id}?v=${audioRevision}`} className="audio-player" />
               <div className="button-row practice-filter-row">
                 <button
                   className={listeningTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
@@ -2392,7 +2436,7 @@ function App() {
           ) : null}
           {isSpeaking ? (
             <div className="quiz-panel quiz-panel-tight">
-              <audio controls src={`/api/audio/${learnQuestion.item.id}`} className="audio-player" />
+              <audio controls src={`/api/audio/${learnQuestion.item.id}?v=${audioRevision}`} className="audio-player" />
               <div className="button-row practice-filter-row">
                 <button
                   className={speakingTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}

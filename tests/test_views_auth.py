@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
-from vocab.models import AppErrorLog, TelegramUser
+from vocab.models import AppErrorLog, BackgroundJob, TelegramUser, VocabularyItem
 from vocab.services import create_bot_payment_attempt, create_web_login_token
 
 
@@ -105,7 +105,10 @@ def test_auth_poll_link_rejects_get_to_keep_token_consumption_explicit(client):
 def test_auth_telegram_widget_uses_verified_payload(client, monkeypatch):
     monkeypatch.setattr(
         "vocab.views.verify_login_widget",
-        lambda payload, token, max_age_seconds: {"id": "301", "username": "telegram_user"},
+        lambda payload, token, max_age_seconds: {
+            "id": "301",
+            "username": "telegram_user",
+        },
     )
 
     response = client.post(
@@ -124,7 +127,9 @@ def test_auth_telegram_widget_uses_verified_payload(client, monkeypatch):
 def test_auth_telegram_webapp_uses_verified_payload(client, monkeypatch):
     monkeypatch.setattr(
         "vocab.views.verify_webapp_init_data",
-        lambda init_data, token, max_age_seconds: {"user": {"id": 302, "username": "webapp_user"}},
+        lambda init_data, token, max_age_seconds: {
+            "user": {"id": 302, "username": "webapp_user"}
+        },
     )
 
     response = client.post(
@@ -254,8 +259,15 @@ def test_client_error_log_is_rate_limited(client):
     payload = json.dumps({"category": "client", "level": "error", "message": "boom"})
 
     for _ in range(30):
-        assert client.post("/api/client-error", data=payload, content_type="application/json").status_code == 200
-    response = client.post("/api/client-error", data=payload, content_type="application/json")
+        assert (
+            client.post(
+                "/api/client-error", data=payload, content_type="application/json"
+            ).status_code
+            == 200
+        )
+    response = client.post(
+        "/api/client-error", data=payload, content_type="application/json"
+    )
 
     assert response.status_code == 429
     assert response["Retry-After"] == "60"
@@ -270,7 +282,9 @@ def test_webapp_header_takes_precedence_over_session(client, monkeypatch):
     session.save()
     monkeypatch.setattr(
         "vocab.views.verify_webapp_init_data",
-        lambda init_data, token, max_age_seconds: {"user": {"id": header_user.chat_id, "username": "header"}},
+        lambda init_data, token, max_age_seconds: {
+            "user": {"id": header_user.chat_id, "username": "header"}
+        },
     )
 
     response = client.get("/api/auth/me", HTTP_X_TELEGRAM_INIT_DATA="signed")
@@ -287,10 +301,14 @@ def test_learn_question_returns_empty_when_service_has_no_question(client, monke
     session = client.session
     session["telegram_user_id"] = user.id
     session.save()
-    monkeypatch.setattr("vocab.views.issue_learning_question", lambda user, exclude_ids=None: None)
+    monkeypatch.setattr(
+        "vocab.views.issue_learning_question", lambda user, exclude_ids=None: None
+    )
 
     response = client.post(
-        "/api/learn/question", data=json.dumps({"exclude_ids": []}), content_type="application/json"
+        "/api/learn/question",
+        data=json.dumps({"exclude_ids": []}),
+        content_type="application/json",
     )
 
     assert response.status_code == 200
@@ -429,12 +447,74 @@ def test_alphabet_audio_returns_mp3_for_current_course(client, monkeypatch, tmp_
     audio_path = tmp_path / "alphabet.mp3"
     audio_path.write_bytes(b"fake mp3")
 
-    monkeypatch.setattr("vocab.tts.get_audio_path", lambda text, language_code=None: str(audio_path))
+    monkeypatch.setattr(
+        "vocab.tts.get_audio_path", lambda text, language_code=None: str(audio_path)
+    )
 
     response = client.get("/api/alphabet/audio?symbol=ა")
 
     assert response.status_code == 200
     assert response["Content-Type"] == "audio/mpeg"
+
+
+@pytest.mark.django_db
+def test_word_audio_get_does_not_enqueue_or_generate_missing_audio(
+    client, monkeypatch, tmp_path
+):
+    user = TelegramUser.objects.create(chat_id=2012, username="tester")
+    item = VocabularyItem.objects.create(
+        user=user,
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="An apple.",
+        example_translation="Яблоко.",
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+
+    missing_path = tmp_path / "missing.mp3"
+    monkeypatch.setattr(
+        "vocab.tts.get_audio_path", lambda text, language_code=None: str(missing_path)
+    )
+    monkeypatch.setattr(
+        "vocab.tts.is_audio_ready", lambda text, language_code=None: False
+    )
+
+    response = client.get(f"/api/audio/{item.id}")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "audio_not_ready"
+    assert BackgroundJob.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_word_audio_prepare_queues_one_idempotent_job(client, monkeypatch):
+    user = TelegramUser.objects.create(chat_id=2013, username="tester")
+    item = VocabularyItem.objects.create(
+        user=user,
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="An apple.",
+        example_translation="Яблоко.",
+    )
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+    monkeypatch.setattr(
+        "vocab.tts.is_audio_ready", lambda text, language_code=None: False
+    )
+
+    first = client.post(f"/api/audio/{item.id}/prepare")
+    second = client.post(f"/api/audio/{item.id}/prepare")
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert BackgroundJob.objects.filter(kind="tts_audio").count() == 1
 
 
 @pytest.mark.django_db

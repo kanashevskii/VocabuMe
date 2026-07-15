@@ -1,0 +1,18 @@
+[Unit]
+Description=VocabuMe high-priority Celery worker
+After=network-online.target redis-server.service
+Wants=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=eduard
+Group=eduard
+WorkingDirectory=/home/eduard/englishbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/eduard/englishbot/venv/bin/celery -A core worker --loglevel=INFO --queues=vocabume-high --concurrency=2 --hostname=vocabume-high@%%h
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=310
+
+[Install]
+WantedBy=multi-user.target

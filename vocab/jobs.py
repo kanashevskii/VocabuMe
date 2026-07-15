@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from pathlib import Path
@@ -37,7 +38,11 @@ def enqueue_job(
                 process_background_job_low,
             )
 
-            task = process_background_job_high if priority < 100 else process_background_job_low
+            task = (
+                process_background_job_high
+                if priority < 100
+                else process_background_job_low
+            )
             task.apply_async(args=[job.id], queue=queue)
 
         transaction.on_commit(dispatch)
@@ -49,9 +54,13 @@ def _execute(job: BackgroundJob) -> None:
     from . import services
 
     if job.kind == "draft_image":
-        services._run_draft_image_generation(job.payload["draft_id"], job.payload["version"])
+        services._run_draft_image_generation(
+            job.payload["draft_id"], job.payload["version"]
+        )
     elif job.kind == "word_image":
-        services._run_word_image_generation(job.payload["item_id"], job.payload["version"])
+        services._run_word_image_generation(
+            job.payload["item_id"], job.payload["version"]
+        )
     elif job.kind == "pack_prepare":
         services._prepare_pack_level_sync(
             job.payload["pack_id"],
@@ -60,6 +69,14 @@ def _execute(job: BackgroundJob) -> None:
         )
     elif job.kind == "image_optimize":
         services._optimize_image_to_webp(Path(job.payload["source_path"]))
+    elif job.kind == "tts_audio":
+        from .tts import generate_tts_audio
+
+        asyncio.run(
+            generate_tts_audio(
+                job.payload["text"], language_code=job.payload["language_code"]
+            )
+        )
     else:
         raise ValueError(f"Unsupported background job kind: {job.kind}")
 
@@ -74,11 +91,19 @@ def _complete_job(job: BackgroundJob, *, external_retry: bool) -> None:
         job.run_after = (
             timezone.now()
             if external_retry
-            else timezone.now() + timedelta(seconds=min(300, 2 ** job.attempts))
+            else timezone.now() + timedelta(seconds=min(300, 2**job.attempts))
         )
         job.last_error = str(exc)[:2_000]
         job.locked_at = None
-        job.save(update_fields=["status", "run_after", "last_error", "locked_at", "updated_at"])
+        job.save(
+            update_fields=[
+                "status",
+                "run_after",
+                "last_error",
+                "locked_at",
+                "updated_at",
+            ]
+        )
         if external_retry and retry:
             raise
     else:
@@ -104,9 +129,9 @@ def run_one_job() -> bool:
     now = timezone.now()
     with transaction.atomic():
         job = _claim_job(
-            BackgroundJob.objects
-            .filter(status="queued", run_after__lte=now)
-            .order_by("priority", "run_after", "id"),
+            BackgroundJob.objects.filter(status="queued", run_after__lte=now).order_by(
+                "priority", "run_after", "id"
+            ),
             now,
         )
         if job is None:

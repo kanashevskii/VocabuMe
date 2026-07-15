@@ -1,0 +1,17 @@
+[Unit]
+Description=VocabuMe Celery scheduler
+After=network-online.target redis-server.service
+Wants=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=eduard
+Group=eduard
+WorkingDirectory=/home/eduard/englishbot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/eduard/englishbot/venv/bin/celery -A core beat --loglevel=INFO --schedule=/home/eduard/englishbot/var/celerybeat-schedule
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

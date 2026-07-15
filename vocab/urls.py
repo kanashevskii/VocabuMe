@@ -2,7 +2,6 @@ from django.urls import path
 
 from . import views
 
-
 urlpatterns = [
     path("", views.spa_index, name="spa-index"),
     path("api/app-config", views.app_config, name="app-config"),
@@ -10,22 +9,58 @@ urlpatterns = [
     path("api/auth/logout", views.auth_logout, name="auth-logout"),
     path("api/auth/web/register", views.auth_web_register, name="auth-web-register"),
     path("api/auth/web/login", views.auth_web_login, name="auth-web-login"),
-    path("api/auth/telegram/request-link", views.auth_request_link, name="auth-request-link"),
-    path("api/auth/telegram/poll/<str:token>", views.auth_poll_link, name="auth-poll-link"),
-    path("api/auth/telegram/widget", views.auth_telegram_widget, name="auth-telegram-widget"),
-    path("api/auth/telegram/webapp", views.auth_telegram_webapp, name="auth-telegram-webapp"),
+    path(
+        "api/auth/telegram/request-link",
+        views.auth_request_link,
+        name="auth-request-link",
+    ),
+    path(
+        "api/auth/telegram/poll/<str:token>",
+        views.auth_poll_link,
+        name="auth-poll-link",
+    ),
+    path(
+        "api/auth/telegram/widget",
+        views.auth_telegram_widget,
+        name="auth-telegram-widget",
+    ),
+    path(
+        "api/auth/telegram/webapp",
+        views.auth_telegram_webapp,
+        name="auth-telegram-webapp",
+    ),
     path("api/client-error", views.client_error_log, name="client-error-log"),
     path("api/dashboard", views.dashboard, name="dashboard"),
     path("api/billing", views.billing_status, name="billing-status"),
     path("api/billing/checkout", views.billing_checkout, name="billing-checkout"),
     path("api/words", views.words, name="words"),
     path("api/words/draft", views.word_draft_create, name="word-draft-create"),
-    path("api/words/draft/<int:draft_id>/translation", views.word_draft_confirm_translation, name="word-draft-confirm-translation"),
-    path("api/words/draft/<int:draft_id>/image/regenerate", views.word_draft_regenerate_image, name="word-draft-regenerate-image"),
-    path("api/words/draft/<int:draft_id>/save", views.word_draft_save, name="word-draft-save"),
-    path("api/words/draft/<int:draft_id>", views.word_draft_delete, name="word-draft-delete"),
+    path(
+        "api/words/draft/<int:draft_id>/translation",
+        views.word_draft_confirm_translation,
+        name="word-draft-confirm-translation",
+    ),
+    path(
+        "api/words/draft/<int:draft_id>/image/regenerate",
+        views.word_draft_regenerate_image,
+        name="word-draft-regenerate-image",
+    ),
+    path(
+        "api/words/draft/<int:draft_id>/save",
+        views.word_draft_save,
+        name="word-draft-save",
+    ),
+    path(
+        "api/words/draft/<int:draft_id>",
+        views.word_draft_delete,
+        name="word-draft-delete",
+    ),
     path("api/words/<int:word_id>", views.word_detail, name="word-detail"),
-    path("api/words/<int:word_id>/image/regenerate", views.word_image_regenerate, name="word-image-regenerate"),
+    path(
+        "api/words/<int:word_id>/image/regenerate",
+        views.word_image_regenerate,
+        name="word-image-regenerate",
+    ),
     path("api/packs", views.packs_view, name="packs"),
     path("api/packs/prepare", views.packs_prepare, name="packs-prepare"),
     path("api/packs/add", views.packs_add, name="packs-add"),
@@ -42,7 +77,17 @@ urlpatterns = [
     path("api/speaking/question", views.speaking_question, name="speaking-question"),
     path("api/speaking/answer", views.speaking_answer, name="speaking-answer"),
     path("api/audio/<int:word_id>", views.word_audio, name="word-audio"),
+    path(
+        "api/audio/<int:word_id>/prepare",
+        views.word_audio_prepare,
+        name="word-audio-prepare",
+    ),
     path("api/alphabet/audio", views.alphabet_audio, name="alphabet-audio"),
+    path(
+        "api/alphabet/audio/prepare",
+        views.alphabet_audio_prepare,
+        name="alphabet-audio-prepare",
+    ),
     path("api/image/<int:word_id>", views.word_image, name="word-image"),
     path("api/draft-image/<int:draft_id>", views.draft_image, name="draft-image"),
     path("api/irregular/list", views.irregular_list, name="irregular-list"),

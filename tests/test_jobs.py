@@ -33,7 +33,9 @@ def test_run_one_job_marks_success(monkeypatch):
         payload={"item_id": 2, "version": 1},
         priority=10,
     )
-    monkeypatch.setattr("vocab.services._run_word_image_generation", lambda item_id, version: None)
+    monkeypatch.setattr(
+        "vocab.services._run_word_image_generation", lambda item_id, version: None
+    )
 
     assert run_one_job() is True
 
@@ -61,3 +63,25 @@ def test_run_one_job_retries_after_failure(monkeypatch):
     assert job.status == "queued"
     assert job.attempts == 1
     assert "temporary" in job.last_error
+
+
+@pytest.mark.django_db
+def test_run_one_job_generates_tts_in_worker(monkeypatch):
+    job = enqueue_job(
+        kind="tts_audio",
+        deduplication_key="tts:example",
+        payload={"text": "apple", "language_code": "en"},
+        priority=10,
+    )
+    generated: list[tuple[str, str]] = []
+
+    async def fake_generate(text: str, language_code: str) -> str:
+        generated.append((text, language_code))
+        return "/tmp/apple.mp3"
+
+    monkeypatch.setattr("vocab.tts.generate_tts_audio", fake_generate)
+
+    assert run_one_job() is True
+    job.refresh_from_db()
+    assert generated == [("apple", "en")]
+    assert job.status == "succeeded"

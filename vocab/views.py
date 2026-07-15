@@ -6,6 +6,7 @@ import mimetypes
 import os
 import tempfile
 import traceback
+from hashlib import sha256
 
 from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -75,6 +76,7 @@ from .telegram_auth import (
     verify_webapp_init_data,
 )
 from .ratelimit import RateLimitExceeded, enforce_rate_limit
+from .jobs import enqueue_job
 
 SESSION_USER_KEY = "telegram_user_id"
 logger = logging.getLogger(__name__)
@@ -200,12 +202,19 @@ def _rate_limit_subject(request: HttpRequest, user: TelegramUser | None = None) 
     if user is not None:
         return f"user:{user.id}"
     forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    client_ip = forwarded_for.split(",", 1)[0].strip() or request.META.get("REMOTE_ADDR", "")
+    client_ip = forwarded_for.split(",", 1)[0].strip() or request.META.get(
+        "REMOTE_ADDR", ""
+    )
     return f"ip:{client_ip or 'unknown'}"
 
 
 def _enforce_request_limit(
-    request: HttpRequest, *, scope: str, limit: int, window: int, user: TelegramUser | None = None
+    request: HttpRequest,
+    *,
+    scope: str,
+    limit: int,
+    window: int,
+    user: TelegramUser | None = None,
 ) -> JsonResponse | None:
     try:
         enforce_rate_limit(
@@ -215,7 +224,9 @@ def _enforce_request_limit(
             window=window,
         )
     except RateLimitExceeded:
-        response = _json_error("Too many requests. Please try again shortly.", status=429)
+        response = _json_error(
+            "Too many requests. Please try again shortly.", status=429
+        )
         response["Retry-After"] = str(window)
         return response
     return None
@@ -261,11 +272,15 @@ def app_config(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_POST
 def auth_telegram_widget(request: HttpRequest) -> JsonResponse:
-    if limited := _enforce_request_limit(request, scope="auth-widget", limit=20, window=60):
+    if limited := _enforce_request_limit(
+        request, scope="auth-widget", limit=20, window=60
+    ):
         return limited
     try:
         payload = _json_body(request)
-        verified = verify_login_widget(payload, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS)
+        verified = verify_login_widget(
+            payload, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS
+        )
     except (ValueError, TelegramAuthError) as exc:
         return _json_error(str(exc), status=400)
 
@@ -278,12 +293,16 @@ def auth_telegram_widget(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_POST
 def auth_telegram_webapp(request: HttpRequest) -> JsonResponse:
-    if limited := _enforce_request_limit(request, scope="auth-webapp", limit=20, window=60):
+    if limited := _enforce_request_limit(
+        request, scope="auth-webapp", limit=20, window=60
+    ):
         return limited
     try:
         payload = _json_body(request)
         init_data = payload.get("init_data", "")
-        verified = verify_webapp_init_data(init_data, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS)
+        verified = verify_webapp_init_data(
+            init_data, get_telegram_token(), settings.TELEGRAM_AUTH_MAX_AGE_SECONDS
+        )
     except (ValueError, TelegramAuthError) as exc:
         return _json_error(str(exc), status=400)
 
@@ -318,7 +337,9 @@ def auth_me(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def auth_request_link(request: HttpRequest) -> JsonResponse:
-    if limited := _enforce_request_limit(request, scope="auth-link", limit=5, window=60):
+    if limited := _enforce_request_limit(
+        request, scope="auth-link", limit=5, window=60
+    ):
         return limited
     login_token = create_web_login_token()
     deep_link = (
@@ -337,12 +358,17 @@ def auth_request_link(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def auth_web_register(request: HttpRequest) -> JsonResponse:
-    return _json_error("Email/password registration is no longer supported. Use Telegram login.", status=410)
+    return _json_error(
+        "Email/password registration is no longer supported. Use Telegram login.",
+        status=410,
+    )
 
 
 @require_POST
 def auth_web_login(request: HttpRequest) -> JsonResponse:
-    return _json_error("Email/password login is no longer supported. Use Telegram login.", status=410)
+    return _json_error(
+        "Email/password login is no longer supported. Use Telegram login.", status=410
+    )
 
 
 @require_POST
@@ -368,7 +394,9 @@ def client_error_log(request: HttpRequest) -> JsonResponse:
     user = _current_user(request)
     if user is None:
         return _json_error("Authentication required.", status=401)
-    if limited := _enforce_request_limit(request, scope="client-error", limit=30, window=60, user=user):
+    if limited := _enforce_request_limit(
+        request, scope="client-error", limit=30, window=60, user=user
+    ):
         return limited
     if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_CLIENT_ERROR_BODY_BYTES:
         return _json_error("Client error payload is too large.", status=413)
@@ -390,7 +418,9 @@ def client_error_log(request: HttpRequest) -> JsonResponse:
         category=category,
         level=level,
         status_code=status_code,
-        message=str(payload.get("message") or "Client-side error")[:MAX_CLIENT_ERROR_MESSAGE_LENGTH],
+        message=str(payload.get("message") or "Client-side error")[
+            :MAX_CLIENT_ERROR_MESSAGE_LENGTH
+        ],
         context={
             "url": payload.get("url", ""),
             "detail": str(payload.get("detail", ""))[:1_000],
@@ -826,9 +856,7 @@ def packs_prepare(request: HttpRequest) -> JsonResponse:
     active_course = get_active_course_code(user)
     for pack in list_word_packs(user):
         for level in pack["levels"]:
-            ensure_pack_preparation(
-                pack["id"], level["id"], course_code=active_course
-            )
+            ensure_pack_preparation(pack["id"], level["id"], course_code=active_course)
     return JsonResponse({"ok": True})
 
 
@@ -992,7 +1020,13 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
         return _json_error("Audio file is required.")
     if audio_file.size > 10 * 1024 * 1024:
         return _json_error("Audio file is too large.", status=413)
-    allowed_audio_content_types = {"audio/webm", "audio/ogg", "audio/mpeg", "audio/wav", "audio/mp4"}
+    allowed_audio_content_types = {
+        "audio/webm",
+        "audio/ogg",
+        "audio/mpeg",
+        "audio/wav",
+        "audio/mp4",
+    }
     if audio_file.content_type not in allowed_audio_content_types:
         return _json_error("Unsupported audio format.", status=415)
 
@@ -1013,10 +1047,45 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
     except ValueError as exc:
         return _json_error(str(exc), status=400)
     except Exception:
-        logger.exception("Speaking recognition failed for user=%s question_id=%s", user.id, question_id)
+        logger.exception(
+            "Speaking recognition failed for user=%s question_id=%s",
+            user.id,
+            question_id,
+        )
         return _json_error("Speech recognition is temporarily unavailable.", status=503)
     finally:
         _safe_unlink(temp_path)
+
+
+def _serve_cached_audio(text: str, language_code: str) -> JsonResponse | FileResponse:
+    """Serve a cached audio asset; request handlers must never generate it on GET."""
+    from .tts import get_audio_path, is_audio_ready
+
+    audio_path = get_audio_path(text, language_code=language_code)
+    if not is_audio_ready(text, language_code=language_code):
+        return _json_error(
+            "Audio is being prepared.", status=404, code="audio_not_ready"
+        )
+    try:
+        return FileResponse(open(audio_path, "rb"), content_type="audio/mpeg")
+    except OSError:
+        logger.exception("Cached audio file disappeared: %s", audio_path)
+        return _json_error("Audio is temporarily unavailable.", status=503)
+
+
+def _enqueue_audio_generation(text: str, language_code: str) -> tuple[bool, int | None]:
+    from .tts import is_audio_ready
+
+    if is_audio_ready(text, language_code=language_code):
+        return True, None
+    fingerprint = sha256(f"{language_code}:{text}".encode("utf-8")).hexdigest()
+    job = enqueue_job(
+        kind="tts_audio",
+        deduplication_key=f"tts:{fingerprint}",
+        payload={"text": text, "language_code": language_code},
+        priority=10,
+    )
+    return False, job.id
 
 
 @require_GET
@@ -1024,36 +1093,41 @@ def word_audio(request: HttpRequest, word_id: int) -> JsonResponse | FileRespons
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
-
     item = get_user_word(user, word_id)
     if item is None:
         return _json_error("Word not found.", status=404)
+    return _serve_cached_audio(item.word, item.course_code)
 
-    import asyncio
-    import os
-    from .tts import get_audio_path, generate_tts_audio
 
-    try:
-        audio_path = get_audio_path(item.word, language_code=item.course_code)
-        if not audio_path or not os.path.exists(audio_path):
-            audio_path = asyncio.run(
-                generate_tts_audio(item.word, language_code=item.course_code)
-            )
-    except Exception:
-        logger.exception(
-            "Audio generation failed for user=%s word_id=%s", user.id, word_id
-        )
-        return _json_error("Audio is temporarily unavailable.", status=503)
-    try:
-        return FileResponse(open(audio_path, "rb"), content_type="audio/mpeg")
-    except OSError:
-        logger.exception(
-            "Audio file open failed for user=%s word_id=%s path=%s",
-            user.id,
-            word_id,
-            audio_path,
-        )
-        return _json_error("Audio is temporarily unavailable.", status=503)
+@require_POST
+def word_audio_prepare(request: HttpRequest, word_id: int) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+    if limited := _enforce_request_limit(
+        request, scope="tts-prepare", limit=20, window=60, user=user
+    ):
+        return limited
+    item = get_user_word(user, word_id)
+    if item is None:
+        return _json_error("Word not found.", status=404)
+    ready, job_id = _enqueue_audio_generation(item.word, item.course_code)
+    return JsonResponse(
+        {"ok": True, "ready": ready, "job_id": job_id},
+        status=200 if ready else 202,
+    )
+
+
+def _get_alphabet_audio_text(
+    user: TelegramUser, symbol: str
+) -> tuple[str, str] | JsonResponse:
+    if not symbol:
+        return _json_error("Alphabet symbol is required.", status=400)
+    active_course = get_active_course_code(user)
+    letter = get_alphabet_letter(active_course, symbol)
+    if letter is None:
+        return _json_error("Alphabet letter not found.", status=404)
+    return str(letter.get("name") or letter["symbol"]).strip(), active_course
 
 
 @require_GET
@@ -1061,46 +1135,34 @@ def alphabet_audio(request: HttpRequest) -> JsonResponse | FileResponse:
     user = _require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    audio_spec = _get_alphabet_audio_text(user, request.GET.get("symbol", "").strip())
+    if isinstance(audio_spec, JsonResponse):
+        return audio_spec
+    return _serve_cached_audio(*audio_spec)
 
-    symbol = request.GET.get("symbol", "").strip()
-    if not symbol:
-        return _json_error("Alphabet symbol is required.", status=400)
 
-    active_course = get_active_course_code(user)
-    letter = get_alphabet_letter(active_course, symbol)
-    if letter is None:
-        return _json_error("Alphabet letter not found.", status=404)
-
-    import asyncio
-    import os
-    from .tts import get_audio_path, generate_tts_audio
-
-    audio_text = str(letter.get("name") or letter["symbol"]).strip()
+@require_POST
+def alphabet_audio_prepare(request: HttpRequest) -> JsonResponse:
+    user = _require_user(request)
+    if isinstance(user, JsonResponse):
+        return user
+    if limited := _enforce_request_limit(
+        request, scope="tts-prepare", limit=20, window=60, user=user
+    ):
+        return limited
     try:
-        audio_path = get_audio_path(audio_text, language_code=active_course)
-        if not audio_path or not os.path.exists(audio_path):
-            audio_path = asyncio.run(
-                generate_tts_audio(audio_text, language_code=active_course)
-            )
-    except Exception:
-        logger.exception(
-            "Alphabet audio generation failed for user=%s course=%s symbol=%s",
-            user.id,
-            active_course,
-            symbol,
-        )
-        return _json_error("Audio is temporarily unavailable.", status=503)
-    try:
-        return FileResponse(open(audio_path, "rb"), content_type="audio/mpeg")
-    except OSError:
-        logger.exception(
-            "Alphabet audio file open failed for user=%s course=%s symbol=%s path=%s",
-            user.id,
-            active_course,
-            symbol,
-            audio_path,
-        )
-        return _json_error("Audio is temporarily unavailable.", status=503)
+        payload = _json_body(request)
+        symbol = str(payload.get("symbol", "")).strip()
+    except (TypeError, ValueError):
+        return _json_error("Invalid alphabet audio payload.")
+    audio_spec = _get_alphabet_audio_text(user, symbol)
+    if isinstance(audio_spec, JsonResponse):
+        return audio_spec
+    ready, job_id = _enqueue_audio_generation(*audio_spec)
+    return JsonResponse(
+        {"ok": True, "ready": ready, "job_id": job_id},
+        status=200 if ready else 202,
+    )
 
 
 @require_GET
@@ -1258,8 +1320,12 @@ def alphabet_answer(request: HttpRequest) -> JsonResponse:
         signed_user_id, course_code, symbol = QUESTION_SIGNER.unsign(
             question_token, max_age=15 * 60
         ).split(":", 2)
-        if int(signed_user_id) != user.id or course_code != get_active_course_code(user):
-            return _json_error("Alphabet question does not belong to this user.", status=403)
+        if int(signed_user_id) != user.id or course_code != get_active_course_code(
+            user
+        ):
+            return _json_error(
+                "Alphabet question does not belong to this user.", status=403
+            )
         result = submit_alphabet_answer(user, symbol, answer)
     except (BadSignature, SignatureExpired, ValueError) as exc:
         return _json_error(str(exc))

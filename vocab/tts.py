@@ -71,6 +71,11 @@ def _is_valid_audio(path: str) -> bool:
         return False
 
 
+def is_audio_ready(text: str, language_code: str | None = None) -> bool:
+    """Return whether the cached TTS asset is safe to serve without generating it."""
+    return _is_valid_audio(get_audio_path(text, language_code=language_code))
+
+
 async def generate_tts_audio(text: str, language_code: str | None = None) -> str:
     """Generate or return a cached TTS file using edge-tts."""
     if not text or not text.strip():
