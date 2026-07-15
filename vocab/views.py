@@ -1,28 +1,22 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
 
 from django.conf import settings
-from django.http import FileResponse, HttpRequest, JsonResponse
+from django.http import HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
-from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
 from .models import TelegramUser
 from .services import (
-    apply_user_settings,
     build_user_progress,
     consume_web_login_token,
     create_web_login_token,
-    delete_user_avatar,
     get_billing_payload,
-    get_profile_avatar_file,
-    get_user_settings_payload,
     get_ordered_unlearned_words,
     list_words,
-    save_user_avatar,
     serialize_user,
     serialize_word,
     upsert_telegram_user,
@@ -90,6 +84,10 @@ from .api.words import (  # noqa: F401 - URL compatibility exports
 from .api.billing import (  # noqa: F401 - URL compatibility exports
     billing_checkout,
     billing_status,
+)
+from .api.profile import (  # noqa: F401 - URL compatibility exports
+    profile_avatar,
+    settings_view,
 )
 from .api.alphabet import (  # noqa: F401 - URL compatibility exports
     alphabet_answer,
@@ -292,75 +290,5 @@ def dashboard(request: HttpRequest) -> JsonResponse:
             "billing": get_billing_payload(user),
             "recent_words": recent_words,
             "next_cards": next_cards,
-        }
-    )
-
-
-@require_http_methods(["GET", "POST"])
-def settings_view(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    if request.method == "GET":
-        return JsonResponse({"ok": True, "settings": get_user_settings_payload(user)})
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    try:
-        apply_user_settings(user, payload)
-    except (TypeError, ValueError) as exc:
-        return _json_error(f"Invalid settings payload: {exc}")
-    return JsonResponse({"ok": True})
-
-
-@require_http_methods(["GET", "POST", "DELETE"])
-def profile_avatar(request: HttpRequest) -> JsonResponse | FileResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    if request.method == "GET":
-        avatar_path = get_profile_avatar_file(user)
-        if avatar_path is None:
-            return _json_error("Avatar not found.", status=404)
-        content_type, _ = mimetypes.guess_type(avatar_path.name)
-        try:
-            return FileResponse(
-                open(avatar_path, "rb"), content_type=content_type or "image/webp"
-            )
-        except OSError:
-            logger.exception(
-                "Avatar file open failed for user=%s path=%s", user.id, avatar_path
-            )
-            return _json_error("Avatar is temporarily unavailable.", status=503)
-
-    if request.method == "DELETE":
-        delete_user_avatar(user)
-        return JsonResponse(
-            {
-                "ok": True,
-                "user": serialize_user(user),
-                "settings": get_user_settings_payload(user),
-            }
-        )
-
-    uploaded_file = request.FILES.get("avatar")
-    if uploaded_file is None:
-        return _json_error("Avatar file is required.")
-
-    try:
-        save_user_avatar(user, uploaded_file)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    return JsonResponse(
-        {
-            "ok": True,
-            "user": serialize_user(user),
-            "settings": get_user_settings_payload(user),
         }
     )

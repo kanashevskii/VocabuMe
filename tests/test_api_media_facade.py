@@ -6,6 +6,7 @@ from vocab.api import irregular
 from vocab.api import learning
 from vocab.api import media
 from vocab.api import packs
+from vocab.api import profile
 from vocab.api import speaking
 from vocab.api import words as words_api
 
@@ -76,3 +77,9 @@ def test_views_keep_legacy_billing_exports(client):
     assert views.billing_status is billing.billing_status
     assert views.billing_checkout is billing.billing_checkout
     assert client.get("/api/billing").status_code == 401
+
+
+def test_views_keep_legacy_profile_exports(client):
+    assert views.settings_view is profile.settings_view
+    assert views.profile_avatar is profile.profile_avatar
+    assert client.get("/api/settings").status_code == 401
