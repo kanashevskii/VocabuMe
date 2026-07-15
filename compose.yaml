@@ -1,0 +1,71 @@
+name: vocabume
+
+x-app: &app
+  build: .
+  env_file:
+    - .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-vocabume}
+      POSTGRES_USER: ${DB_USER:-vocabume}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis_data:/data
+
+  migrate:
+    <<: *app
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+
+  web:
+    <<: *app
+    command: ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "2", "--timeout", "90", "--access-logfile", "-", "--error-logfile", "-"]
+    ports:
+      - "8000:8000"
+
+  worker-high:
+    <<: *app
+    command: ["celery", "-A", "core", "worker", "--loglevel=INFO", "--queues=vocabume-high", "--concurrency=2"]
+
+  worker-low:
+    <<: *app
+    command: ["celery", "-A", "core", "worker", "--loglevel=INFO", "--queues=vocabume-low", "--concurrency=1"]
+
+  beat:
+    <<: *app
+    command: ["celery", "-A", "core", "beat", "--loglevel=INFO"]
+
+  bot:
+    <<: *app
+    environment:
+      VOCABUME_PROCESS: bot
+    command: ["python", "run.py"]
+
+volumes:
+  postgres_data:
+  redis_data:

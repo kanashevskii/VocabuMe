@@ -2381,7 +2381,7 @@ def add_pack_words_to_user(
             created.append(serialize_word(item))
 
     reserve_new_items_for_today(user, len(created))
-    ensure_pack_preparation(pack_id, level_id)
+    ensure_pack_preparation(pack_id, level_id, course_code=active_course)
     return {"created": created, "skipped": skipped}
 
 

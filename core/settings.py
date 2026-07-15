@@ -116,6 +116,13 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_TIME_LIMIT = 300
 CELERY_TASK_SOFT_TIME_LIMIT = 270
+CELERY_BEAT_SCHEDULE = {
+    "send-reminders-every-minute": {
+        "task": "vocab.tasks.send_reminders",
+        "schedule": 60.0,
+        "options": {"queue": "vocabume-low"},
+    },
+}
 
 # Bounded request bodies protect JSON endpoints and speech uploads before they
 # reach application code.  The web server must enforce the same limit.

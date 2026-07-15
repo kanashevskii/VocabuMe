@@ -1039,8 +1039,12 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
     user = TelegramUser.objects.create(
         chat_id=1026, username="tester", active_studied_language="ka"
     )
+    prepared_for: list[tuple[str, str, str | None]] = []
     monkeypatch.setattr(
-        "vocab.services.ensure_pack_preparation", lambda pack_id, level_id: None
+        "vocab.services.ensure_pack_preparation",
+        lambda pack_id, level_id, course_code=None: prepared_for.append(
+            (pack_id, level_id, course_code)
+        ),
     )
     monkeypatch.setattr(
         "vocab.services.request_word_image_generation", lambda item: item
@@ -1083,6 +1087,7 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
     assert is_translation_answer_correct("благодарю", prepared_word.translation) is True
     assert fallback_word.translation == "пока / до свидания"
     assert is_translation_answer_correct("до свидания", fallback_word.translation) is True
+    assert prepared_for == [("georgian_starter", "starter", "ka")]
 
 
 @pytest.mark.django_db
