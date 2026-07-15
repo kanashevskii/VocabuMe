@@ -1671,6 +1671,21 @@ def get_available_parts(user: TelegramUser) -> list[str]:
     )
 
 
+def _sample_distinct_values(queryset, field_name: str, count: int) -> list[str]:
+    """Return a bounded random sample without sorting an entire table randomly."""
+    if count <= 0:
+        return []
+    values = queryset.values_list(field_name, flat=True).distinct().order_by(field_name)
+    total = values.count()
+    if total <= count:
+        return list(values)
+    offset = random.randrange(total)
+    sample = list(values[offset : offset + count])
+    if len(sample) < count:
+        sample.extend(values[: count - len(sample)])
+    return sample
+
+
 def get_fake_words(
     exclude_word: str,
     part_of_speech: str | None = None,
@@ -1683,13 +1698,14 @@ def get_fake_words(
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
 
-    words = list(qs.values_list("word", flat=True).distinct().order_by("?")[:count])
+    words = _sample_distinct_values(qs, "word", count)
     if len(words) < count:
-        extras = list(
-            VocabularyItem.objects.exclude(word__iexact=exclude_word)
-            .values_list("word", flat=True)
-            .distinct()
-            .order_by("?")[: count - len(words)]
+        extras = _sample_distinct_values(
+            VocabularyItem.objects.exclude(word__iexact=exclude_word).exclude(
+                word__in=words
+            ),
+            "word",
+            count - len(words),
         )
         for candidate in extras:
             if candidate not in words:
@@ -2946,16 +2962,14 @@ def get_fake_translations(
     if part_of_speech:
         qs = qs.filter(part_of_speech=part_of_speech)
 
-    translations = list(
-        qs.values_list("translation", flat=True).distinct().order_by("?")[:count]
-    )
+    translations = _sample_distinct_values(qs, "translation", count)
     if len(translations) < count:
-        extras = list(
+        extras = _sample_distinct_values(
             VocabularyItem.objects.exclude(word__iexact=exclude_word)
             .filter(course_code=active_course)
-            .values_list("translation", flat=True)
-            .distinct()
-            .order_by("?")[: count - len(translations)]
+            .exclude(translation__in=translations),
+            "translation",
+            count - len(translations),
         )
         for candidate in extras:
             if candidate not in translations:
@@ -2979,11 +2993,12 @@ def _build_choice_options(
 ) -> tuple[str, list[str]]:
     if answer_mode == "practice_ru_en":
         correct_answer = item.word
-        fake_options = list(
-            VocabularyItem.objects.filter(course_code=item.course_code).exclude(id=item.id)
-            .values_list("word", flat=True)
-            .distinct()
-            .order_by("?")[:3]
+        fake_options = _sample_distinct_values(
+            VocabularyItem.objects.filter(course_code=item.course_code).exclude(
+                id=item.id
+            ),
+            "word",
+            3,
         )
     else:
         correct_answer = item.translation
@@ -3159,11 +3174,12 @@ def build_choice_question(user: TelegramUser, mode: str) -> dict | None:
         prompt = "Выбери правильный перевод"
 
     if mode == "reverse":
-        fakes = list(
-            VocabularyItem.objects.filter(course_code=item.course_code).exclude(id=item.id)
-            .values_list("word", flat=True)
-            .distinct()
-            .order_by("?")[:3]
+        fakes = _sample_distinct_values(
+            VocabularyItem.objects.filter(course_code=item.course_code).exclude(
+                id=item.id
+            ),
+            "word",
+            3,
         )
     else:
         fakes = get_fake_translations(
