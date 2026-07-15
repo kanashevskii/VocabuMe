@@ -30,6 +30,13 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     ImageOps = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
+from .application.streaks import (
+    STREAK_QUALIFYING_CORRECT_ANSWERS as _STREAK_QUALIFYING_CORRECT_ANSWERS,
+    active_streak_days as _active_streak_days,
+    is_study_day_qualified as _is_study_day_qualified,
+    qualified_study_days_count as _qualified_study_days_count,
+    record_correct_answer,
+)
 from .jobs import enqueue_job
 from .alphabets import get_alphabet, get_random_alphabet_options
 from .models import (
@@ -47,7 +54,6 @@ from .models import (
     UserDailyEntitlementUsage,
     UserSubscription,
     UserCourseProgress,
-    UserStudyDay,
     VocabularyItem,
     WebLoginToken,
     WORD_PRIORITY_CHOICES,
@@ -102,6 +108,7 @@ EXERCISE_PRIORITY = [
     "speaking",
     "listening_translate",
 ]
+STREAK_QUALIFYING_CORRECT_ANSWERS = _STREAK_QUALIFYING_CORRECT_ANSWERS
 
 
 class EntitlementError(ValueError):
@@ -3561,78 +3568,11 @@ def _application_day_window(day: date) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-STREAK_QUALIFYING_CORRECT_ANSWERS = 5
-
-
-def _latest_qualified_study_day(progress: UserCourseProgress) -> UserStudyDay | None:
-    return (
-        UserStudyDay.objects.filter(
-            user=progress.user,
-            course_code=progress.course_code,
-            streak_qualified_at__isnull=False,
-        )
-        .order_by("-study_date")
-        .first()
-    )
-
-
-def _active_streak_days(progress: UserCourseProgress, today: date) -> int:
-    """Return a streak only when its latest day has auditable qualified activity."""
-    latest_day = _latest_qualified_study_day(progress)
-    if latest_day is None or latest_day.study_date != progress.last_study_date:
-        return 0
-    if latest_day.study_date not in {today, today - timedelta(days=1)}:
-        return 0
-    return progress.consecutive_days
-
-
-def _is_study_day_qualified(progress: UserCourseProgress, day: date) -> bool:
-    return UserStudyDay.objects.filter(
-        user=progress.user,
-        course_code=progress.course_code,
-        study_date=day,
-        streak_qualified_at__isnull=False,
-    ).exists()
-
-
-def _qualified_study_days_count(progress: UserCourseProgress) -> int:
-    return UserStudyDay.objects.filter(
-        user=progress.user,
-        course_code=progress.course_code,
-        streak_qualified_at__isnull=False,
-    ).count()
-
-
 def update_learning_streak(user: TelegramUser) -> TelegramUser:
     """Record a correct answer and qualify a streak only after a real study block."""
-    today = _learning_local_date(user)
-    active_course = get_active_course_code(user)
-    with transaction.atomic():
-        study_day, _ = UserStudyDay.objects.get_or_create(
-            user=user,
-            course_code=active_course,
-            study_date=today,
-        )
-        study_day = UserStudyDay.objects.select_for_update().get(pk=study_day.pk)
-        study_day.correct_answers += 1
-        study_day.save(update_fields=["correct_answers", "updated_at"])
-        if (
-            study_day.correct_answers < STREAK_QUALIFYING_CORRECT_ANSWERS
-            or study_day.streak_qualified_at is not None
-        ):
-            return user
-
-        progress = get_or_create_user_course_progress(user, active_course)
-        progress = UserCourseProgress.objects.select_for_update().get(pk=progress.pk)
-        if progress.last_study_date and (today - progress.last_study_date).days == 1:
-            progress.consecutive_days += 1
-        else:
-            progress.consecutive_days = 1
-        progress.total_study_days += 1
-        progress.last_study_date = today
-        progress.save(
-            update_fields=["consecutive_days", "total_study_days", "last_study_date"]
-        )
-        study_day.streak_qualified_at = timezone.now()
-        study_day.save(update_fields=["streak_qualified_at", "updated_at"])
-    return user
+    return record_correct_answer(
+        user,
+        course_code=get_active_course_code(user),
+        study_date=_learning_local_date(user),
+        get_or_create_progress=get_or_create_user_course_progress,
+    )
