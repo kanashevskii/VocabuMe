@@ -104,3 +104,26 @@ def test_verify_webapp_init_data_rejects_future_timestamp():
 def test_verify_webapp_init_data_rejects_duplicate_fields():
     with pytest.raises(TelegramAuthError, match="Duplicate WebApp init-data field"):
         verify_webapp_init_data("auth_date=1&auth_date=1&hash=abc", "test-token")
+
+
+@pytest.mark.parametrize(
+    "telegram_user",
+    [
+        {},
+        {"id": "123"},
+        {"id": True},
+        {"id": -1},
+        {"id": 123, "username": 42},
+        {"id": 123, "is_premium": "yes"},
+    ],
+)
+def test_verify_webapp_init_data_rejects_invalid_typed_user(telegram_user):
+    bot_token = "test-token"
+    payload = {
+        "auth_date": str(int(time())),
+        "user": json.dumps(telegram_user),
+    }
+    payload["hash"] = _webapp_hash(payload, bot_token)
+
+    with pytest.raises(TelegramAuthError, match="Invalid Telegram user payload"):
+        verify_webapp_init_data(urlencode(payload), bot_token)
