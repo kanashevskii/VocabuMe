@@ -21,7 +21,6 @@ from .services import (
     add_pack_words_to_user,
     add_words_from_text,
     apply_user_settings,
-    issue_learning_question,
     build_user_progress,
     build_alphabet_question,
     build_speaking_question,
@@ -39,10 +38,9 @@ from .services import (
     get_user_draft,
     get_user_settings_payload,
     get_user_word,
-    get_word_image_file,
     get_ordered_unlearned_words,
-    list_words,
     list_alphabet_page,
+    list_words,
     list_word_packs,
     request_draft_image_generation,
     refresh_draft_language_data,
@@ -51,7 +49,6 @@ from .services import (
     serialize_user,
     serialize_draft,
     serialize_word,
-    submit_issued_learning_answer,
     get_issued_speaking_question,
     submit_issued_speaking_answer,
     submit_alphabet_answer,
@@ -93,6 +90,16 @@ from .api.irregular import (  # noqa: F401 - URL compatibility exports
     irregular_answer,
     irregular_list,
     irregular_question,
+)
+from .api.learning import (  # noqa: F401 - URL compatibility exports
+    learn_answer,
+    learn_question,
+    listening_answer,
+    listening_question,
+    practice_answer,
+    practice_question,
+    study_answer,
+    study_cards,
 )
 
 logger = logging.getLogger(__name__)
@@ -754,94 +761,6 @@ def packs_add(request: HttpRequest) -> JsonResponse:
     )
 
 
-@require_POST
-def learn_question(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-    raw_exclude = payload.get("exclude_ids", [])
-    if not isinstance(raw_exclude, list):
-        return _json_error("exclude_ids must be an array.")
-    exclude_ids: list[int] = []
-    for chunk in raw_exclude[:50]:
-        try:
-            exclude_ids.append(int(chunk))
-        except (TypeError, ValueError):
-            continue
-
-    question = issue_learning_question(user, exclude_ids=exclude_ids)
-    if question is None:
-        return JsonResponse(
-            {
-                "ok": True,
-                "empty": True,
-                "session_limit": max(1, min(user.session_question_limit, 50)),
-            }
-        )
-    return JsonResponse(
-        {
-            "ok": True,
-            "question": question,
-            "session_limit": max(1, min(user.session_question_limit, 50)),
-        }
-    )
-
-
-@require_POST
-def learn_answer(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    try:
-        payload = _json_body(request)
-        question_id = str(payload.get("question_id", ""))
-        answer = str(payload.get("answer", ""))
-    except (TypeError, ValueError):
-        return _json_error("Invalid learning answer payload.")
-
-    try:
-        result = submit_issued_learning_answer(user, question_id, answer)
-    except ValueError as exc:
-        return _json_error(str(exc))
-    return JsonResponse({"ok": True, **result})
-
-
-@require_GET
-def practice_question(request: HttpRequest) -> JsonResponse:
-    return _json_error(
-        "This endpoint is retired. Use /api/learn/question instead.", status=410
-    )
-
-
-@require_POST
-def practice_answer(request: HttpRequest) -> JsonResponse:
-    return _json_error(
-        "This endpoint is retired. Submit a server-issued learning question instead.",
-        status=410,
-    )
-
-
-@require_GET
-def listening_question(request: HttpRequest) -> JsonResponse:
-    return _json_error(
-        "This endpoint is retired. Use /api/learn/question instead.", status=410
-    )
-
-
-@require_POST
-def listening_answer(request: HttpRequest) -> JsonResponse:
-    return _json_error(
-        "This endpoint is retired. Submit a server-issued learning question instead.",
-        status=410,
-    )
-
-
 @require_GET
 def speaking_question(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
@@ -970,32 +889,3 @@ def alphabet_answer(request: HttpRequest) -> JsonResponse:
     except (BadSignature, SignatureExpired, ValueError) as exc:
         return _json_error(str(exc))
     return JsonResponse({"ok": True, **result})
-
-
-@require_GET
-def study_cards(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    scope = request.GET.get("scope", "").strip().lower()
-    if scope == "all":
-        items = list_words(user, status="learning", limit=500)
-        with_images = [item for item in items if get_word_image_file(item) is not None]
-        without_images = [item for item in items if get_word_image_file(item) is None]
-        cards = [serialize_word(item) for item in with_images + without_images]
-    else:
-        count = max(1, min(int(request.GET.get("count", 10)), 20))
-        cards = [
-            serialize_word(item)
-            for item in get_ordered_unlearned_words(user, count=count)
-        ]
-    return JsonResponse({"ok": True, "items": cards})
-
-
-@require_POST
-def study_answer(request: HttpRequest) -> JsonResponse:
-    return _json_error(
-        "This endpoint is retired. Submit a server-issued learning question instead.",
-        status=410,
-    )

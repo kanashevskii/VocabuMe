@@ -330,7 +330,8 @@ def test_learn_question_returns_empty_when_service_has_no_question(client, monke
     session["telegram_user_id"] = user.id
     session.save()
     monkeypatch.setattr(
-        "vocab.views.issue_learning_question", lambda user, exclude_ids=None: None
+        "vocab.api.learning.issue_learning_question",
+        lambda user, exclude_ids=None: None,
     )
 
     response = client.post(

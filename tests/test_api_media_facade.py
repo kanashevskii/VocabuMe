@@ -1,6 +1,7 @@
 from vocab import views
 from vocab.api import images
 from vocab.api import irregular
+from vocab.api import learning
 from vocab.api import media
 
 
@@ -23,3 +24,16 @@ def test_views_keep_legacy_irregular_exports(client):
     assert views.irregular_question is irregular.irregular_question
     assert views.irregular_answer is irregular.irregular_answer
     assert client.get("/api/irregular/question").status_code == 401
+
+
+def test_views_keep_legacy_learning_exports(client):
+    assert views.learn_question is learning.learn_question
+    assert views.learn_answer is learning.learn_answer
+    assert views.study_cards is learning.study_cards
+    assert views.study_answer is learning.study_answer
+    assert (
+        client.post(
+            "/api/learn/question", data="{}", content_type="application/json"
+        ).status_code
+        == 401
+    )
