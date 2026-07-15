@@ -152,7 +152,7 @@ def test_create_checkout_session_returns_invoice_link(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_serialize_word_clears_stale_image_generation_flag():
+def test_serialize_word_hides_stale_image_generation_without_writing():
     user = TelegramUser.objects.create(chat_id=10003, username="tester")
     item = VocabularyItem.objects.create(
         user=user,
@@ -173,7 +173,7 @@ def test_serialize_word_clears_stale_image_generation_flag():
 
     item.refresh_from_db()
     assert payload["image_generation_in_progress"] is False
-    assert item.image_generation_in_progress is False
+    assert item.image_generation_in_progress is True
 
 
 def test_parse_word_batch_supports_translation_hints_and_bullets():

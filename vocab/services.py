@@ -1165,7 +1165,6 @@ def _preferred_served_image(source: Path) -> Path:
     webp = _webp_variant_path(source)
     if webp.exists():
         return webp
-    _schedule_image_optimization(source)
     return source
 
 
@@ -1250,7 +1249,6 @@ def serialize_user(user: TelegramUser) -> dict:
 
 
 def serialize_word(item: VocabularyItem) -> dict:
-    item = _clear_stale_word_flag(item)
     image_file = get_word_image_file(item)
     return {
         "id": item.id,
@@ -1265,7 +1263,10 @@ def serialize_word(item: VocabularyItem) -> dict:
         "completed_exercise_types": list(item.completed_exercise_types or []),
         "is_learned": item.is_learned,
         "image_regeneration_count": item.image_regeneration_count,
-        "image_generation_in_progress": item.image_generation_in_progress,
+        "image_generation_in_progress": (
+            item.image_generation_in_progress
+            and item.updated_at >= _image_generation_stale_before()
+        ),
         "image_path": item.image_path,
         "has_image": image_file is not None,
         "created_at": item.created_at.isoformat(),
@@ -1276,7 +1277,6 @@ def serialize_word(item: VocabularyItem) -> dict:
 def list_words(
     user: TelegramUser, search: str = "", status: str = "all", limit: int = 100
 ) -> list[VocabularyItem]:
-    clear_stale_image_generation_flags()
     qs = VocabularyItem.objects.filter(
         user=user, course_code=get_active_course_code(user)
     ).order_by("-updated_at", "-id")
@@ -1973,14 +1973,10 @@ def ensure_pack_placeholders(
 def list_word_packs(
     user: TelegramUser | None = None, course_code: str | None = None
 ) -> list[dict]:
-    clear_stale_image_generation_flags()
     active_course = normalize_course_code(
         course_code or (get_active_course_code(user) if user else None)
     )
     definitions = get_course_pack_definitions(active_course)
-    for pack in definitions:
-        for level in pack["levels"]:
-            ensure_pack_placeholders(pack["id"], level["id"], course_code=active_course)
     prepared_items = PackPreparedWord.objects.filter(
         course_code=active_course,
         pack_id__in=[pack["id"] for pack in definitions]
@@ -2375,7 +2371,6 @@ def add_pack_words_to_user(
 
 
 def serialize_draft(draft: AddWordDraft) -> dict:
-    draft = _clear_stale_draft_flag(draft)
     image_file = get_draft_image_file(draft)
     return {
         "id": draft.id,
@@ -2389,7 +2384,10 @@ def serialize_draft(draft: AddWordDraft) -> dict:
         "part_of_speech": draft.part_of_speech,
         "course_code": draft.course_code,
         "image_regeneration_count": draft.image_regeneration_count,
-        "image_generation_in_progress": draft.image_generation_in_progress,
+        "image_generation_in_progress": (
+            draft.image_generation_in_progress
+            and draft.updated_at >= _image_generation_stale_before()
+        ),
         "image_prompt": draft.image_prompt,
         "image_path": draft.image_path,
         "has_image": image_file is not None,
