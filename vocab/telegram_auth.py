@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 from time import time
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 from urllib.parse import parse_qsl
 
 
@@ -12,16 +12,19 @@ class TelegramAuthError(ValueError):
     pass
 
 
-class TelegramWebAppUser(TypedDict):
+class _TelegramWebAppUserRequired(TypedDict):
+    id: int
+
+
+class TelegramWebAppUser(_TelegramWebAppUserRequired, total=False):
     """Validated subset of Telegram's Web App user object used by VocabuMe."""
 
-    id: int
-    username: NotRequired[str]
-    first_name: NotRequired[str]
-    last_name: NotRequired[str]
-    language_code: NotRequired[str]
-    is_bot: NotRequired[bool]
-    is_premium: NotRequired[bool]
+    username: str
+    first_name: str
+    last_name: str
+    language_code: str
+    is_bot: bool
+    is_premium: bool
 
 
 MAX_INIT_DATA_LENGTH = 8_192
