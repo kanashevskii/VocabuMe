@@ -8,18 +8,15 @@ from pathlib import Path
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MEDIA_ROOT = PROJECT_ROOT / "media"
-IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
-USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
+from vocab.media_storage import media_storage
+
+IMAGE_CACHE_DIR = media_storage.directory("card_images")
+USER_IMAGE_DIR = media_storage.directory("user_images")
 logger = logging.getLogger(__name__)
 
 
 def to_project_relative(path: Path) -> str:
-    try:
-        return str(path.relative_to(PROJECT_ROOT))
-    except ValueError:
-        return str(path)
+    return media_storage.to_project_relative(path)
 
 
 def _stable_seed(key: str) -> int:
@@ -81,27 +78,20 @@ def get_image_urls(word_obj: object, seed: int = 0) -> list[str]:
 
 async def fetch_image_bytes(word_obj: object) -> bytes | None:
     """Read a safe local image or fetch/cache one from the provider fallback list."""
-    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    media_storage.directory("card_images", create=True)
     manual_path = getattr(word_obj, "image_path", "") or ""
     if manual_path:
-        candidate = Path(manual_path)
-        if not candidate.is_absolute():
-            candidate = PROJECT_ROOT / candidate
-        try:
-            resolved = candidate.resolve(strict=True)
-        except OSError:
-            resolved = None
+        resolved = media_storage.resolve_existing(
+            manual_path,
+            allowed_kinds={"card_images", "user_images"},
+        )
         if resolved is not None:
-            allowed_roots = (IMAGE_CACHE_DIR.resolve(), USER_IMAGE_DIR.resolve())
-            if any(resolved.is_relative_to(root) for root in allowed_roots):
-                try:
-                    return resolved.read_bytes()
-                except OSError:
-                    logger.warning("Failed to read manual image %s", resolved)
-            else:
-                logger.warning(
-                    "Rejected unsafe image_path outside media dirs: %s", resolved
-                )
+            try:
+                return resolved.read_bytes()
+            except OSError:
+                logger.warning("Failed to read manual image %s", resolved)
+        else:
+            logger.warning("Rejected unsafe or missing image_path: %s", manual_path)
 
     cache_key = f"{getattr(word_obj, 'id', '')}_{getattr(word_obj, 'word', '')}"
     seed = _stable_seed(cache_key or (getattr(word_obj, "translation", "") or ""))
