@@ -42,7 +42,6 @@ from .services import (
     get_word_image_file,
     get_ordered_unlearned_words,
     list_words,
-    list_irregular_page,
     list_alphabet_page,
     list_word_packs,
     request_draft_image_generation,
@@ -61,10 +60,6 @@ from .services import (
     word_already_exists,
     ensure_pack_preparation,
     EntitlementError,
-)
-from .application.irregular_questions import (
-    issue_irregular_question,
-    submit_issued_irregular_answer,
 )
 from .telegram_auth import (
     TelegramAuthError,
@@ -93,6 +88,11 @@ from .api.media import (  # noqa: F401 - URL compatibility exports
 from .api.images import (  # noqa: F401 - URL compatibility exports
     draft_image,
     word_image,
+)
+from .api.irregular import (  # noqa: F401 - URL compatibility exports
+    irregular_answer,
+    irregular_list,
+    irregular_question,
 )
 
 logger = logging.getLogger(__name__)
@@ -911,44 +911,6 @@ def speaking_answer(request: HttpRequest) -> JsonResponse:
         return _json_error("Speech recognition is temporarily unavailable.", status=503)
     finally:
         _safe_unlink(temp_path)
-
-
-@require_GET
-def irregular_list(request: HttpRequest) -> JsonResponse:
-    page = max(0, int(request.GET.get("page", 0)))
-    return JsonResponse({"ok": True, **list_irregular_page(page)})
-
-
-@require_GET
-def irregular_question(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    return JsonResponse({"ok": True, "question": issue_irregular_question(user)})
-
-
-@require_POST
-def irregular_answer(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="irregular-answer", limit=30, window=60, user=user
-    ):
-        return limited
-
-    try:
-        payload = _json_body(request)
-        question_id = str(payload.get("question_id", ""))
-        answer = str(payload.get("answer", "")).strip()
-    except (TypeError, ValueError):
-        return _json_error("Invalid irregular payload.")
-
-    try:
-        result = submit_issued_irregular_answer(user, question_id, answer)
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-    return JsonResponse({"ok": True, **result})
 
 
 @require_GET

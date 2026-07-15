@@ -1,5 +1,6 @@
 from vocab import views
 from vocab.api import images
+from vocab.api import irregular
 from vocab.api import media
 
 
@@ -15,3 +16,10 @@ def test_views_keep_legacy_image_exports(client):
     assert views.draft_image is images.draft_image
     assert client.get("/api/image/1").status_code == 401
     assert client.get("/api/draft-image/1").status_code == 401
+
+
+def test_views_keep_legacy_irregular_exports(client):
+    assert views.irregular_list is irregular.irregular_list
+    assert views.irregular_question is irregular.irregular_question
+    assert views.irregular_answer is irregular.irregular_answer
+    assert client.get("/api/irregular/question").status_code == 401
