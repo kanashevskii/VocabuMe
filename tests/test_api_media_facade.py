@@ -6,6 +6,7 @@ from vocab.api import learning
 from vocab.api import media
 from vocab.api import packs
 from vocab.api import speaking
+from vocab.api import words as words_api
 
 
 def test_views_keep_legacy_media_exports():
@@ -60,3 +61,11 @@ def test_views_keep_legacy_pack_exports(client):
     assert views.packs_prepare is packs.packs_prepare
     assert views.packs_add is packs.packs_add
     assert client.get("/api/packs").status_code == 401
+
+
+def test_views_keep_legacy_word_exports(client):
+    assert views.words is words_api.words
+    assert views.word_draft_create is words_api.word_draft_create
+    assert views.word_detail is words_api.word_detail
+    assert views.word_image_regenerate is words_api.word_image_regenerate
+    assert client.get("/api/words").status_code == 401

@@ -11,36 +11,23 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from core.env import get_telegram_bot_username, get_telegram_token, get_webapp_url
-from .models import AddWordDraft, TelegramUser, VocabularyItem
+from .models import TelegramUser
 from .services import (
-    add_words_from_text,
     apply_user_settings,
     build_user_progress,
     consume_web_login_token,
     create_web_login_token,
-    create_word_drafts_from_text,
     delete_user_avatar,
-    delete_word,
-    delete_user_draft,
-    finalize_word_draft,
     create_checkout_session,
     get_billing_payload,
     get_profile_avatar_file,
-    get_user_draft,
     get_user_settings_payload,
-    get_user_word,
     get_ordered_unlearned_words,
     list_words,
-    request_draft_image_generation,
-    refresh_draft_language_data,
-    request_word_image_generation,
     save_user_avatar,
     serialize_user,
-    serialize_draft,
     serialize_word,
-    update_word_translation,
     upsert_telegram_user,
-    word_already_exists,
     EntitlementError,
 )
 from .telegram_auth import (
@@ -94,6 +81,16 @@ from .api.packs import (  # noqa: F401 - URL compatibility exports
     packs_add,
     packs_prepare,
     packs_view,
+)
+from .api.words import (  # noqa: F401 - URL compatibility exports
+    word_detail,
+    word_draft_confirm_translation,
+    word_draft_create,
+    word_draft_delete,
+    word_draft_regenerate_image,
+    word_draft_save,
+    word_image_regenerate,
+    words,
 )
 from .api.alphabet import (  # noqa: F401 - URL compatibility exports
     alphabet_answer,
@@ -277,15 +274,6 @@ def auth_poll_link(request: HttpRequest, token: str) -> JsonResponse:
     )
 
 
-def _get_draft_for_user(
-    user: TelegramUser, draft_id: int
-) -> AddWordDraft | JsonResponse:
-    draft = get_user_draft(user, draft_id)
-    if draft is None:
-        return _json_error("Draft not found.", status=404)
-    return draft
-
-
 @require_GET
 def dashboard(request: HttpRequest) -> JsonResponse:
     user = _require_user(request)
@@ -354,267 +342,6 @@ def billing_checkout(request: HttpRequest) -> JsonResponse:
         return _json_error("Не удалось начать оплату. Попробуй ещё раз.", status=500)
 
     return JsonResponse({"ok": True, **checkout, "billing": get_billing_payload(user)})
-
-
-@require_http_methods(["GET", "POST"])
-def words(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    if request.method == "GET":
-        search = request.GET.get("search", "").strip()
-        status = request.GET.get("status", "all")
-        items = [
-            serialize_word(item)
-            for item in list_words(user, search=search, status=status, limit=150)
-        ]
-        return JsonResponse({"ok": True, "items": items})
-
-    if limited := _enforce_request_limit(
-        request, scope="word-generation", limit=10, window=60, user=user
-    ):
-        return limited
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    try:
-        result = add_words_from_text(
-            user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS
-        )
-    except EntitlementError as exc:
-        return _json_entitlement_error(user, exc)
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-
-    return JsonResponse(
-        {
-            "ok": True,
-            "created": [serialize_word(item) for item in result["created"]],
-            "skipped": result["skipped"],
-            "failed": result["failed"],
-        }
-    )
-
-
-@require_POST
-def word_draft_create(request: HttpRequest) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="word-draft-generation", limit=10, window=60, user=user
-    ):
-        return limited
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    try:
-        result = create_word_drafts_from_text(
-            user, payload.get("text", ""), max_batch_words=MAX_ADD_BATCH_WORDS
-        )
-        if result["mode"] == "batch_review":
-            return JsonResponse(
-                {
-                    "ok": True,
-                    "batch_review": True,
-                    "drafts": [serialize_draft(draft) for draft in result["drafts"]],
-                    "skipped": result["skipped"],
-                    "failed": result["failed"],
-                    "progress": build_user_progress(user),
-                }
-            )
-        if result["mode"] == "auto_saved":
-            return JsonResponse(
-                {
-                    "ok": True,
-                    "auto_saved": True,
-                    "item": serialize_word(result["item"]),
-                    "progress": build_user_progress(user),
-                }
-            )
-        return JsonResponse(
-            {
-                "ok": True,
-                "draft": serialize_draft(result["draft"]),
-                "step": result["step"],
-            }
-        )
-    except EntitlementError as exc:
-        return _json_entitlement_error(user, exc)
-    except ValueError as exc:
-        return _json_error(str(exc), status=400)
-    except Exception as exc:
-        logger.exception("word_draft_create failed")
-        _log_app_error(
-            request,
-            user=user,
-            category="add_word",
-            status_code=500,
-            message=f"word_draft_create failed: {exc}",
-            context={
-                "text": (payload.get("text", "") or "")[:500],
-                "traceback": traceback.format_exc()[-4000:],
-            },
-        )
-        return _json_error(
-            "Не удалось подготовить слово. Попробуй ещё раз.", status=500
-        )
-
-
-@require_POST
-def word_draft_confirm_translation(request: HttpRequest, draft_id: int) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    draft = _get_draft_for_user(user, draft_id)
-    if isinstance(draft, JsonResponse):
-        return draft
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    translation = (payload.get("translation") or "").strip()
-    if not translation:
-        return _json_error("Translation is required.", status=400)
-
-    draft = refresh_draft_language_data(draft, translation)
-    draft = request_draft_image_generation(draft)
-    return JsonResponse(
-        {"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"}
-    )
-
-
-@require_POST
-def word_draft_regenerate_image(request: HttpRequest, draft_id: int) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="image-regeneration", limit=5, window=60, user=user
-    ):
-        return limited
-
-    draft = _get_draft_for_user(user, draft_id)
-    if isinstance(draft, JsonResponse):
-        return draft
-    if not draft.translation_confirmed:
-        return _json_error("Confirm translation first.", status=400)
-    try:
-        draft = request_draft_image_generation(draft, force_regenerate=True)
-    except EntitlementError as exc:
-        return _json_entitlement_error(user, exc)
-    return JsonResponse(
-        {"ok": True, "draft": serialize_draft(draft), "step": "confirm_image"}
-    )
-
-
-@require_POST
-def word_draft_save(request: HttpRequest, draft_id: int) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    draft = _get_draft_for_user(user, draft_id)
-    if isinstance(draft, JsonResponse):
-        return draft
-    if not draft.translation_confirmed:
-        return _json_error("Confirm translation first.", status=400)
-    if word_already_exists(user, draft.word):
-        delete_user_draft(user, draft.id)
-        return _json_error("This word already exists.", status=400)
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    use_image = bool(payload.get("use_image", True))
-    try:
-        item = finalize_word_draft(draft, use_image=use_image)
-    except EntitlementError as exc:
-        return _json_entitlement_error(user, exc)
-    return JsonResponse(
-        {
-            "ok": True,
-            "item": serialize_word(item),
-            "progress": build_user_progress(user),
-        }
-    )
-
-
-@require_http_methods(["GET", "DELETE"])
-def word_draft_delete(request: HttpRequest, draft_id: int) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    draft = _get_draft_for_user(user, draft_id)
-    if isinstance(draft, JsonResponse):
-        return draft
-    if request.method == "GET":
-        return JsonResponse({"ok": True, "draft": serialize_draft(draft)})
-    delete_user_draft(user, draft.id)
-    return JsonResponse({"ok": True})
-
-
-@require_http_methods(["PATCH", "DELETE"])
-def word_detail(request: HttpRequest, word_id: int) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-
-    try:
-        item = get_user_word(user, word_id)
-        if item is None:
-            raise VocabularyItem.DoesNotExist
-    except VocabularyItem.DoesNotExist:
-        return _json_error("Word not found.", status=404)
-
-    if request.method == "DELETE":
-        delete_word(user, word_id)
-        return JsonResponse({"ok": True})
-
-    try:
-        payload = _json_body(request)
-    except ValueError as exc:
-        return _json_error(str(exc))
-
-    translation = (payload.get("translation") or "").strip()
-    if not translation:
-        return _json_error("Translation is required.")
-
-    item = update_word_translation(user, word_id, translation)
-    return JsonResponse({"ok": True, "item": serialize_word(item)})
-
-
-@require_POST
-def word_image_regenerate(request: HttpRequest, word_id: int) -> JsonResponse:
-    user = _require_user(request)
-    if isinstance(user, JsonResponse):
-        return user
-    if limited := _enforce_request_limit(
-        request, scope="image-regeneration", limit=5, window=60, user=user
-    ):
-        return limited
-
-    item = get_user_word(user, word_id)
-    if item is None:
-        return _json_error("Word not found.", status=404)
-    try:
-        item = request_word_image_generation(item, force_regenerate=True)
-    except EntitlementError as exc:
-        return _json_entitlement_error(user, exc)
-    return JsonResponse({"ok": True, "item": serialize_word(item)})
 
 
 @require_http_methods(["GET", "POST"])

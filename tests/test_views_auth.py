@@ -901,7 +901,7 @@ def test_word_image_regenerate_is_rate_limited(client, monkeypatch):
     session["telegram_user_id"] = user.id
     session.save()
     monkeypatch.setattr(
-        "vocab.views.request_word_image_generation", lambda word, **_kwargs: word
+        "vocab.api.words.request_word_image_generation", lambda word, **_kwargs: word
     )
 
     for _ in range(5):
