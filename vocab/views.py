@@ -10,7 +10,7 @@ from hashlib import sha256
 
 from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
+from django.http import FileResponse, HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -77,7 +77,7 @@ from .telegram_auth import (
 )
 from .ratelimit import RateLimitExceeded, enforce_rate_limit
 from .jobs import enqueue_job
-from .openapi import OPENAPI_SCHEMA
+from .api.docs import api_docs, openapi_schema  # noqa: F401 - URL compatibility exports
 
 SESSION_USER_KEY = "telegram_user_id"
 logger = logging.getLogger(__name__)
@@ -88,27 +88,6 @@ MAX_CLIENT_ERROR_MESSAGE_LENGTH = 1_000
 CLIENT_ERROR_CATEGORIES = {"client", "network", "ui", "api"}
 CLIENT_ERROR_LEVELS = {"warning", "error"}
 QUESTION_SIGNER = TimestampSigner(salt="vocab.alphabet-question")
-
-
-@require_GET
-def openapi_schema(_: HttpRequest) -> JsonResponse:
-    return JsonResponse(OPENAPI_SCHEMA)
-
-
-@require_GET
-def api_docs(_: HttpRequest) -> HttpResponse:
-    """Render a dependency-free Swagger UI shell for the public API contract."""
-    return HttpResponse(
-        """<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-<title>VocabuMe API</title>\
-<link rel=\"stylesheet\" href=\"https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css\">\
-</head><body><div id=\"swagger-ui\"></div>\
-<script src=\"https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js\"></script>\
-<script>SwaggerUIBundle({url:'/api/openapi.json',dom_id:'#swagger-ui',persistAuthorization:true});</script>\
-</body></html>""",
-        content_type="text/html; charset=utf-8",
-    )
 
 
 def _json_body(request: HttpRequest) -> dict:
