@@ -23,6 +23,7 @@ OPENAPI_SCHEMA: dict[str, Any] = {
         {"name": "Audio"},
         {"name": "Packs"},
         {"name": "Billing"},
+        {"name": "Analytics"},
     ],
     "components": {
         "securitySchemes": {
@@ -220,6 +221,37 @@ OPENAPI_SCHEMA: dict[str, Any] = {
                 "responses": {
                     "200": {"description": "Checkout link or invoice"},
                     "400": {"$ref": "#/components/responses/ErrorResponse"},
+                    "429": {"$ref": "#/components/responses/ErrorResponse"},
+                },
+            }
+        },
+        "/api/analytics/events": {
+            "post": {
+                "tags": ["Analytics"],
+                "summary": "Record a privacy-bounded first-party product event",
+                "security": [{"TelegramInitData": []}, {"SessionCookie": []}],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "enum": ["paywall_opened"],
+                                    },
+                                    "properties": {"type": "object"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "202": {"description": "Event accepted"},
+                    "400": {"$ref": "#/components/responses/ErrorResponse"},
+                    "401": {"$ref": "#/components/responses/ErrorResponse"},
                     "429": {"$ref": "#/components/responses/ErrorResponse"},
                 },
             }

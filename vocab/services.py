@@ -728,7 +728,7 @@ def activate_subscription_for_successful_payment(
         UserSubscription.objects.select_for_update().filter(user=attempt.user, status="active").update(
             status="expired", updated_at=current_time
         )
-        return UserSubscription.objects.create(
+        subscription = UserSubscription.objects.create(
             user=attempt.user,
             plan=attempt.plan,
             status="active",
@@ -741,6 +741,16 @@ def activate_subscription_for_successful_payment(
             provider_payment_charge_id=provider_payment_charge_id,
             metadata={"attempt_id": attempt.id},
         )
+        from vocab.analytics import record_product_event
+
+        transaction.on_commit(
+            lambda: record_product_event(
+                attempt.user,
+                "subscription_activated",
+                properties={"billing_period": attempt.plan.billing_period},
+            )
+        )
+        return subscription
 
 
 def validate_telegram_pre_checkout(*, invoice_payload: str, amount_minor: int, currency: str) -> tuple[bool, str]:

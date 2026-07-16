@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
+from vocab.analytics import record_product_event
 from vocab.api.common import json_body, json_error, require_user
 from vocab.services import (
     get_ordered_unlearned_words,
@@ -71,6 +72,11 @@ def learn_answer(request: HttpRequest) -> JsonResponse:
         result = submit_issued_learning_answer(user, question_id, answer)
     except ValueError as exc:
         return json_error(str(exc))
+    record_product_event(
+        user,
+        "practice_completed",
+        properties={"correct": bool(result.get("correct"))},
+    )
     return JsonResponse({"ok": True, **result})
 
 

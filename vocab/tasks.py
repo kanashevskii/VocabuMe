@@ -61,3 +61,15 @@ def clear_stale_image_generation_flags() -> dict[str, int]:
     from .services import clear_stale_image_generation_flags as clear_flags
 
     return clear_flags()
+
+
+@shared_task(
+    name="vocab.tasks.purge_product_analytics",
+    soft_time_limit=60,
+    time_limit=90,
+)
+def purge_product_analytics() -> int:
+    """Delete expired first-party analytics; this task has no external calls."""
+    from .analytics import purge_expired_product_events
+
+    return purge_expired_product_events()

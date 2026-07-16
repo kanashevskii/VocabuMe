@@ -20,6 +20,7 @@ from .api.common import (
 )
 from .api.docs import api_docs, openapi_schema  # noqa: F401 - URL compatibility exports
 from .api.errors import client_error_log  # noqa: F401 - URL compatibility export
+from .api.analytics import analytics_event  # noqa: F401 - URL compatibility export
 from .api.media import (  # noqa: F401 - URL compatibility exports
     alphabet_audio,
     alphabet_audio_prepare,

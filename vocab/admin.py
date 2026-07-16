@@ -7,7 +7,9 @@ from .models import (
     LearningSession,
     IrregularVerbProgress,
     WebLoginToken,
+    ProductEvent,
 )
+
 
 @admin.register(TelegramUser)
 class TelegramUserAdmin(admin.ModelAdmin):
@@ -42,6 +44,7 @@ class UserCourseProgressAdmin(admin.ModelAdmin):
     list_filter = ("course_code",)
     search_fields = ("user__username", "user__email", "user__chat_id")
 
+
 @admin.register(VocabularyItem)
 class VocabularyItemAdmin(admin.ModelAdmin):
     list_display = (
@@ -55,14 +58,22 @@ class VocabularyItemAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("course_code", "is_learned", "part_of_speech")
-    search_fields = ("word", "translation", "example", "example_translation", "user__username")
+    search_fields = (
+        "word",
+        "translation",
+        "example",
+        "example_translation",
+        "user__username",
+    )
     ordering = ("-created_at",)
+
 
 @admin.register(Achievement)
 class AchievementAdmin(admin.ModelAdmin):
     list_display = ("code", "course_code", "user", "date_awarded")
     list_filter = ("course_code",)
     search_fields = ("code", "user__username")
+
 
 @admin.register(LearningSession)
 class LearningSessionAdmin(admin.ModelAdmin):
@@ -79,3 +90,12 @@ class IrregularVerbProgressAdmin(admin.ModelAdmin):
 class WebLoginTokenAdmin(admin.ModelAdmin):
     list_display = ("token", "user", "created_at", "expires_at", "consumed_at")
     search_fields = ("token", "user__username", "user__chat_id")
+
+
+@admin.register(ProductEvent)
+class ProductEventAdmin(admin.ModelAdmin):
+    list_display = ("name", "user", "occurred_at")
+    list_filter = ("name",)
+    search_fields = ("user__username", "user__chat_id")
+    readonly_fields = ("user", "name", "properties", "occurred_at")
+    ordering = ("-occurred_at",)

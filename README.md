@@ -96,6 +96,16 @@ The live OpenAPI contract and Swagger UI are public at [`/api/openapi.json`](htt
 
 Deployment, rollback, worker ownership, backups, and smoke-test expectations are documented in [docs/OPERATIONS.md](docs/OPERATIONS.md). Report a vulnerability according to [SECURITY.md](SECURITY.md), not through a public issue.
 
+## First-party product analytics
+
+Product analytics remains inside PostgreSQL: no third-party analytics SDK or user data export is enabled. The backend records authenticated session, dictionary, practice, checkout, and subscription events; the Mini App may submit only the whitelisted `paywall_opened` event through `POST /api/analytics/events`. Event properties are flat, bounded primitives; raw Telegram initData, tokens, audio, and free-form text must never be submitted.
+
+Events are automatically purged after 180 days by the low-priority Celery worker. Staff can inspect individual events in Django Admin or obtain the current funnel without exposing raw rows:
+
+```bash
+python manage.py report_analytics_funnel --days 30
+```
+
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md). Keep migrations reversible, preserve cross-surface state, and avoid dependency upgrades unrelated to the change.

@@ -15,6 +15,7 @@ from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 
 from core.env import get_telegram_token
+from vocab.analytics import record_product_event
 from vocab.models import TelegramUser
 from vocab.ratelimit import RateLimitExceeded, enforce_rate_limit
 from vocab.services import (
@@ -121,6 +122,7 @@ def require_user(request: HttpRequest) -> TelegramUser | JsonResponse:
 def login(request: HttpRequest, user: TelegramUser) -> JsonResponse:
     request.session.cycle_key()
     request.session[SESSION_USER_KEY] = user.id
+    record_product_event(user, "authenticated")
     return JsonResponse(
         {
             "ok": True,

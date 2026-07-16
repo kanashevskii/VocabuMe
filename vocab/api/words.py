@@ -8,6 +8,7 @@ import traceback
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_http_methods, require_POST
 
+from vocab.analytics import record_product_event
 from vocab.api.common import enforce_request_limit, json_body, json_error, require_user
 from vocab.api.errors import log_app_error
 from vocab.models import AddWordDraft, VocabularyItem
@@ -85,6 +86,13 @@ def words(request: HttpRequest) -> JsonResponse:
         return _json_entitlement_error(user, exc)
     except ValueError as exc:
         return json_error(str(exc), status=400)
+
+    if result["created"]:
+        record_product_event(
+            user,
+            "words_created",
+            properties={"count": len(result["created"]), "source": "direct_add"},
+        )
 
     return JsonResponse(
         {

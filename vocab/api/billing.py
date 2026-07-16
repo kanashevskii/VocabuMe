@@ -8,6 +8,7 @@ import traceback
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
+from vocab.analytics import record_product_event
 from vocab.api.common import enforce_request_limit, json_body, json_error, require_user
 from vocab.api.errors import log_app_error
 from vocab.services import create_checkout_session, get_billing_payload
@@ -56,4 +57,12 @@ def billing_checkout(request: HttpRequest) -> JsonResponse:
             context={"traceback": traceback.format_exc()[-4000:]},
         )
         return json_error("Не удалось начать оплату. Попробуй ещё раз.", status=500)
+    record_product_event(
+        user,
+        "checkout_started",
+        properties={
+            "billing_period": checkout["plan"]["billing_period"],
+            "source": (payload.get("source") or "miniapp").strip().lower(),
+        },
+    )
     return JsonResponse({"ok": True, **checkout, "billing": get_billing_payload(user)})

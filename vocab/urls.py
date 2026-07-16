@@ -32,6 +32,7 @@ urlpatterns = [
         name="auth-telegram-webapp",
     ),
     path("api/client-error", views.client_error_log, name="client-error-log"),
+    path("api/analytics/events", views.analytics_event, name="analytics-event"),
     path("api/dashboard", views.dashboard, name="dashboard"),
     path("api/billing", views.billing_status, name="billing-status"),
     path("api/billing/checkout", views.billing_checkout, name="billing-checkout"),

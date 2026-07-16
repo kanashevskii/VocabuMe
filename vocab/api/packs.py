@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
+from vocab.analytics import record_product_event
 from vocab.api.common import enforce_request_limit, json_body, json_error, require_user
 from vocab.services import (
     EntitlementError,
@@ -81,6 +82,17 @@ def packs_add(request: HttpRequest) -> JsonResponse:
         return _json_entitlement_error(user, exc)
     except ValueError as exc:
         return json_error(str(exc))
+
+    if result["created"]:
+        record_product_event(
+            user,
+            "pack_words_added",
+            properties={
+                "count": len(result["created"]),
+                "pack_id": pack_id,
+                "level_id": level_id,
+            },
+        )
 
     return JsonResponse(
         {

@@ -128,6 +128,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,
         "options": {"queue": "vocabume-low"},
     },
+    "purge-product-analytics-daily": {
+        "task": "vocab.tasks.purge_product_analytics",
+        "schedule": 86_400.0,
+        "options": {"queue": "vocabume-low"},
+    },
 }
 
 # Bounded request bodies protect JSON endpoints and speech uploads before they

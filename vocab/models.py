@@ -31,6 +31,15 @@ PAYMENT_ATTEMPT_STATUS_CHOICES = (
     ("failed", "Failed"),
     ("cancelled", "Cancelled"),
 )
+PRODUCT_EVENT_CHOICES = (
+    ("authenticated", "Authenticated"),
+    ("words_created", "Words created"),
+    ("pack_words_added", "Pack words added"),
+    ("practice_completed", "Practice completed"),
+    ("paywall_opened", "Paywall opened"),
+    ("checkout_started", "Checkout started"),
+    ("subscription_activated", "Subscription activated"),
+)
 
 
 def generate_web_login_token() -> str:
@@ -378,6 +387,26 @@ class OpenAIUsageEvent(models.Model):
                 fields=["user", "created_at"], name="vocab_openai_usage_user_idx"
             ),
         ]
+
+
+class ProductEvent(models.Model):
+    """Privacy-bounded first-party product analytics event."""
+
+    user = models.ForeignKey(TelegramUser, on_delete=models.CASCADE)
+    name = models.CharField(max_length=64, choices=PRODUCT_EVENT_CHOICES)
+    properties = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["name", "-occurred_at"], name="vocab_event_name_time_idx"
+            ),
+            models.Index(
+                fields=["user", "-occurred_at"], name="vocab_event_user_time_idx"
+            ),
+        ]
+        ordering = ["-occurred_at", "-id"]
 
 
 BACKGROUND_JOB_STATUS_CHOICES = (
