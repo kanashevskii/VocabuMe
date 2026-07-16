@@ -24,6 +24,7 @@ from vocab.services import (
     build_alphabet_question,
     build_choice_question,
     build_learning_question,
+    issue_learning_question,
     build_listening_question,
     build_user_progress,
     build_speaking_question,
@@ -63,6 +64,7 @@ from vocab.services import (
     submit_choice_answer,
     submit_alphabet_answer,
     submit_learning_text_answer,
+    submit_issued_learning_answer,
     submit_listening_answer,
     split_translation_variants,
     sync_word_learning_state,
@@ -134,9 +136,7 @@ def test_create_checkout_session_returns_invoice_link(monkeypatch):
 
     monkeypatch.setattr("vocab.services.Bot", FakeBot)
 
-    result = create_checkout_session(
-        user, plan_code="premium", billing_period="yearly"
-    )
+    result = create_checkout_session(user, plan_code="premium", billing_period="yearly")
 
     assert result["invoice_link"] == "https://t.me/invoice/test"
     assert result["plan"]["billing_period"] == "yearly"
@@ -356,7 +356,9 @@ def test_create_word_drafts_uses_active_course_for_georgian(monkeypatch):
         }
 
     monkeypatch.setattr("vocab.services.generate_word_data", fake_generate)
-    monkeypatch.setattr("vocab.services.request_draft_image_generation", lambda draft: draft)
+    monkeypatch.setattr(
+        "vocab.services.request_draft_image_generation", lambda draft: draft
+    )
 
     result = create_word_drafts_from_text(user, "არ მესმის - я не понимаю")
 
@@ -633,7 +635,13 @@ def test_practice_questions_can_prioritize_review_words_first():
         example="Reviewed example",
         example_translation="Пример повтора",
         is_learned=True,
-        completed_exercise_types=["practice_en_ru", "practice_ru_en", "listening_word", "listening_translate", "speaking"],
+        completed_exercise_types=[
+            "practice_en_ru",
+            "practice_ru_en",
+            "listening_word",
+            "listening_translate",
+            "speaking",
+        ],
         correct_count=5,
     )
     new_item = VocabularyItem.objects.create(
@@ -728,7 +736,6 @@ def test_submit_listening_answer_accepts_single_typo():
     )
 
     result = submit_listening_answer(user, item.id, "appl", "word")
-    progress = get_or_create_user_course_progress(user)
 
     assert result["correct"] is True
     assert result["accepted_with_typo"] is True
@@ -946,7 +953,9 @@ def test_prepare_next_pack_word_applies_failure_cooldown(monkeypatch):
         image_path="",
     )
 
-    monkeypatch.setattr("vocab.services.generate_word_data", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "vocab.services.generate_word_data", lambda *args, **kwargs: None
+    )
 
     first = prepare_next_pack_word()
     second = prepare_next_pack_word()
@@ -983,6 +992,54 @@ def test_ensure_draft_image_generates_path_when_prompt_available(monkeypatch):
 
     assert updated.image_prompt == "visual prompt"
     assert updated.image_path == "media/draft_images/generated.webp"
+
+
+@pytest.mark.django_db
+def test_build_learning_question_uses_georgian_course_labels():
+    user = TelegramUser.objects.create(
+        chat_id=1044,
+        username="tester",
+        active_studied_language="ka",
+        repeat_threshold=3,
+    )
+    VocabularyItem.objects.create(
+        user=user,
+        course_code="ka",
+        word="არა",
+        normalized_word="არა",
+        translation="нет",
+        transcription="ara",
+        example="არა, მადლობა.",
+        example_translation="Нет, спасибо.",
+        completed_exercise_types=["practice_en_ru", "listening_word"],
+    )
+
+    question = build_learning_question(user)
+
+    assert question["exercise_type"] == "practice_ru_en"
+    assert question["exercise_label"] == "Тест RU -> KA"
+    assert question["prompt"] == "Выбери правильное грузинское слово или фразу"
+
+
+@pytest.mark.django_db
+def test_build_choice_question_uses_georgian_reverse_prompt():
+    user = TelegramUser.objects.create(
+        chat_id=1045, username="tester", active_studied_language="ka"
+    )
+    VocabularyItem.objects.create(
+        user=user,
+        course_code="ka",
+        word="არა",
+        normalized_word="არა",
+        translation="нет",
+        transcription="ara",
+        example="არა, მადლობა.",
+        example_translation="Нет, спасибо.",
+    )
+
+    question = build_choice_question(user, "reverse")
+
+    assert question["prompt"] == "Выбери правильное грузинское слово или фразу"
 
 
 @pytest.mark.django_db
@@ -1047,7 +1104,9 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
 
     level = get_pack_level("georgian_starter", "starter")
     assert level is not None
-    monkeypatch.setattr("vocab.services.get_pack_level", lambda pack_id, level_id: level)
+    monkeypatch.setattr(
+        "vocab.services.get_pack_level", lambda pack_id, level_id: level
+    )
 
     result = add_pack_words_to_user(
         user, "georgian_starter", "starter", ["მადლობა", "ნახვამდის"]
@@ -1060,7 +1119,9 @@ def test_add_pack_words_to_user_creates_prepared_and_fallback_items(monkeypatch)
     assert prepared_word.translation == "спасибо / благодарю"
     assert is_translation_answer_correct("благодарю", prepared_word.translation) is True
     assert fallback_word.translation == "пока / до свидания"
-    assert is_translation_answer_correct("до свидания", fallback_word.translation) is True
+    assert (
+        is_translation_answer_correct("до свидания", fallback_word.translation) is True
+    )
     assert prepared_for == [("georgian_starter", "starter", "ka")]
 
 
@@ -1154,8 +1215,23 @@ def test_get_user_settings_payload_includes_georgian_display_mode_options():
     assert payload["word_priority"] == "new_first"
     assert payload["word_priority_options"][0]["code"] == "new_first"
     assert payload["monetization"]["default_free_plan_code"] == "free"
-    assert payload["monetization"]["plans"]["free"]["entitlements"]["max_new_items_per_day"] == 10
-    assert payload["monetization"]["plans"]["premium"]["price"]["monthly"]["amount"] == "6.99"
+    assert (
+        payload["monetization"]["plans"]["free"]["entitlements"][
+            "max_new_items_per_day"
+        ]
+        == 10
+    )
+    assert (
+        payload["monetization"]["plans"]["premium"]["price"]["monthly"]["amount"]
+        == "6.99"
+    )
+    assert (
+        payload["monetization"]["plans"]["premium"]["telegram_stars_price"]["monthly"][
+            "amount"
+        ]
+        == 199
+    )
+    assert payload["monetization"]["telegram_stars_currency"] == "XTR"
 
 
 @pytest.mark.django_db
@@ -1201,8 +1277,7 @@ def test_list_word_packs_returns_georgian_starter_for_ka_course():
     assert starter_pack["levels"][0]["id"] == "starter"
     assert len(starter_pack["levels"][0]["items"]) == 10
     assert (
-        starter_pack["levels"][0]["items"][0]["translation"]
-        == "привет / здравствуйте"
+        starter_pack["levels"][0]["items"][0]["translation"] == "привет / здравствуйте"
     )
 
 
@@ -1220,13 +1295,31 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_english():
     assert "georgia_first_week_en" in pack_ids
     work_pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_en")
     assert work_pack["difficulty"] == "Средний"
-    assert len(work_pack["levels"]) == 2
+    assert len(work_pack["levels"]) == 4
     assert work_pack["levels"][0]["id"] == "job_documents"
     assert work_pack["levels"][0]["difficulty"] == "Легкий"
-    assert sum(level["size"] for level in work_pack["levels"]) > 10
+    assert {level["id"] for level in work_pack["levels"]} == {
+        "job_documents",
+        "contract_and_terms",
+        "payroll_and_tax",
+        "hr_follow_up",
+    }
+    assert sum(level["size"] for level in work_pack["levels"]) == 32
     bank_pack = next(pack for pack in packs if pack["id"] == "georgia_bank_en")
     assert len(bank_pack["levels"]) == 2
-    first_week_pack = next(pack for pack in packs if pack["id"] == "georgia_first_week_en")
+    residence_pack = next(
+        pack for pack in packs if pack["id"] == "georgia_residence_permit_en"
+    )
+    assert len(residence_pack["levels"]) == 5
+    assert {level["id"] for level in residence_pack["levels"]} >= {
+        "work_interview_prep",
+        "public_service_hall",
+        "status_and_follow_up",
+    }
+    assert sum(level["size"] for level in residence_pack["levels"]) == 42
+    first_week_pack = next(
+        pack for pack in packs if pack["id"] == "georgia_first_week_en"
+    )
     scenario_ids = {level["id"] for level in first_week_pack["levels"]}
     assert "market_and_shop" in scenario_ids
     assert "post_and_parcels" in scenario_ids
@@ -1245,12 +1338,30 @@ def test_list_word_packs_includes_georgia_relocation_scenarios_for_georgian():
     assert "georgia_bank_ka" in pack_ids
     assert "georgia_first_week_ka" in pack_ids
     work_pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_ka")
-    assert len(work_pack["levels"]) == 2
+    assert len(work_pack["levels"]) == 4
     assert work_pack["levels"][0]["id"] == "job_documents"
-    assert sum(level["size"] for level in work_pack["levels"]) > 10
+    assert {level["id"] for level in work_pack["levels"]} == {
+        "job_documents",
+        "contract_and_terms",
+        "payroll_and_tax",
+        "hr_follow_up",
+    }
+    assert sum(level["size"] for level in work_pack["levels"]) == 32
     bank_pack = next(pack for pack in packs if pack["id"] == "georgia_bank_ka")
     assert len(bank_pack["levels"]) == 2
-    first_week_pack = next(pack for pack in packs if pack["id"] == "georgia_first_week_ka")
+    residence_pack = next(
+        pack for pack in packs if pack["id"] == "georgia_residence_permit_ka"
+    )
+    assert len(residence_pack["levels"]) == 5
+    assert {level["id"] for level in residence_pack["levels"]} >= {
+        "work_interview_prep",
+        "public_service_hall",
+        "status_and_follow_up",
+    }
+    assert sum(level["size"] for level in residence_pack["levels"]) == 42
+    first_week_pack = next(
+        pack for pack in packs if pack["id"] == "georgia_first_week_ka"
+    )
     scenario_ids = {level["id"] for level in first_week_pack["levels"]}
     assert "market_and_shop" in scenario_ids
     assert "post_and_parcels" in scenario_ids
@@ -1278,8 +1389,49 @@ def test_list_word_packs_marks_pack_and_scenario_as_added_when_any_word_exists()
 
     assert pack["has_added_words"] is True
     assert pack["added_count"] >= 1
+    assert pack["has_missing_words"] is True
+    assert pack["missing_count"] == pack["size"] - pack["added_count"]
+    assert pack["update_available"] is True
+    assert pack["is_fully_added"] is False
     assert scenario["has_added_words"] is True
     assert scenario["added_count"] >= 1
+    assert scenario["has_missing_words"] is True
+    assert scenario["missing_count"] == scenario["size"] - scenario["added_count"]
+    assert scenario["update_available"] is True
+    assert scenario["is_fully_added"] is False
+
+
+@pytest.mark.django_db
+def test_list_word_packs_marks_scenario_as_fully_added_when_all_current_items_exist():
+    user = TelegramUser.objects.create(
+        chat_id=10381, username="tester", active_studied_language="en"
+    )
+    pack = next(
+        pack for pack in list_word_packs(user) if pack["id"] == "georgia_work_permit_en"
+    )
+    scenario = next(level for level in pack["levels"] if level["id"] == "job_documents")
+    for item in scenario["items"]:
+        VocabularyItem.objects.create(
+            user=user,
+            course_code="en",
+            word=item["word"],
+            normalized_word=item["normalized_word"],
+            translation=item["translation"],
+            transcription="",
+            example="",
+            example_translation="",
+        )
+
+    pack = next(
+        pack for pack in list_word_packs(user) if pack["id"] == "georgia_work_permit_en"
+    )
+    scenario = next(level for level in pack["levels"] if level["id"] == "job_documents")
+
+    assert scenario["is_fully_added"] is True
+    assert scenario["missing_count"] == 0
+    assert scenario["has_missing_words"] is False
+    assert scenario["update_available"] is False
+    assert pack["update_available"] is True
 
 
 @pytest.mark.django_db
@@ -1290,7 +1442,9 @@ def test_list_word_packs_marks_premium_relocation_packs_for_free_user():
 
     packs = list_word_packs(user)
     starter_pack = next(pack for pack in packs if pack["id"] == "georgia_first_week_en")
-    premium_pack = next(pack for pack in packs if pack["id"] == "georgia_work_permit_en")
+    premium_pack = next(
+        pack for pack in packs if pack["id"] == "georgia_work_permit_en"
+    )
 
     assert starter_pack["premium_required"] is False
     assert starter_pack["accessible"] is True
@@ -1424,3 +1578,28 @@ def test_submit_alphabet_answer_keeps_wrong_answer_without_progress_increment():
     assert result["correct"] is False
     assert result["correct_answer"] == "ა"
     assert progress.practice_correct == 0
+
+
+@pytest.mark.django_db
+def test_issued_learning_question_cannot_be_replayed(monkeypatch):
+    user = TelegramUser.objects.create(chat_id=1038, username="tester")
+    item = VocabularyItem.objects.create(
+        user=user,
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="example",
+        completed_exercise_types=["listening_word", "practice_ru_en", "speaking"],
+    )
+    monkeypatch.setattr("vocab.services.random.choice", lambda values: "practice_en_ru")
+
+    question = issue_learning_question(user)
+    assert question is not None
+    assert question["item"]["id"] == item.id
+    assert "correct_answer" not in question
+
+    result = submit_issued_learning_answer(user, question["question_id"], "яблоко")
+    assert result["correct"] is True
+    with pytest.raises(ValueError, match="already answered"):
+        submit_issued_learning_answer(user, question["question_id"], "яблоко")

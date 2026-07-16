@@ -119,6 +119,28 @@ class EntitlementError(ValueError):
         self.code = code
         self.message = message
         self.paywall_trigger = paywall_trigger
+
+
+def _course_short_label(course_code: str) -> str:
+    return "KA" if normalize_course_code(course_code) == "ka" else "EN"
+
+
+def _exercise_type_label(exercise_type: str, course_code: str) -> str:
+    if exercise_type == "practice_en_ru":
+        return f"Тест {_course_short_label(course_code)} -> RU"
+    if exercise_type == "practice_ru_en":
+        return f"Тест RU -> {_course_short_label(course_code)}"
+    return EXERCISE_TYPE_LABELS[exercise_type]
+
+
+def _word_prompt_target(course_code: str) -> str:
+    return (
+        "грузинское слово или фразу"
+        if normalize_course_code(course_code) == "ka"
+        else "английское слово"
+    )
+
+
 ACHIEVEMENT_DEFINITIONS = [
     {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
     {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
@@ -259,12 +281,16 @@ def _clear_expired_practice_pauses(user: TelegramUser) -> TelegramUser:
 def get_temporary_practice_filters(user: TelegramUser) -> dict:
     user = _clear_expired_practice_pauses(user)
     return {
-        "listening_paused_until": user.listening_paused_until.isoformat()
-        if user.listening_paused_until
-        else None,
-        "speaking_paused_until": user.speaking_paused_until.isoformat()
-        if user.speaking_paused_until
-        else None,
+        "listening_paused_until": (
+            user.listening_paused_until.isoformat()
+            if user.listening_paused_until
+            else None
+        ),
+        "speaking_paused_until": (
+            user.speaking_paused_until.isoformat()
+            if user.speaking_paused_until
+            else None
+        ),
         "listening_temporarily_disabled": user.listening_paused_until is not None,
         "speaking_temporarily_disabled": user.speaking_paused_until is not None,
         "pause_duration_minutes": TEMPORARY_PRACTICE_PAUSE_MINUTES,
@@ -335,14 +361,20 @@ def clear_stale_image_generation_flags() -> dict[str, int]:
 
 
 def _clear_stale_word_flag(item: VocabularyItem) -> VocabularyItem:
-    if item.image_generation_in_progress and item.updated_at < _image_generation_stale_before():
+    if (
+        item.image_generation_in_progress
+        and item.updated_at < _image_generation_stale_before()
+    ):
         item.image_generation_in_progress = False
         item.save(update_fields=["image_generation_in_progress", "updated_at"])
     return item
 
 
 def _clear_stale_draft_flag(draft: AddWordDraft) -> AddWordDraft:
-    if draft.image_generation_in_progress and draft.updated_at < _image_generation_stale_before():
+    if (
+        draft.image_generation_in_progress
+        and draft.updated_at < _image_generation_stale_before()
+    ):
         draft.image_generation_in_progress = False
         draft.save(update_fields=["image_generation_in_progress", "updated_at"])
     return draft
@@ -387,7 +419,9 @@ def sync_subscription_plans() -> list[SubscriptionPlan]:
 
 
 def get_subscription_plans() -> list[SubscriptionPlan]:
-    plans = list(SubscriptionPlan.objects.filter(is_active=True).order_by("price_amount", "id"))
+    plans = list(
+        SubscriptionPlan.objects.filter(is_active=True).order_by("price_amount", "id")
+    )
     if plans:
         return plans
     return sync_subscription_plans()
@@ -427,9 +461,15 @@ def serialize_subscription(subscription: UserSubscription | None) -> dict | None
         "plan_name": subscription.plan.name,
         "billing_period": subscription.plan.billing_period,
         "status": subscription.status,
-        "started_at": subscription.started_at.isoformat() if subscription.started_at else None,
-        "expires_at": subscription.expires_at.isoformat() if subscription.expires_at else None,
-        "activated_at": subscription.activated_at.isoformat() if subscription.activated_at else None,
+        "started_at": (
+            subscription.started_at.isoformat() if subscription.started_at else None
+        ),
+        "expires_at": (
+            subscription.expires_at.isoformat() if subscription.expires_at else None
+        ),
+        "activated_at": (
+            subscription.activated_at.isoformat() if subscription.activated_at else None
+        ),
     }
 
 
@@ -518,7 +558,9 @@ def reserve_new_items_for_today(user: TelegramUser, count: int) -> None:
                 },
             )
         except IntegrityError:
-            usage = UserDailyEntitlementUsage.objects.get(user=user, usage_date=usage_date)
+            usage = UserDailyEntitlementUsage.objects.get(
+                user=user, usage_date=usage_date
+            )
         usage = UserDailyEntitlementUsage.objects.select_for_update().get(pk=usage.pk)
         max_items = get_entitlements_for_user(user).get("max_new_items_per_day")
         if max_items is not None and usage.new_items_added + count > int(max_items):
@@ -540,14 +582,15 @@ def reserve_extra_image_regeneration_for_today(user: TelegramUser) -> None:
                 user=user, usage_date=usage_date
             )
         except IntegrityError:
-            usage = UserDailyEntitlementUsage.objects.get(user=user, usage_date=usage_date)
+            usage = UserDailyEntitlementUsage.objects.get(
+                user=user, usage_date=usage_date
+            )
         usage = UserDailyEntitlementUsage.objects.select_for_update().get(pk=usage.pk)
         max_regenerations = get_entitlements_for_user(user).get(
             "max_extra_image_regenerations_per_day"
         )
-        if (
-            max_regenerations is not None
-            and usage.extra_image_regenerations >= int(max_regenerations)
+        if max_regenerations is not None and usage.extra_image_regenerations >= int(
+            max_regenerations
         ):
             raise EntitlementError(
                 "paywall_extra_image_regeneration_limit",
@@ -566,7 +609,9 @@ def _pack_definition_for_course(course_code: str, pack_id: str) -> dict | None:
     return None
 
 
-def pack_requires_premium(user: TelegramUser | None, pack_definition: dict | None) -> bool:
+def pack_requires_premium(
+    user: TelegramUser | None, pack_definition: dict | None
+) -> bool:
     if not pack_definition:
         return False
     if user_has_premium(user):
@@ -706,15 +751,21 @@ def activate_subscription_for_successful_payment(
         if attempt.currency != currency or attempt.amount_minor != amount_minor:
             raise ValueError("Payment amount or currency does not match the invoice.")
         if attempt.status == "paid":
-            existing = UserSubscription.objects.filter(invoice_payload=invoice_payload).first()
+            existing = UserSubscription.objects.filter(
+                invoice_payload=invoice_payload
+            ).first()
             if existing is None:
                 raise ValueError("Paid payment attempt has no subscription.")
             return existing
         if attempt.status != "pending":
             raise ValueError("Payment attempt cannot be activated.")
-        charge_exists = PaymentAttempt.objects.filter(
-            telegram_payment_charge_id=telegram_payment_charge_id
-        ).exclude(pk=attempt.pk).exists()
+        charge_exists = (
+            PaymentAttempt.objects.filter(
+                telegram_payment_charge_id=telegram_payment_charge_id
+            )
+            .exclude(pk=attempt.pk)
+            .exists()
+        )
         if charge_exists:
             raise ValueError("Telegram payment charge was already processed.")
 
@@ -724,10 +775,18 @@ def activate_subscription_for_successful_payment(
         attempt.paid_at = current_time
         attempt.telegram_payment_charge_id = telegram_payment_charge_id
         attempt.provider_payment_charge_id = provider_payment_charge_id
-        attempt.save(update_fields=["status", "paid_at", "telegram_payment_charge_id", "provider_payment_charge_id", "updated_at"])
-        UserSubscription.objects.select_for_update().filter(user=attempt.user, status="active").update(
-            status="expired", updated_at=current_time
+        attempt.save(
+            update_fields=[
+                "status",
+                "paid_at",
+                "telegram_payment_charge_id",
+                "provider_payment_charge_id",
+                "updated_at",
+            ]
         )
+        UserSubscription.objects.select_for_update().filter(
+            user=attempt.user, status="active"
+        ).update(status="expired", updated_at=current_time)
         subscription = UserSubscription.objects.create(
             user=attempt.user,
             plan=attempt.plan,
@@ -753,7 +812,9 @@ def activate_subscription_for_successful_payment(
         return subscription
 
 
-def validate_telegram_pre_checkout(*, invoice_payload: str, amount_minor: int, currency: str) -> tuple[bool, str]:
+def validate_telegram_pre_checkout(
+    *, invoice_payload: str, amount_minor: int, currency: str
+) -> tuple[bool, str]:
     """Validate a Telegram Stars invoice before Telegram charges the user."""
     attempt = PaymentAttempt.objects.filter(invoice_payload=invoice_payload).first()
     if attempt is None or attempt.status != "pending":
@@ -774,7 +835,9 @@ def get_pack_item_translation(entry: dict) -> str:
     )
 
 
-def get_course_progress_stats(user: TelegramUser, course_code: str | None = None) -> dict:
+def get_course_progress_stats(
+    user: TelegramUser, course_code: str | None = None
+) -> dict:
     active_course = normalize_course_code(course_code or get_active_course_code(user))
     progress = get_user_course_progress(user, active_course)
     today = _learning_local_date(user)
@@ -994,9 +1057,7 @@ def get_telegram_user_by_chat_id(chat_id: int) -> TelegramUser | None:
     return TelegramUser.objects.filter(chat_id=chat_id).first()
 
 
-def get_achievement_stats(
-    user: TelegramUser, course_code: str | None = None
-) -> dict:
+def get_achievement_stats(user: TelegramUser, course_code: str | None = None) -> dict:
     return get_course_progress_stats(user, course_code=course_code)
 
 
@@ -1175,8 +1236,13 @@ def _preferred_served_image(source: Path) -> Path:
     if source.suffix.lower() == ".webp":
         return source
     webp = _webp_variant_path(source)
-    if webp.exists():
+    if webp.exists() and webp.stat().st_size > 0:
         return webp
+    if webp.exists():
+        try:
+            webp.unlink()
+        except OSError:
+            pass
     return source
 
 
@@ -1406,7 +1472,9 @@ def resolve_shared_image_path(
 
 
 def create_word(user: TelegramUser, data: dict) -> VocabularyItem:
-    course_code = normalize_course_code(data.get("course_code") or get_active_course_code(user))
+    course_code = normalize_course_code(
+        data.get("course_code") or get_active_course_code(user)
+    )
     word = clean_word(data["word"])
     transcription = data.get("transcription", "") or ""
     if any(char in transcription for char in "абвгдеёжзийклмнопрстуфхцчшщыэюя"):
@@ -1448,7 +1516,9 @@ def add_words_from_text(
     created_items = []
     skipped = []
     failed = []
-    pending_new_count = sum(1 for entry in entries if not word_already_exists(user, entry.word))
+    pending_new_count = sum(
+        1 for entry in entries if not word_already_exists(user, entry.word)
+    )
     remaining_new_items = get_remaining_new_items_for_today(user)
     if remaining_new_items is not None and pending_new_count > remaining_new_items:
         raise EntitlementError(
@@ -1704,7 +1774,7 @@ def get_user_settings_payload(user: TelegramUser) -> dict:
         "georgian_display_mode_options": GEORGIAN_DISPLAY_MODE_OPTIONS,
         "word_priority": normalize_word_priority(user.word_priority),
         "word_priority_options": WORD_PRIORITY_OPTIONS,
-        "monetization": get_monetization_payload(),
+        "monetization": get_monetization_payload(user.chat_id),
         "billing": billing,
         "has_completed_onboarding": user.has_completed_onboarding,
         **temporary_practice_filters,
@@ -1768,9 +1838,11 @@ def apply_user_settings(user: TelegramUser, payload: dict) -> TelegramUser:
     user.active_studied_language = normalize_course_code(
         payload.get("active_studied_language", user.active_studied_language)
     )
-    georgian_display_mode = str(
-        payload.get("georgian_display_mode", user.georgian_display_mode)
-    ).strip().lower()
+    georgian_display_mode = (
+        str(payload.get("georgian_display_mode", user.georgian_display_mode))
+        .strip()
+        .lower()
+    )
     if georgian_display_mode not in GEORGIAN_DISPLAY_MODE_LABELS_RU:
         georgian_display_mode = "both"
     user.georgian_display_mode = georgian_display_mode
@@ -1846,7 +1918,9 @@ def save_user_avatar(user: TelegramUser, uploaded_file) -> TelegramUser:
         try:
             previous_avatar_file.unlink(missing_ok=True)
         except OSError:
-            logger.warning("Failed to delete replaced avatar file %s", previous_avatar_file)
+            logger.warning(
+                "Failed to delete replaced avatar file %s", previous_avatar_file
+            )
     return user
 
 
@@ -1958,6 +2032,7 @@ def _serialize_pack_level(
         )
     prepared_count = sum(1 for item in items if item["prepared"])
     added_count = sum(1 for item in items if item["already_added"])
+    missing_count = len(items) - added_count
     return {
         "id": level["id"],
         "title": level["title"],
@@ -1966,8 +2041,11 @@ def _serialize_pack_level(
         "size": len(level["items"]),
         "prepared_count": prepared_count,
         "added_count": added_count,
+        "missing_count": missing_count,
         "has_added_words": added_count > 0,
+        "has_missing_words": missing_count > 0,
         "is_fully_added": added_count == len(items) if items else False,
+        "update_available": added_count > 0 and missing_count > 0,
         "items": items,
     }
 
@@ -2001,8 +2079,7 @@ def list_word_packs(
     )
     definitions = get_course_pack_definitions(active_course)
     prepared_items = PackPreparedWord.objects.filter(
-        course_code=active_course,
-        pack_id__in=[pack["id"] for pack in definitions]
+        course_code=active_course, pack_id__in=[pack["id"] for pack in definitions]
     )
     prepared_map: dict[tuple[str, str], dict[str, PackPreparedWord]] = {}
     for prepared in prepared_items:
@@ -2032,6 +2109,7 @@ def list_word_packs(
         ]
         added_count = sum(level["added_count"] for level in levels)
         total_size = sum(level["size"] for level in levels)
+        missing_count = total_size - added_count
         premium_required = pack_requires_premium(user, pack)
         packs.append(
             {
@@ -2046,8 +2124,11 @@ def list_word_packs(
                 "accessible": not premium_required,
                 "size": total_size,
                 "added_count": added_count,
+                "missing_count": missing_count,
                 "has_added_words": added_count > 0,
+                "has_missing_words": missing_count > 0,
                 "is_fully_added": added_count == total_size if total_size else False,
+                "update_available": added_count > 0 and missing_count > 0,
                 "levels": levels,
             }
         )
@@ -2218,9 +2299,12 @@ def _prepare_pack_level_sync(
 
         if generated:
             cached.word = generated["word"]
-            cached.translation = merge_translation_variants(
-                generated.get("translation"), entry["translation_hint"]
-            ) or entry["translation_hint"]
+            cached.translation = (
+                merge_translation_variants(
+                    generated.get("translation"), entry["translation_hint"]
+                )
+                or entry["translation_hint"]
+            )
             cached.transcription = generated.get("transcription", "") or ""
             cached.example = generated.get("example", "") or ""
             cached.example_translation = generated.get(
@@ -2268,7 +2352,11 @@ def ensure_pack_preparation(
     enqueue_job(
         kind="pack_prepare",
         deduplication_key=f"pack-prepare:{active_course}:{pack_id}:{level_id}",
-        payload={"course_code": active_course, "pack_id": pack_id, "level_id": level_id},
+        payload={
+            "course_code": active_course,
+            "pack_id": pack_id,
+            "level_id": level_id,
+        },
         priority=200,
     )
 
@@ -2629,6 +2717,7 @@ def _run_word_image_generation(item_id: int, version: int) -> None:
             item.part_of_speech,
             item.example,
             f"word_{item.user_id}_{item.normalized_word}_{int(time.time())}",
+            user_id=item.user_id,
         )
         try:
             latest = VocabularyItem.objects.get(id=item_id)
@@ -2872,9 +2961,7 @@ def get_learned_words(user: TelegramUser) -> list[VocabularyItem]:
     return list(
         VocabularyItem.objects.filter(
             user=user, course_code=get_active_course_code(user), is_learned=True
-        ).order_by(
-            "updated_at", "id"
-        )
+        ).order_by("updated_at", "id")
     )
 
 
@@ -2964,9 +3051,7 @@ def get_fake_translations(
 def get_learning_candidates(
     user: TelegramUser, exclude_ids: Iterable[int] | None = None
 ) -> list[VocabularyItem]:
-    items = list(
-        _ordered_new_words_queryset(user, exclude_ids=exclude_ids)
-    )
+    items = list(_ordered_new_words_queryset(user, exclude_ids=exclude_ids))
     return [item for item in items if get_pending_exercise_types(item)]
 
 
@@ -3011,7 +3096,7 @@ def build_learning_question(
     exercise_type = random.choice(pending_types)
     payload = {
         "exercise_type": exercise_type,
-        "exercise_label": EXERCISE_TYPE_LABELS[exercise_type],
+        "exercise_label": _exercise_type_label(exercise_type, item.course_code),
         "item": serialize_word(item),
     }
 
@@ -3023,7 +3108,7 @@ def build_learning_question(
                 "prompt": (
                     "Выбери правильный перевод"
                     if exercise_type == "practice_en_ru"
-                    else "Выбери правильное английское слово"
+                    else f"Выбери правильное {_word_prompt_target(item.course_code)}"
                 ),
                 "answer_mode": exercise_type,
                 "options": options,
@@ -3095,7 +3180,9 @@ def submit_issued_learning_answer(
         )
 
 
-def get_issued_speaking_question(user: TelegramUser, question_id: str) -> IssuedLearningQuestion:
+def get_issued_speaking_question(
+    user: TelegramUser, question_id: str
+) -> IssuedLearningQuestion:
     try:
         parsed_question_id = UUID(question_id)
     except (TypeError, ValueError) as exc:
@@ -3125,7 +3212,11 @@ def submit_issued_speaking_answer(
             .filter(id=parsed_question_id, user=user, exercise_type="speaking")
             .first()
         )
-        if issued is None or issued.answered_at is not None or issued.expires_at <= timezone.now():
+        if (
+            issued is None
+            or issued.answered_at is not None
+            or issued.expires_at <= timezone.now()
+        ):
             raise ValueError("Speaking question was not found or has expired.")
         issued.answered_at = timezone.now()
         issued.save(update_fields=["answered_at"])
@@ -3146,7 +3237,7 @@ def build_choice_question(user: TelegramUser, mode: str) -> dict | None:
             return None
         item = candidates[0]
         correct_answer = item.word
-        prompt = "Выбери правильное английское слово"
+        prompt = f"Выбери правильное {_word_prompt_target(item.course_code)}"
     else:
         candidates = get_unlearned_words(user, count=10)
         if not candidates:
@@ -3402,9 +3493,7 @@ def list_irregular_page(page: int, per_page: int = 20) -> dict:
     }
 
 
-def list_alphabet_page(
-    user: TelegramUser, page: int, per_page: int = 12
-) -> dict:
+def list_alphabet_page(user: TelegramUser, page: int, per_page: int = 12) -> dict:
     active_course = get_active_course_code(user)
     items = get_alphabet(active_course)
     start = page * per_page
@@ -3422,7 +3511,10 @@ def list_alphabet_page(
 def build_alphabet_question(user: TelegramUser) -> dict:
     active_course = get_active_course_code(user)
     letter = random.choice(get_alphabet(active_course))
-    options = [letter["symbol"], *get_random_alphabet_options(active_course, letter["symbol"], count=3)]
+    options = [
+        letter["symbol"],
+        *get_random_alphabet_options(active_course, letter["symbol"], count=3),
+    ]
     unique_options: list[str] = []
     for option in options:
         if option not in unique_options:
@@ -3436,9 +3528,7 @@ def build_alphabet_question(user: TelegramUser) -> dict:
     }
 
 
-def submit_alphabet_answer(
-    user: TelegramUser, symbol: str, answer: str
-) -> dict:
+def submit_alphabet_answer(user: TelegramUser, symbol: str, answer: str) -> dict:
     active_course = get_active_course_code(user)
     entries = {item["symbol"]: item for item in get_alphabet(active_course)}
     letter = entries.get(symbol)
