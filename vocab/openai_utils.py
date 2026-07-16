@@ -18,6 +18,19 @@ DRAFT_IMAGE_DIR = PROJECT_ROOT / "media" / "draft_images"
 TEXT_MODEL = "gpt-5-mini"
 IMAGE_MODEL = "gpt-image-1.5"
 TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
+CARD_IMAGE_STYLE_PROMPT = """
+VocabuMe visual style:
+- Clean educational flashcard image for mobile vocabulary learning.
+- Realistic or lightly editorial semi-realistic lifestyle scene, not a cartoon.
+- Georgia relocation context when it naturally fits: Tbilisi interiors, streets, banks,
+  clinics, rental apartments, documents, shops, or everyday expat situations.
+- Warm natural light, calm neutral background, one clear subject/action, uncluttered frame.
+- Consistent restrained palette: soft blue/teal accents, warm neutrals, natural skin tones.
+- No visible text, captions, letters, numbers, UI, app screens, logos, watermarks,
+  official seals, flags as decoration, collages, split screens, or comic panels.
+- Full-bleed square scene with no border, no rounded card frame, no white margin.
+- Readable at flashcard size, visually specific to the exact meaning.
+""".strip()
 
 
 def detect_language(text):
@@ -236,7 +249,11 @@ def generate_word_data(
     last_error = None
     for _ in range(3):
         prompt = _build_prompt(
-            word, effective_part, translation_hint, course_code=course_code, extra_note=prompt_note
+            word,
+            effective_part,
+            translation_hint,
+            course_code=course_code,
+            extra_note=prompt_note,
         )
         try:
             with openai_request_slot("generate-word-data") as usage:
@@ -389,7 +406,10 @@ Input:
 
 
 def build_visual_prompt(
-    word: str, translation: str, part_of_speech: str, example: str = ""
+    word: str,
+    translation: str,
+    part_of_speech: str,
+    example: str = "",
 ) -> str | None:
     prompt = f"""
 You create short visual briefs for vocabulary learning images.
@@ -412,6 +432,9 @@ Rules:
 - The image must help a learner remember the exact translation.
 - Avoid text, captions, watermarks, UI, collages, split screens.
 - Keep it suitable for a clean educational flashcard.
+
+Style contract to include in the returned prompt:
+{CARD_IMAGE_STYLE_PROMPT}
 """
     try:
         with openai_request_slot("build-visual-prompt") as usage:
@@ -434,21 +457,32 @@ def generate_card_image(prompt: str, slug: str) -> str:
     filename = f"{slug}.png"
     destination = DRAFT_IMAGE_DIR / filename
 
+    generate_image_file(prompt, destination, size="1024x1024", quality="low")
+    return str(destination.relative_to(PROJECT_ROOT))
+
+
+def generate_image_file(
+    prompt: str,
+    destination: Path,
+    *,
+    size: str = "1024x1024",
+    quality: str = "low",
+) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
     response = None
     for attempt in range(6):
         try:
             with openai_request_slot(
-                "generate-card-image", model=IMAGE_MODEL, size="1024x1024", quality="low"
+                "generate-card-image", model=IMAGE_MODEL, size=size, quality=quality
             ) as usage:
                 response = client.images.generate(
                     model=IMAGE_MODEL,
                     prompt=prompt,
-                    size="1024x1024",
-                    quality="low",
+                    size=size,
+                    quality=quality,
                 )
-                usage.record_image_response(
-                    response, size="1024x1024", quality="low"
-                )
+                usage.record_image_response(response, size=size, quality=quality)
             break
         except RateLimitError as exc:
             if attempt >= 5:
@@ -461,7 +495,7 @@ def generate_card_image(prompt: str, slug: str) -> str:
         raise RuntimeError("Image generation did not return a response.")
     image_b64 = response.data[0].b64_json
     destination.write_bytes(base64.b64decode(image_b64))
-    return str(destination.relative_to(PROJECT_ROOT))
+    return destination
 
 
 def transcribe_speech_file(audio_path: str) -> str:

@@ -434,6 +434,7 @@ Notes:
   - English: `georgia_work_permit_en`, `georgia_bank_en`, `georgia_first_week_en`
   - Georgian: `georgia_work_permit_ka`, `georgia_bank_ka`, `georgia_first_week_ka`
 - These packs now ship through the existing Mini App pack flow and are covered by backend tests.
+- Cost-control rule for pack media: prefer one generated contact sheet with `3` or `6` scenario panels, then crop it into reusable local pack-level assets. Do not generate one image per arbitrary word when a scenario-level image can cover the pack. Seed `PackPreparedWord.image_path` from these local assets and verify `/api/image/<id>` returns non-empty bytes before calling a pack ready.
 
 ### P23. Interview preparation track (deferred)
 
