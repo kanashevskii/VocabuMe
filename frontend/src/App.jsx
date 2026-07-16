@@ -22,7 +22,6 @@ import { api, reportClientError } from "./lib/api";
 import ProgressScreen from "./screens/ProgressScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import TodayScreen from "./screens/TodayScreen";
-import MoreScreen from "./screens/MoreScreen";
 
 function getSessionPraise(correct, total) {
   if (!total) {
@@ -460,7 +459,7 @@ function App() {
       return "Список";
     }
     if (primaryTab === "progress") return "Прогресс";
-    if (primaryTab === "more") return "Ещё";
+    if (primaryTab === "more") return "Настройки";
     return "Практика";
   }, [primaryTab, libraryMode, showLibraryAdd]);
 
@@ -3246,9 +3245,6 @@ function App() {
         />
       );
     }
-    if (primaryTab === "more") {
-      return <MoreScreen busy={busy} onLogout={logoutWeb} onSelectLanguage={selectStudiedLanguage} onSetPracticePause={setTemporaryPracticePause} settings={settings} />;
-    }
     return renderMore();
   }
 
@@ -3479,7 +3475,7 @@ function App() {
             : closeLearnSession
         }
         onLogout={logoutWeb}
-        onOpenProfile={() => setPrimaryTab("settings")}
+        onOpenProfile={() => setPrimaryTab("more")}
         onToggleAddWords={() => {
           if (showLibraryAdd) {
             void closeAddWords();
@@ -3520,7 +3516,7 @@ function App() {
               : closeLearnSession
           }
           onLogout={logoutWeb}
-          onOpenProfile={() => setPrimaryTab("settings")}
+          onOpenProfile={() => setPrimaryTab("more")}
           onToggleAddWords={() => {
             if (showLibraryAdd) {
               void closeAddWords();

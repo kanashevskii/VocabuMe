@@ -69,7 +69,7 @@ test.describe("VocabuMe mobile app shell", () => {
     await expect(page.getByRole("heading", { name: "К чему стремиться ✨" })).toBeVisible();
 
     await page.getByRole("button", { name: "Ещё" }).click();
-    await expect(page.getByRole("heading", { name: "Ещё" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Настройки ⚙️" })).toBeVisible();
 
     const nav = page.locator(".nav-grid-bottom");
     await expect(nav).toBeVisible();
