@@ -81,6 +81,16 @@ All product changes should preserve shared progress, shared dictionary state, an
 
 ## Testing expectations
 
+- Production changes must pass a quality gate before being treated as done. This is mandatory, even for MVP monetization experiments.
+- The minimum gate for any production-affecting change is:
+  - relevant local automated tests;
+  - compile/build check for touched backend/frontend code;
+  - production smoke test on `vocabume.k1prod.com` after deploy;
+  - at least one realistic user-flow check for the changed surface, including data creation when the feature creates data;
+  - verification that media, audio, payments, premium gates, and background generation behave correctly when touched.
+- Do not rely on code review alone for monetized or user-facing flows. If the product flow can be clicked by a real user, test it as a real user before calling it ready.
+- If a production smoke test finds a bug, fix it, redeploy, and rerun the full relevant smoke path, not just the failed assertion.
+- When a feature uses pre-generated or cached assets, verify the served endpoints return non-empty bytes, not only that database paths exist.
 - For frontend/mobile bugs, use Playwright and test real mobile-sized viewports.
 - Test at least:
   - `Today`
