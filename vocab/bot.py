@@ -35,8 +35,6 @@ from asgiref.sync import sync_to_async
 from .services import (
     build_user_progress as build_user_progress_service,
     create_word as create_word_service,
-    delete_all_words as delete_all_words_service,
-    delete_word as delete_word_service,
     get_fake_translations as get_fake_translations_service,
     get_fake_words as get_fake_words_service,
     get_learned_words as get_learned_words_service,
@@ -47,10 +45,8 @@ from .services import (
     get_telegram_user_by_chat_id,
     get_user_achievements as get_user_achievements_service,
     get_user_word_list as get_user_word_list_service,
-    get_user_word_page as get_user_word_page_service,
     get_unlearned_words as get_unlearned_words_service,
     reset_word_progress as reset_word_progress_service,
-    update_word_translation as update_word_translation_service,
     update_irregular_progress as update_irregular_progress_service,
     update_word_progress as update_word_progress_service,
     word_already_exists as word_already_exists_service,
@@ -90,6 +86,17 @@ from .integrations.telegram.settings_handlers import (
     update_user_repeat_threshold,  # noqa: F401
     update_user_timezone,  # noqa: F401
 )
+from .integrations.telegram.word_handlers import (
+    WORDS_PER_PAGE,  # noqa: F401
+    delete_all_words,  # noqa: F401
+    delete_single_word,  # noqa: F401
+    get_user_word_page,  # noqa: F401
+    handle_mywords_delete,  # noqa: F401
+    handle_mywords_edit,  # noqa: F401
+    handle_mywords_pagination,  # noqa: F401
+    mywords,  # noqa: F401
+    update_word_translation,  # noqa: F401
+)
 from .integrations.telegram.users import get_or_create_user
 from .utils import clean_word, translate_to_ru
 from .tts import generate_tts_audio, generate_temp_audio
@@ -98,7 +105,6 @@ from types import SimpleNamespace
 
 TELEGRAM_TOKEN = get_telegram_token()
 ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
-WORDS_PER_PAGE = 10
 MAX_WORDS_PER_SESSION = 10
 
 # Память сессии (временно)
@@ -1383,54 +1389,6 @@ def update_irregular_progress(user, base: str, correct: bool):
     return update_irregular_progress_service(user, base, correct)
 
 
-async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-    page = context.user_data.get("mywords_page", 0)
-
-    words, total = await get_user_word_page(user, page)
-    if not words:
-        await safe_reply(
-            update, "📭 У тебя пока нет слов для изучения. Добавь их через /add"
-        )
-        return
-
-    lines = []
-    for word_id, word, tr, trans in words:
-        tr_part = f" /{tr}/" if tr else ""
-        lines.append(f"📘 *{word}*{tr_part} — {trans}")
-
-    keyboard = []
-    if page > 0:
-        keyboard.append(InlineKeyboardButton("◀️ Назад", callback_data="mywords_prev"))
-    if (page + 1) * WORDS_PER_PAGE < total:
-        keyboard.append(InlineKeyboardButton("Вперёд ▶️", callback_data="mywords_next"))
-
-    edit_row = [
-        InlineKeyboardButton("✏️ Изменить перевод", callback_data="mywords_edit")
-    ]
-    delete_row = [
-        InlineKeyboardButton(
-            "🗑 Удалить все", callback_data="mywords_delete_all_confirm"
-        ),
-        InlineKeyboardButton("❌ Удалить одно", callback_data="mywords_delete_one"),
-    ]
-
-    reply_keyboard = []
-    if keyboard:
-        reply_keyboard.append(keyboard)
-    reply_keyboard.append(edit_row)
-    reply_keyboard.append(delete_row)
-
-    reply_markup = InlineKeyboardMarkup(reply_keyboard)
-
-    target = update.message or update.callback_query.message
-    await target.reply_text(
-        "\n".join(lines), parse_mode="Markdown", reply_markup=reply_markup
-    )
-
-
 @sync_to_async
 def get_user_by_chat(chat_id):
     return get_telegram_user_by_chat_id(chat_id)
@@ -1499,231 +1457,6 @@ def get_user_achievements(user):
 @sync_to_async
 def get_new_achievements(user):
     return get_new_achievements_service(user)
-
-
-@sync_to_async
-def get_user_word_page(user, page: int):
-    return get_user_word_page_service(user, page, WORDS_PER_PAGE)
-
-
-async def _show_delete_one_menu(query, user, page: int):
-    items, total = await get_user_word_page(user, page)
-    if not items:
-        await query.edit_message_text("📭 Нет слов для удаления.")
-        return
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                f"❌ {w[1]}",
-                callback_data=f"mywords_delete_one_confirm|{w[0]}|{page}",
-            )
-        ]
-        for w in items
-    ]
-
-    nav_row = []
-    if page > 0:
-        nav_row.append(
-            InlineKeyboardButton(
-                "◀️ Назад", callback_data=f"mywords_delete_one_page|{page-1}"
-            )
-        )
-    if (page + 1) * WORDS_PER_PAGE < total:
-        nav_row.append(
-            InlineKeyboardButton(
-                "Вперёд ▶️", callback_data=f"mywords_delete_one_page|{page+1}"
-            )
-        )
-    if nav_row:
-        keyboard.append(nav_row)
-
-    keyboard.append([InlineKeyboardButton("⬅️ Отмена", callback_data="start_mywords")])
-
-    await query.edit_message_text(
-        "Выбери слово для удаления:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def _show_edit_translation_menu(query, user, page: int):
-    items, total = await get_user_word_page(user, page)
-    if not items:
-        await query.edit_message_text("📭 Нет слов для изменения.")
-        return
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                f"✏️ {w[1]}",
-                callback_data=f"mywords_edit_choose|{w[0]}|{page}",
-            )
-        ]
-        for w in items
-    ]
-
-    nav_row = []
-    if page > 0:
-        nav_row.append(
-            InlineKeyboardButton(
-                "◀️ Назад", callback_data=f"mywords_edit_page|{page-1}"
-            )
-        )
-    if (page + 1) * WORDS_PER_PAGE < total:
-        nav_row.append(
-            InlineKeyboardButton(
-                "Вперёд ▶️", callback_data=f"mywords_edit_page|{page+1}"
-            )
-        )
-    if nav_row:
-        keyboard.append(nav_row)
-
-    keyboard.append([InlineKeyboardButton("⬅️ Отмена", callback_data="start_mywords")])
-
-    await query.edit_message_text(
-        "Выбери слово для изменения перевода:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def handle_mywords_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await safe_answer(query)
-    user_data = context.user_data
-
-    page = user_data.get("mywords_page", 0)
-    if query.data == "mywords_prev":
-        page = max(0, page - 1)
-    elif query.data == "mywords_next":
-        page += 1
-
-    user_data["mywords_page"] = page
-    await mywords(update, context)
-
-
-async def handle_mywords_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await safe_answer(query)
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-    data = query.data
-
-    if data == "mywords_delete_all_confirm":
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "✅ Да, удалить все", callback_data="mywords_delete_all"
-                    ),
-                    InlineKeyboardButton("❌ Отмена", callback_data="start_mywords"),
-                ]
-            ]
-        )
-        await query.edit_message_text(
-            "Удалить ВСЕ твои слова? Это действие необратимо.",
-            reply_markup=keyboard,
-        )
-        return
-
-    if data == "mywords_delete_all":
-        await delete_all_words(user)
-        context.user_data["mywords_page"] = 0
-        await query.edit_message_text("🗑 Все слова удалены.")
-        return
-
-    if data == "mywords_delete_one":
-        await _show_delete_one_menu(query, user, 0)
-        return
-
-    if data.startswith("mywords_delete_one_page|"):
-        _, page = data.split("|", 1)
-        await _show_delete_one_menu(query, user, int(page))
-        return
-
-    if data.startswith("mywords_delete_one_confirm|"):
-        _, word_id, page = data.split("|", 2)
-        word_obj = await get_word_by_id(word_id)
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "✅ Да, удалить",
-                        callback_data=f"mywords_delete_one_do|{word_id}|{page}",
-                    ),
-                    InlineKeyboardButton("❌ Отмена", callback_data="start_mywords"),
-                ]
-            ]
-        )
-        await query.edit_message_text(
-            f"Удалить *{word_obj.word}*?",
-            parse_mode="Markdown",
-            reply_markup=keyboard,
-        )
-        return
-
-    if data.startswith("mywords_delete_one_do|"):
-        _, word_id, page = data.split("|", 2)
-        await delete_single_word(user, word_id)
-        await query.edit_message_text("🗑 Слово удалено.")
-        context.user_data["mywords_page"] = 0
-        await _show_delete_one_menu(query, user, int(page))
-        return
-
-
-async def handle_mywords_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await safe_answer(query)
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-    data = query.data
-
-    if data == "mywords_edit":
-        await _show_edit_translation_menu(query, user, 0)
-        return
-
-    if data.startswith("mywords_edit_page|"):
-        _, page = data.split("|", 1)
-        await _show_edit_translation_menu(query, user, int(page))
-        return
-
-    if data.startswith("mywords_edit_choose|"):
-        _, word_id, page = data.split("|", 2)
-        word_obj = await get_word_by_id(word_id)
-        context.user_data["edit_translation_word_id"] = word_id
-        context.user_data["edit_translation_page"] = int(page)
-        keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("⬅️ Отмена", callback_data="mywords_edit_cancel")]]
-        )
-        await query.edit_message_text(
-            f"Введи новый перевод для *{word_obj.word}*.\n"
-            f"Текущий: *{word_obj.translation}*",
-            parse_mode="Markdown",
-            reply_markup=keyboard,
-        )
-        return
-
-    if data == "mywords_edit_cancel":
-        context.user_data.pop("edit_translation_word_id", None)
-        context.user_data.pop("edit_translation_page", None)
-        await mywords(update, context)
-        return
-
-
-@sync_to_async
-def delete_single_word(user, word_id):
-    return delete_word_service(user, word_id)
-
-
-@sync_to_async
-def delete_all_words(user):
-    return delete_all_words_service(user)
-
-
-@sync_to_async
-def update_word_translation(user, word_id, translation):
-    return update_word_translation_service(user, word_id, translation)
 
 
 @sync_to_async
