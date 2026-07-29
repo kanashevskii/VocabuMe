@@ -33,7 +33,6 @@ from telegram.ext import (
 )
 from asgiref.sync import sync_to_async
 from .services import (
-    build_user_progress as build_user_progress_service,
     create_word as create_word_service,
     get_fake_translations as get_fake_translations_service,
     get_fake_words as get_fake_words_service,
@@ -43,7 +42,6 @@ from .services import (
     get_word_by_id as get_word_by_id_service,
     get_new_achievements as get_new_achievements_service,
     get_telegram_user_by_chat_id,
-    get_user_achievements as get_user_achievements_service,
     get_user_word_list as get_user_word_list_service,
     get_unlearned_words as get_unlearned_words_service,
     reset_word_progress as reset_word_progress_service,
@@ -73,6 +71,11 @@ from .integrations.telegram.payments import (
     start_subscription_checkout,
     subscribe,
     terms,
+)
+from .integrations.telegram.progress_handlers import (
+    get_user_achievements,  # noqa: F401
+    get_user_progress,  # noqa: F401
+    progress,  # noqa: F401
 )
 from .integrations.telegram.settings_handlers import (
     SET_REMINDER_TIME,  # noqa: F401
@@ -1395,46 +1398,6 @@ def get_user_by_chat(chat_id):
 
 
 @sync_to_async
-def get_user_progress(user):
-    return build_user_progress_service(user)
-
-
-async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-    stats = await get_user_progress(user)
-
-    if stats["total"] == 0:
-        await safe_reply(update, "📜 У тебя пока нет слов. Добавь их через /add")
-        return
-
-    started = (
-        stats["start_date"].strftime("%d.%m.%Y")
-        if stats["start_date"]
-        else "неизвестно"
-    )
-    message = (
-        f"📊 Твоя статистика:\n\n"
-        f"🔹 Всего слов: *{stats['total']}*\n"
-        f"✅ Выучено: *{stats['learned']}*\n"
-        f"🧠 В процессе: *{stats['learning']}*\n"
-        f"📅 Начало обучения: *{started}*\n"
-        f"🔤 Неправильные глаголы: *{stats['irregular']}*"
-    )
-
-    if stats["rank_percent"] is not None:
-        message += f"\n🏅 Ты входишь в *{stats['rank_percent']}%* лучших учеников!"
-
-    # 🎖 Добавим список ачивок
-    earned = await get_user_achievements(user)
-    if earned:
-        message += "\n\n🎖 *Твои достижения:*\n" + "\n".join(f"• {a}" for a in earned)
-
-    await safe_reply(update, message, parse_mode="Markdown")
-
-
-@sync_to_async
 def get_unlearned_words(user, count=10, part_of_speech=None):
     return get_unlearned_words_service(user, count=count, part_of_speech=part_of_speech)
 
@@ -1447,11 +1410,6 @@ def get_learned_words(user):
 @sync_to_async
 def mark_word_unlearned(item_id):
     return reset_word_progress_service(item_id)
-
-
-@sync_to_async
-def get_user_achievements(user):
-    return get_user_achievements_service(user)
 
 
 @sync_to_async
