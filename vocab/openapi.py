@@ -140,12 +140,58 @@ OPENAPI_SCHEMA: dict[str, Any] = {
             },
         },
         "/api/learn/question": {
-            "get": {
+            "post": {
                 "tags": ["Learning"],
                 "summary": "Issue a server-authoritative learning question",
                 "security": [{"TelegramInitData": []}, {"SessionCookie": []}],
                 "responses": {
                     "200": {"description": "Question with opaque question_id"}
+                },
+            }
+        },
+        "/api/irregular/question": {
+            "post": {
+                "tags": ["Learning"],
+                "summary": "Issue an opaque irregular-verb practice question",
+                "security": [{"TelegramInitData": []}, {"SessionCookie": []}],
+                "responses": {
+                    "200": {"description": "Question with opaque question_id"},
+                    "429": {"$ref": "#/components/responses/ErrorResponse"},
+                },
+            }
+        },
+        "/api/irregular/answer": {
+            "post": {
+                "tags": ["Learning"],
+                "summary": "Submit an answer to an issued irregular-verb question",
+                "security": [{"TelegramInitData": []}, {"SessionCookie": []}],
+                "responses": {
+                    "200": {"description": "Idempotent answer result"},
+                    "400": {"$ref": "#/components/responses/ErrorResponse"},
+                    "429": {"$ref": "#/components/responses/ErrorResponse"},
+                },
+            }
+        },
+        "/api/alphabet/question": {
+            "post": {
+                "tags": ["Learning"],
+                "summary": "Issue a signed alphabet practice question",
+                "security": [{"TelegramInitData": []}, {"SessionCookie": []}],
+                "responses": {
+                    "200": {"description": "Question with signed question_token"},
+                    "429": {"$ref": "#/components/responses/ErrorResponse"},
+                },
+            }
+        },
+        "/api/alphabet/answer": {
+            "post": {
+                "tags": ["Learning"],
+                "summary": "Submit an answer to a signed alphabet question",
+                "security": [{"TelegramInitData": []}, {"SessionCookie": []}],
+                "responses": {
+                    "200": {"description": "Alphabet answer result"},
+                    "400": {"$ref": "#/components/responses/ErrorResponse"},
+                    "429": {"$ref": "#/components/responses/ErrorResponse"},
                 },
             }
         },

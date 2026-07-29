@@ -10,6 +10,10 @@ def test_openapi_schema_is_public_and_describes_audio_preparation(client):
     assert schema["openapi"] == "3.1.0"
     assert "/api/audio/{word_id}/prepare" in schema["paths"]
     assert "TelegramInitData" in schema["components"]["securitySchemes"]
+    assert "post" in schema["paths"]["/api/learn/question"]
+    assert "get" not in schema["paths"]["/api/learn/question"]
+    assert "post" in schema["paths"]["/api/irregular/question"]
+    assert "post" in schema["paths"]["/api/alphabet/question"]
 
 
 @pytest.mark.django_db
