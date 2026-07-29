@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time as datetime_time, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Iterable, cast
+from typing import Iterable
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 import logging
@@ -13,7 +13,7 @@ import re
 import time
 
 from django.db import transaction
-from django.db.models import Min, Q
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -27,16 +27,20 @@ from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 from .domain.word_parsing import parse_word_batch
 from .application.streaks import (
     STREAK_QUALIFYING_CORRECT_ANSWERS as _STREAK_QUALIFYING_CORRECT_ANSWERS,
-    active_streak_days as _active_streak_days,
-    is_study_day_qualified as _is_study_day_qualified,
-    qualified_study_days_count as _qualified_study_days_count,
     record_correct_answer,
+)
+from .application.progress_read_model import (
+    build_user_progress as _build_user_progress,
+    get_course_progress_stats as _get_course_progress_stats,
+    get_new_achievements as _get_new_achievements,
+    get_pending_achievement_highlights as _get_pending_achievement_highlights,
+    get_pending_achievements as _get_pending_achievements,
+    get_user_achievements as _get_user_achievements,
 )
 from .jobs import enqueue_job
 from .alphabets import get_alphabet, get_random_alphabet_options
 from .models import (
     AddWordDraft,
-    Achievement,
     DEFAULT_STUDIED_LANGUAGE,
     DEFAULT_WORD_PRIORITY,
     IrregularVerbProgress,
@@ -86,7 +90,6 @@ from .openai_utils import (
     generate_word_data_batch,
 )
 from .openai_limits import openai_user_scope
-from .selectors.progress import get_rank_percent
 from .utils import (
     clean_word,
     normalize_timezone_value,
@@ -147,63 +150,6 @@ def _word_prompt_target(course_code: str) -> str:
     )
 
 
-ACHIEVEMENT_DEFINITIONS = [
-    {"kind": "words", "threshold": 10, "text": "🎉 Выучено 10 слов — Первый шаг!"},
-    {"kind": "words", "threshold": 50, "text": "🌿 Выучено 50 слов — Хороший темп!"},
-    {"kind": "words", "threshold": 100, "text": "🎯 Выучено 100 слов — Опытный!"},
-    {"kind": "words", "threshold": 200, "text": "🚀 Выучено 200+ слов — Гуру слов!"},
-    {"kind": "practice", "threshold": 10, "text": "🎲 10 тестов — Ты вошёл в ритм!"},
-    {"kind": "practice", "threshold": 50, "text": "🧠 50 тестов — Отличная реакция!"},
-    {
-        "kind": "listening",
-        "threshold": 10,
-        "text": "🎧 10 аудио-ответов — Уже слышишь лучше!",
-    },
-    {
-        "kind": "listening",
-        "threshold": 50,
-        "text": "📻 50 аудио-ответов — Слух прокачан!",
-    },
-    {"kind": "speaking", "threshold": 10, "text": "🎙️ 10 произношений — Голос в деле!"},
-    {
-        "kind": "speaking",
-        "threshold": 50,
-        "text": "🗣️ 50 произношений — Звучишь увереннее!",
-    },
-    {
-        "kind": "review",
-        "threshold": 10,
-        "text": "🔁 10 повторов — Память закрепляется!",
-    },
-    {
-        "kind": "review",
-        "threshold": 50,
-        "text": "🪄 50 повторов — Старые слова держатся!",
-    },
-    {
-        "kind": "irregular",
-        "threshold": 10,
-        "text": "🔤 10 неправильных глаголов — База собрана!",
-    },
-    {
-        "kind": "irregular",
-        "threshold": 30,
-        "text": "🧩 30 неправильных глаголов — Уже уверенно!",
-    },
-    {
-        "kind": "irregular",
-        "threshold": 60,
-        "text": "🏆 60 неправильных глаголов — Мастер форм!",
-    },
-    {"kind": "days", "threshold": 3, "text": "📆 3 дня подряд — Ты в ритме!"},
-    {"kind": "days", "threshold": 7, "text": "📅 7 дней подряд — Неделя прогресса!"},
-    {"kind": "days", "threshold": 14, "text": "🧭 14 дней подряд — Курс на успех!"},
-    {"kind": "days", "threshold": 30, "text": "🔥 30 дней подряд — Мастер привычки!"},
-    {"kind": "days", "threshold": 60, "text": "🕯️ 60 дней подряд — Упорство без пауз!"},
-    {"kind": "days", "threshold": 100, "text": "⚔️ 100 дней подряд — Воин знаний!"},
-    {"kind": "days", "threshold": 200, "text": "🛡️ 200 дней подряд — Гуру дисциплины!"},
-    {"kind": "days", "threshold": 365, "text": "🌈 365 дней подряд — Год знаний!"},
-]
 STUDIED_LANGUAGE_LABELS_RU = {
     "en": "Английский",
     "ka": "Грузинский",
@@ -403,23 +349,12 @@ def get_course_progress_stats(
 ) -> dict:
     active_course = normalize_course_code(course_code or get_active_course_code(user))
     progress = get_user_course_progress(user, active_course)
-    today = _learning_local_date(user)
-    learned = VocabularyItem.objects.filter(
-        user=user, course_code=active_course, is_learned=True
-    ).count()
-    irregular = IrregularVerbProgress.objects.filter(
-        user=user, course_code=active_course, is_learned=True
-    ).count()
-    return {
-        "words": learned,
-        "days": _active_streak_days(progress, today),
-        "irregular": irregular,
-        "practice": progress.practice_correct or 0,
-        "listening": progress.listening_correct or 0,
-        "speaking": progress.speaking_correct or 0,
-        "review": progress.review_correct or 0,
-        "points": progress.total_points or 0,
-    }
+    return _get_course_progress_stats(
+        user,
+        course_code=active_course,
+        course_progress=progress,
+        today=_learning_local_date(user),
+    )
 
 
 def normalize_translation_value(value: str) -> str:
@@ -629,136 +564,49 @@ def get_achievement_stats(user: TelegramUser, course_code: str | None = None) ->
 def get_user_achievements(
     user: TelegramUser, course_code: str | None = None
 ) -> list[str]:
-    stats = get_achievement_stats(user, course_code=course_code)
-    return [
-        str(item["text"])
-        for item in ACHIEVEMENT_DEFINITIONS
-        if stats[str(item["kind"])] >= cast(int, item["threshold"])
-    ]
+    return _get_user_achievements(get_achievement_stats(user, course_code=course_code))
 
 
 def get_new_achievements(
     user: TelegramUser, course_code: str | None = None
 ) -> list[str]:
     active_course = normalize_course_code(course_code or get_active_course_code(user))
-    stats = get_achievement_stats(user, course_code=active_course)
-    earned = set(
-        Achievement.objects.filter(user=user, course_code=active_course).values_list(
-            "code", flat=True
-        )
+    return _get_new_achievements(
+        user,
+        course_code=active_course,
+        stats=get_achievement_stats(user, course_code=active_course),
     )
-    new_achievements: list[str] = []
-
-    for item in ACHIEVEMENT_DEFINITIONS:
-        code = f"{item['kind']}_{item['threshold']}"
-        if (
-            stats[str(item["kind"])] >= cast(int, item["threshold"])
-            and code not in earned
-        ):
-            Achievement.objects.create(user=user, course_code=active_course, code=code)
-            new_achievements.append(str(item["text"]))
-    return new_achievements
 
 
 def get_pending_achievements(
     user: TelegramUser, course_code: str | None = None
 ) -> list[dict]:
-    stats = get_achievement_stats(user, course_code=course_code)
-
-    pending: list[dict] = []
-    for item in ACHIEVEMENT_DEFINITIONS:
-        current = stats[item["kind"]]
-        if current >= item["threshold"]:
-            continue
-        pending.append(
-            {
-                "kind": item["kind"],
-                "text": item["text"],
-                "current": current,
-                "target": item["threshold"],
-            }
-        )
-    return pending[:12]
+    return _get_pending_achievements(
+        get_achievement_stats(user, course_code=course_code)
+    )
 
 
 def get_pending_achievement_highlights(
     user: TelegramUser, course_code: str | None = None
 ) -> list[dict]:
-    pending = get_pending_achievements(user, course_code=course_code)
-    highlights: list[dict] = []
-    seen_kinds: set[str] = set()
-    for item in pending:
-        if item["kind"] in seen_kinds:
-            continue
-        seen_kinds.add(item["kind"])
-        highlights.append(item)
-    return highlights
+    return _get_pending_achievement_highlights(
+        get_achievement_stats(user, course_code=course_code)
+    )
 
 
 def build_user_progress(user: TelegramUser) -> dict:
     active_course = get_active_course_code(user)
     course_progress = get_user_course_progress(user, active_course)
-    total = VocabularyItem.objects.filter(user=user, course_code=active_course).count()
-    learned = VocabularyItem.objects.filter(
-        user=user, course_code=active_course, is_learned=True
-    ).count()
-    learning = total - learned
-    irregular_learned = IrregularVerbProgress.objects.filter(
-        user=user, course_code=active_course, is_learned=True
-    ).count()
-    start_date = VocabularyItem.objects.filter(
-        user=user, course_code=active_course
-    ).aggregate(Min("created_at"))["created_at__min"]
     today = _learning_local_date(user)
     day_start, day_end = _learning_day_window(user, today)
-    learned_today = VocabularyItem.objects.filter(
-        user=user,
+    return _build_user_progress(
+        user,
         course_code=active_course,
-        learned_at__gte=day_start,
-        learned_at__lt=day_end,
-    ).count()
-    current_moment = timezone.now()
-    week_window_start = current_moment - timedelta(days=7)
-    month_window_start = current_moment - timedelta(days=30)
-    learned_week = VocabularyItem.objects.filter(
-        user=user, course_code=active_course, learned_at__gte=week_window_start
-    ).count()
-    learned_month = VocabularyItem.objects.filter(
-        user=user, course_code=active_course, learned_at__gte=month_window_start
-    ).count()
-
-    rank_percent = get_rank_percent(
-        course_code=active_course,
-        learned_count=learned,
+        course_progress=course_progress,
+        today=today,
+        day_start=day_start,
+        day_end=day_end,
     )
-
-    return {
-        "total": total,
-        "learned": learned,
-        "learning": learning,
-        "irregular": irregular_learned,
-        "start_date": start_date.isoformat() if start_date else None,
-        "rank_percent": rank_percent,
-        "achievements": get_user_achievements(user, course_code=active_course),
-        "pending_achievements": get_pending_achievements(
-            user, course_code=active_course
-        ),
-        "pending_achievement_highlights": get_pending_achievement_highlights(
-            user, course_code=active_course
-        ),
-        "streak_days": _active_streak_days(course_progress, today),
-        "study_days": _qualified_study_days_count(course_progress),
-        "studied_today": _is_study_day_qualified(course_progress, today),
-        "learned_today": learned_today,
-        "learned_week": learned_week,
-        "learned_month": learned_month,
-        "practice_correct": course_progress.practice_correct,
-        "listening_correct": course_progress.listening_correct,
-        "speaking_correct": course_progress.speaking_correct,
-        "review_correct": course_progress.review_correct,
-        "total_points": course_progress.total_points,
-        "course_code": active_course,
-    }
 
 
 def _webp_variant_path(source: Path) -> Path:
