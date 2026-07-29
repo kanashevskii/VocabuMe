@@ -37,19 +37,15 @@ def bind_web_login_token(token: str, user: TelegramUser) -> WebLoginToken | None
 def consume_web_login_token(token: str) -> TelegramUser | None:
     """Consume a bound token exactly once, including under concurrent polling."""
     try:
-        login_token = (
-            WebLoginToken.objects.select_for_update()
-            .select_related("user")
-            .get(
-                token=token,
-                expires_at__gt=timezone.now(),
-                consumed_at__isnull=True,
-            )
+        login_token = WebLoginToken.objects.select_for_update().get(
+            token=token,
+            expires_at__gt=timezone.now(),
+            consumed_at__isnull=True,
         )
     except WebLoginToken.DoesNotExist:
         return None
 
-    if login_token.user is None:
+    if login_token.user_id is None:
         return None
 
     consumed_at = timezone.now()
@@ -59,4 +55,4 @@ def consume_web_login_token(token: str) -> TelegramUser | None:
     ).update(consumed_at=consumed_at)
     if claimed != 1:
         return None
-    return login_token.user
+    return TelegramUser.objects.get(pk=login_token.user_id)
