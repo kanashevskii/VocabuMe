@@ -446,6 +446,29 @@ def test_alphabet_question_returns_current_course_payload(client, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_alphabet_question_issuance_is_rate_limited(client, monkeypatch):
+    cache.clear()
+    user = TelegramUser.objects.create(chat_id=20071, username="tester")
+    session = client.session
+    session["telegram_user_id"] = user.id
+    session.save()
+    monkeypatch.setattr(
+        "vocab.api.alphabet.build_alphabet_question",
+        lambda _user: {
+            "course_code": "en",
+            "letter": {"symbol": "A"},
+            "correct_symbol": "A",
+            "options": ["A"],
+        },
+    )
+
+    for _ in range(30):
+        assert client.post("/api/alphabet/question").status_code == 200
+    assert client.post("/api/alphabet/question").status_code == 429
+    cache.clear()
+
+
+@pytest.mark.django_db
 def test_alphabet_answer_returns_validation_error_for_bad_payload(client):
     user = TelegramUser.objects.create(chat_id=2008, username="tester")
     session = client.session
@@ -464,6 +487,7 @@ def test_alphabet_answer_returns_validation_error_for_bad_payload(client):
 
 @pytest.mark.django_db
 def test_alphabet_answer_returns_result_payload(client, monkeypatch):
+    cache.clear()
     user = TelegramUser.objects.create(
         chat_id=2009, username="tester", active_studied_language="ka"
     )

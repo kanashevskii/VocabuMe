@@ -43,6 +43,10 @@ def alphabet_question(request: HttpRequest) -> JsonResponse:
     user = require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := enforce_request_limit(
+        request, scope="alphabet-question", limit=30, window=60, user=user
+    ):
+        return limited
 
     question = build_alphabet_question(user)
     question["letter"] = dict(question["letter"])

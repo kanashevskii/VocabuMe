@@ -35,6 +35,10 @@ def irregular_question(request: HttpRequest) -> JsonResponse:
     user = require_user(request)
     if isinstance(user, JsonResponse):
         return user
+    if limited := enforce_request_limit(
+        request, scope="irregular-question", limit=30, window=60, user=user
+    ):
+        return limited
     return JsonResponse({"ok": True, "question": issue_irregular_question(user)})
 
 
