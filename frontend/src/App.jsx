@@ -24,6 +24,7 @@ import SettingsScreen from "./screens/SettingsScreen";
 import TodayScreen from "./screens/TodayScreen";
 import OnboardingGate from "./screens/OnboardingGate";
 import CardsScreen from "./screens/CardsScreen";
+import WordsListScreen from "./screens/WordsListScreen";
 import {
   AlphabetPracticeScreen,
   IrregularPracticeScreen,
@@ -2469,126 +2470,35 @@ function App() {
               ))}
             </div>
             {libraryMode === "cards" ? renderCards() : null}
-            {libraryMode === "words" ? renderWordsList() : null}
+            {libraryMode === "words" ? (
+              <WordsListScreen
+                draftTranslation={draftTranslation}
+                expandedWordId={expandedWordId}
+                formatDisplayLine={formatDisplayLine}
+                onDeleteWord={deleteWord}
+                onOpenPacks={openPacks}
+                onRegenerateWordImage={regenerateWordImage}
+                onSaveTranslation={saveTranslation}
+                previewWordId={previewWordId}
+                regeneratingWordId={regeneratingWordId}
+                search={search}
+                settings={settings}
+                setDraftTranslation={setDraftTranslation}
+                setExpandedWordId={setExpandedWordId}
+                setPreviewWordId={setPreviewWordId}
+                setSearch={setSearch}
+                setStatusFilter={setStatusFilter}
+                setWordImageErrors={setWordImageErrors}
+                statusFilter={statusFilter}
+                wordImageErrors={wordImageErrors}
+                wordImageVersions={wordImageVersions}
+                words={words}
+              />
+            ) : null}
             {libraryMode === "packs" ? renderPacks() : null}
           </>
         )}
       </section>
-    );
-  }
-
-  function renderWordsList() {
-    return (
-      <>
-        <div className="glass-card compact-section">
-          <div className="filters">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" />
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="all">Все</option>
-              <option value="learning">В процессе</option>
-              <option value="learned">Выучено</option>
-            </select>
-          </div>
-          <div className="button-row">
-            <button className="secondary-button" type="button" onClick={openPacks}>
-              + Добавить записи
-            </button>
-          </div>
-        </div>
-        <div className="word-list">
-          {words.map((item) => (
-            <article className="glass-card word-item" key={item.id}>
-              <div className="word-item-head">
-                <div>
-                  <strong>{item.word}</strong>
-                  {formatDisplayLine(item.word, item.course_code).secondary ? (
-                    <p className="word-item-romanization">
-                      {formatDisplayLine(item.word, item.course_code).secondary}
-                    </p>
-                  ) : null}
-                  <p className="word-item-example">{item.example}</p>
-                </div>
-                <span className={item.is_learned ? "status-tag good" : "status-tag"}>
-                  {item.is_learned ? "Выучено" : `${item.correct_count}/${settings?.exercise_goal || 4}`}
-                </span>
-              </div>
-              <input
-                value={draftTranslation[item.id] ?? item.translation}
-                onChange={(event) => setDraftTranslation((current) => ({ ...current, [item.id]: event.target.value }))}
-              />
-              <div className="button-row word-item-actions word-item-actions-primary">
-                <button className="secondary-button" type="button" onClick={() => saveTranslation(item.id)}>
-                  Сохранить
-                </button>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => {
-                    setExpandedWordId((current) => current === item.id ? null : item.id);
-                    setPreviewWordId((current) => (current === item.id ? null : current));
-                  }}
-                >
-                  {expandedWordId === item.id ? "Скрыть" : "Ещё"}
-                </button>
-              </div>
-              {expandedWordId === item.id ? (
-                <div className="word-item-extra">
-                  <div className="button-row word-item-actions">
-                    <button className="secondary-button" type="button" onClick={() => setPreviewWordId((current) => current === item.id ? null : item.id)}>
-                      {previewWordId === item.id ? "🫥 Скрыть фото" : "🖼 Фото"}
-                    </button>
-                    <button
-                      className={regeneratingWordId === item.id || item.image_generation_in_progress ? "secondary-button is-loading" : "secondary-button"}
-                      type="button"
-                      onClick={() => regenerateWordImage(item.id)}
-                      disabled={regeneratingWordId === item.id || item.image_generation_in_progress}
-                    >
-                      {regeneratingWordId === item.id || item.image_generation_in_progress
-                        ? "⏳ Генерируем..."
-                        : "♻️ Обновить фото"}
-                    </button>
-                    <button className="danger-button" type="button" onClick={() => deleteWord(item.id)}>
-                      Удалить
-                    </button>
-                  </div>
-                  {item.image_generation_in_progress ? (
-                    <div className="inline-note status-note">
-                      <strong>Генерируем новое фото...</strong> Старое изображение останется до обновления.
-                    </div>
-                  ) : null}
-                  {previewWordId === item.id ? (
-                    item.has_image && !wordImageErrors[item.id] ? (
-                      <div className="word-image-preview">
-                        <img
-                          key={wordImageVersions[item.id] || item.updated_at}
-                          src={`/api/image/${item.id}?v=${wordImageVersions[item.id] || item.updated_at}`}
-                          alt={item.word}
-                          onLoad={() => setWordImageErrors((current) => ({ ...current, [item.id]: false }))}
-                          onError={() => setWordImageErrors((current) => ({ ...current, [item.id]: true }))}
-                        />
-                      </div>
-                    ) : (
-                      <div className="empty-card">
-                        {item.image_generation_in_progress
-                          ? "Новое изображение ещё готовится."
-                          : "Изображение недоступно. Попробуй обновить фото ещё раз."}
-                      </div>
-                    )
-                  ) : null}
-                </div>
-              ) : null}
-            </article>
-          ))}
-          {!words.length ? (
-            <div className="glass-card empty-card">
-              <p>Пока записей нет.</p>
-              <button className="secondary-button" type="button" onClick={openPacks}>
-                Открыть наборы
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </>
     );
   }
 
