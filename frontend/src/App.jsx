@@ -22,6 +22,7 @@ import { api, reportClientError } from "./lib/api";
 import ProgressScreen from "./screens/ProgressScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import TodayScreen from "./screens/TodayScreen";
+import OnboardingGate from "./screens/OnboardingGate";
 
 function getSessionPraise(correct, total) {
   if (!total) {
@@ -3268,195 +3269,31 @@ function App() {
     );
   }
 
-  if (georgianDisplayModePrompt && !needsStudiedLanguageSelection) {
+  if (georgianDisplayModePrompt || needsStudiedLanguageSelection || needsOnboarding) {
     return (
-      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
-        <main className="auth-stage">
-          {notice ? <div className="notice">{notice.message}</div> : null}
-            <section className="glass-card compact-section">
-              <p className="overline">Грузинский</p>
-              <h3>Как показывать грузинский? ✨</h3>
-              <p className="lead compact">
-                Для старта рекомендуем показывать и грузинское письмо, и латиницу. Позже это всегда можно изменить в настройках.
-              </p>
-            <div className="stack-form">
-              {georgianDisplayModeOptions.map((item) => (
-                <button
-                  key={item.code}
-                  className={item.recommended ? "primary-button" : "secondary-button"}
-                  type="button"
-                  onClick={() => void confirmGeorgianDisplayMode(item.code)}
-                  disabled={busy}
-                >
-                  {item.label}{item.recommended ? " (Рекомендуется)" : ""}
-                </button>
-              ))}
-              <button className="secondary-button" type="button" onClick={cancelGeorgianDisplayModePrompt} disabled={busy}>
-                Отмена
-              </button>
-            </div>
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  if (needsStudiedLanguageSelection) {
-    if (georgianDisplayModePrompt) {
-      return (
-        <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
-          <main className="auth-stage">
-            {notice ? <div className="notice">{notice.message}</div> : null}
-            <section className="glass-card compact-section">
-              <p className="overline">Грузинский</p>
-              <h3>Как показывать грузинский? ✨</h3>
-              <p className="lead compact">
-                Для старта рекомендуем показывать и грузинское письмо, и латиницу. Позже это всегда можно изменить в настройках.
-              </p>
-              <div className="stack-form">
-                {georgianDisplayModeOptions.map((item) => (
-                  <button
-                    key={item.code}
-                    className={item.recommended ? "primary-button" : "secondary-button"}
-                    type="button"
-                    onClick={() => void confirmGeorgianDisplayMode(item.code)}
-                    disabled={busy}
-                  >
-                    {item.label}{item.recommended ? " (Рекомендуется)" : ""}
-                  </button>
-                ))}
-                <button className="secondary-button" type="button" onClick={cancelGeorgianDisplayModePrompt} disabled={busy}>
-                  Назад
-                </button>
-              </div>
-            </section>
-          </main>
-        </div>
-      );
-    }
-    return (
-      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
-        <main className="auth-stage">
-          {notice ? <div className="notice">{notice.message}</div> : null}
-          <section className="glass-card compact-section">
-            <p className="overline">Первый запуск</p>
-            <h3>Какой язык ты хочешь учить? ✨</h3>
-            <p className="lead compact">
-              Сначала выбери язык обучения. Прогресс, слова и готовые наборы будут
-              храниться отдельно для каждого языка.
-            </p>
-            <div className="pack-list">
-              {(auth.user?.available_studied_languages || []).map((item) => (
-                <button
-                  key={item.code}
-                  className="segment-button active"
-                  type="button"
-                  onClick={() => void selectStudiedLanguage(item.code, { source: "onboarding" })}
-                  disabled={busy}
-                >
-                  {busy ? "Сохраняем..." : item.label}
-                </button>
-              ))}
-            </div>
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  if (needsOnboarding) {
-    return (
-      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
-        <main className="auth-stage">
-          {notice ? <div className="notice">{notice.message}</div> : null}
-          {onboardingStep === "intro" ? (
-            <section className="glass-card compact-section">
-              <p className="overline">Старт</p>
-              <h3>VocabuMe для жизни после переезда ✨</h3>
-              <p className="lead compact">
-                Ты выбрал {activeLanguageLabel.toLowerCase()}. Дальше можно быстро закрывать реальные
-                задачи: банк, документы, жилье, связь, рынок, почта.
-              </p>
-              <div className="stack-form">
-                <div className="inline-note">
-                  1. Выбери ситуацию, которая нужна прямо сейчас.
-                  <br />
-                  2. Добавь нужные слова и фразы в словарь.
-                  <br />
-                  3. Пройди практику перед реальным диалогом.
-                </div>
-                <button className="primary-button" type="button" onClick={() => setOnboardingStep("premium")} disabled={busy}>
-                  Дальше
-                </button>
-                <button className="secondary-button" type="button" onClick={() => void completeOnboarding({ openPacks: true })} disabled={busy}>
-                  Сразу открыть наборы
-                </button>
-              </div>
-            </section>
-          ) : (
-            <section className="glass-card compact-section onboarding-premium-card">
-              <p className="overline">Premium</p>
-              <h3>Полный доступ к сценариям для переезда 🚀</h3>
-              <p className="lead compact">
-                Для экспатов это не просто слова, а готовые сценарии для жизни после переезда: банк,
-                аренда, счета, документы и бытовые вопросы.
-              </p>
-              <div className="simple-list onboarding-premium-list">
-                <div className="simple-row">
-                  <strong>Полный доступ к сценариям для переезда</strong>
-                  <small>Банк, аренда, счета, документы, магазин, почта и другие expat-сценарии.</small>
-                </div>
-                <div className="simple-row">
-                  <strong>Больше слов и фраз под твою ситуацию</strong>
-                  <small>Без ограничения free-плана по дневному добавлению.</small>
-                </div>
-                <div className="simple-row">
-                  <strong>AI для сложных бытовых диалогов</strong>
-                  <small>Объяснения, дополнительные генерации и будущие диалоги с фидбеком по темам переезда.</small>
-                </div>
-              </div>
-              <div className="pack-list onboarding-premium-prices">
-                <span className="pack-badge">
-                  ${monetization.plans?.premium?.price?.monthly?.amount || "6.99"} / месяц
-                </span>
-                <span className="pack-badge">
-                  ${monetization.plans?.premium?.price?.yearly?.amount || "39.99"} / год
-                </span>
-              </div>
-              {!billing.premium_active ? (
-                <div className="button-row onboarding-premium-buy-row">
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={() => void startPremiumCheckout("monthly", "onboarding")}
-                    disabled={busy || Boolean(checkoutBusyPeriod)}
-                  >
-                    {checkoutBusyPeriod === "monthly" ? "Открываем оплату..." : "Купить доступ · месяц"}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => void startPremiumCheckout("yearly", "onboarding")}
-                    disabled={busy || Boolean(checkoutBusyPeriod)}
-                  >
-                    {checkoutBusyPeriod === "yearly" ? "Открываем оплату..." : "Купить доступ · год"}
-                  </button>
-                </div>
-              ) : (
-                <div className="inline-note">Premium уже активен. Можно сразу переходить к наборам.</div>
-              )}
-              <div className="stack-form onboarding-premium-actions">
-                <button className="primary-button" type="button" onClick={() => void completeOnboarding({ openPacks: true })} disabled={busy}>
-                  Начать бесплатно
-                </button>
-                <button className="secondary-button" type="button" onClick={() => setOnboardingStep("intro")} disabled={busy}>
-                  Назад
-                </button>
-              </div>
-            </section>
-          )}
-        </main>
-      </div>
+      <OnboardingGate
+        activeLanguageLabel={activeLanguageLabel}
+        availableLanguages={auth.user?.available_studied_languages || []}
+        billing={billing}
+        busy={busy}
+        checkoutBusyPeriod={checkoutBusyPeriod}
+        georgianDisplayModeOptions={georgianDisplayModeOptions}
+        georgianDisplayModePrompt={georgianDisplayModePrompt}
+        isKeyboardOpen={isKeyboardOpen}
+        monetization={monetization}
+        needsOnboarding={needsOnboarding}
+        needsStudiedLanguageSelection={needsStudiedLanguageSelection}
+        notice={notice}
+        onboardingStep={onboardingStep}
+        onCancelGeorgianDisplayMode={cancelGeorgianDisplayModePrompt}
+        onCompleteOnboarding={(options) => void completeOnboarding(options)}
+        onConfirmGeorgianDisplayMode={(mode) => void confirmGeorgianDisplayMode(mode)}
+        onSelectLanguage={(courseCode) =>
+          void selectStudiedLanguage(courseCode, { source: "onboarding" })
+        }
+        onSetOnboardingStep={setOnboardingStep}
+        onStartCheckout={(period) => void startPremiumCheckout(period, "onboarding")}
+      />
     );
   }
 

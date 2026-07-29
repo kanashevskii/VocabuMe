@@ -31,13 +31,13 @@ const settings = {
   billing: { premium_active: false, plans: [] },
 };
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, authenticatedUser = user) {
   await page.route("**/api/**", async (route: Route) => {
     const { pathname } = new URL(route.request().url());
     const responseByPath: Record<string, object> = {
       "/api/app-config": { bot_username: "VocabuMe_bot", webapp_url: "http://127.0.0.1:4173" },
-      "/api/auth/me": { ok: true, authenticated: true, user, progress },
-      "/api/dashboard": { ok: true, user, progress },
+      "/api/auth/me": { ok: true, authenticated: true, user: authenticatedUser, progress },
+      "/api/dashboard": { ok: true, user: authenticatedUser, progress },
       "/api/settings": { ok: true, settings },
       "/api/words": { ok: true, items: [] },
       "/api/irregular/list": { ok: true, items: [], page: 1, total_pages: 1 },
@@ -74,5 +74,19 @@ test.describe("VocabuMe mobile app shell", () => {
     const nav = page.locator(".nav-grid-bottom");
     await expect(nav).toBeVisible();
     await expect(nav.boundingBox()).resolves.toMatchObject({ y: expect.any(Number) });
+  });
+
+  test("keeps the onboarding premium step and back navigation reachable", async ({ page }) => {
+    await mockApi(page, { ...user, has_completed_onboarding: false });
+    await page.setViewportSize({ width: 412, height: 640 });
+    await page.goto("/");
+
+    await expect(page.getByRole("heading", { name: "VocabuMe для жизни после переезда ✨" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Дальше" }).click();
+    await expect(page.getByRole("heading", { name: "Полный доступ к сценариям для переезда 🚀" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Назад" }).click();
+    await expect(page.getByRole("heading", { name: "VocabuMe для жизни после переезда ✨" })).toBeVisible();
   });
 });
