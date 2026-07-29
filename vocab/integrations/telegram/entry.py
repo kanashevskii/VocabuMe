@@ -14,7 +14,7 @@ from telegram.ext import ContextTypes
 from core.env import get_webapp_url
 from vocab.integrations.telegram.messaging import safe_reply
 from vocab.integrations.telegram.users import get_or_create_user
-from vocab.services import bind_web_login_token
+from vocab.application.web_login import bind_web_login_token
 
 WEBAPP_URL = get_webapp_url()
 

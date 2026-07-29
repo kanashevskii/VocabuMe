@@ -16,10 +16,9 @@ from vocab.api.common import (
     json_error,
     login,
 )
+from vocab.application.web_login import consume_web_login_token, create_web_login_token
 from vocab.services import (
     build_user_progress,
-    consume_web_login_token,
-    create_web_login_token,
     serialize_user,
     upsert_telegram_user,
 )

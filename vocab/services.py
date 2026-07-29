@@ -46,7 +46,6 @@ from .models import (
     TelegramUser,
     UserCourseProgress,
     VocabularyItem,
-    WebLoginToken,
     WORD_PRIORITY_CHOICES,
 )
 from .monetization import get_monetization_payload
@@ -74,6 +73,11 @@ from .application.entitlements import (
     pack_requires_premium,  # noqa: F401
     reserve_extra_image_regeneration_for_today,  # noqa: F401
     reserve_new_items_for_today,  # noqa: F401
+)
+from .application.web_login import (
+    bind_web_login_token,  # noqa: F401
+    consume_web_login_token,  # noqa: F401
+    create_web_login_token,  # noqa: F401
 )
 from .openai_utils import (
     build_visual_prompt,
@@ -3144,42 +3148,6 @@ def update_irregular_progress(
         course_progress.total_points = (course_progress.total_points or 0) + 1
         course_progress.save(update_fields=["irregular_correct", "total_points"])
     return progress
-
-
-def create_web_login_token() -> WebLoginToken:
-    return WebLoginToken.objects.create(
-        expires_at=timezone.now() + timedelta(minutes=15)
-    )
-
-
-def bind_web_login_token(token: str, user: TelegramUser) -> WebLoginToken | None:
-    try:
-        login_token = WebLoginToken.objects.get(
-            token=token, expires_at__gt=timezone.now(), consumed_at__isnull=True
-        )
-    except WebLoginToken.DoesNotExist:
-        return None
-    login_token.user = user
-    login_token.save(update_fields=["user"])
-    return login_token
-
-
-def consume_web_login_token(token: str) -> TelegramUser | None:
-    try:
-        login_token = WebLoginToken.objects.select_related("user").get(
-            token=token,
-            expires_at__gt=timezone.now(),
-            consumed_at__isnull=True,
-        )
-    except WebLoginToken.DoesNotExist:
-        return None
-
-    if login_token.user is None:
-        return None
-
-    login_token.consumed_at = timezone.now()
-    login_token.save(update_fields=["consumed_at"])
-    return login_token.user
 
 
 def parse_word_batch(text: str) -> list[ParsedWordEntry]:
