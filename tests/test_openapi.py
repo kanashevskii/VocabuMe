@@ -14,6 +14,8 @@ def test_openapi_schema_is_public_and_describes_audio_preparation(client):
     assert "get" not in schema["paths"]["/api/learn/question"]
     assert "post" in schema["paths"]["/api/irregular/question"]
     assert "post" in schema["paths"]["/api/alphabet/question"]
+    assert "200" in schema["paths"]["/api/packs/prepare"]["post"]["responses"]
+    assert "202" not in schema["paths"]["/api/packs/prepare"]["post"]["responses"]
 
 
 @pytest.mark.django_db

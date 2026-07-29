@@ -246,7 +246,7 @@ OPENAPI_SCHEMA: dict[str, Any] = {
                 "summary": "Queue pack preparation",
                 "security": [{"TelegramInitData": []}, {"SessionCookie": []}],
                 "responses": {
-                    "202": {"description": "Preparation job accepted"},
+                    "200": {"description": "Preparation jobs accepted"},
                     "429": {"$ref": "#/components/responses/ErrorResponse"},
                 },
             }
