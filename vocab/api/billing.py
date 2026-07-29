@@ -11,7 +11,7 @@ from django.views.decorators.http import require_GET, require_POST
 from vocab.analytics import record_product_event
 from vocab.api.common import enforce_request_limit, json_body, json_error, require_user
 from vocab.api.errors import log_app_error
-from vocab.services import create_checkout_session, get_billing_payload
+from vocab.application.billing import create_checkout_session, get_billing_payload
 
 logger = logging.getLogger(__name__)
 

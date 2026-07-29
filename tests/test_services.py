@@ -134,7 +134,7 @@ def test_create_checkout_session_returns_invoice_link(monkeypatch):
             assert kwargs["prices"][0].amount == 999
             return "https://t.me/invoice/test"
 
-    monkeypatch.setattr("vocab.services.Bot", FakeBot)
+    monkeypatch.setattr("vocab.application.billing.Bot", FakeBot)
 
     result = create_checkout_session(user, plan_code="premium", billing_period="yearly")
 

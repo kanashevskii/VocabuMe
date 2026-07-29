@@ -18,7 +18,7 @@ from vocab.monetization import (
     TELEGRAM_STARS_CURRENCY,
     get_telegram_stars_prices_for_user,
 )
-from vocab.services import (
+from vocab.application.billing import (
     activate_subscription_for_successful_payment as activate_subscription_for_successful_payment_service,
     create_bot_payment_attempt,
     get_subscription_plans,
