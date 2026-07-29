@@ -124,6 +124,23 @@ def test_auth_telegram_widget_uses_verified_payload(client, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_auth_telegram_widget_rejects_non_positive_telegram_id(client, monkeypatch):
+    monkeypatch.setattr(
+        "vocab.api.auth.verify_login_widget",
+        lambda payload, token, max_age_seconds: {"id": "-301"},
+    )
+
+    response = client.post(
+        "/api/auth/telegram/widget",
+        data=json.dumps({"id": "-301", "hash": "whatever"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert TelegramUser.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_auth_telegram_webapp_uses_verified_payload(client, monkeypatch):
     monkeypatch.setattr(
         "vocab.api.auth.verify_webapp_init_data",
@@ -142,6 +159,23 @@ def test_auth_telegram_webapp_uses_verified_payload(client, monkeypatch):
     payload = response.json()
     assert payload["user"]["chat_id"] == 302
     assert payload["user"]["username"] == "webapp_user"
+
+
+@pytest.mark.django_db
+def test_auth_telegram_webapp_rejects_non_positive_telegram_id(client, monkeypatch):
+    monkeypatch.setattr(
+        "vocab.api.auth.verify_webapp_init_data",
+        lambda init_data, token, max_age_seconds: {"user": {"id": -302}},
+    )
+
+    response = client.post(
+        "/api/auth/telegram/webapp",
+        data=json.dumps({"init_data": "signed"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert TelegramUser.objects.count() == 0
 
 
 @pytest.mark.django_db

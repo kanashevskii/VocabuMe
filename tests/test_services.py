@@ -71,6 +71,7 @@ from vocab.services import (
     serialize_word,
     user_has_premium,
     is_course_word_answer_correct,
+    upsert_telegram_user,
     EntitlementError,
 )
 
@@ -88,6 +89,14 @@ def test_create_and_consume_web_login_token_is_single_use():
     assert consumed == user
     assert token.consumed_at is not None
     assert consume_web_login_token(token.token) is None
+
+
+@pytest.mark.django_db
+def test_telegram_identity_rejects_non_positive_chat_ids():
+    with pytest.raises(ValueError, match="positive integer"):
+        upsert_telegram_user(-1)
+    with pytest.raises(ValueError, match="positive integer"):
+        TelegramUser.objects.create(chat_id=0)
 
 
 @pytest.mark.django_db

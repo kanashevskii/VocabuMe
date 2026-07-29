@@ -602,6 +602,8 @@ def is_course_word_answer_correct(
 
 
 def upsert_telegram_user(chat_id: int, username: str | None = None) -> TelegramUser:
+    if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id <= 0:
+        raise ValueError("Telegram chat_id must be a positive integer.")
     user, created = TelegramUser.objects.get_or_create(
         chat_id=chat_id,
         defaults={"username": username},

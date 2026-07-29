@@ -43,7 +43,12 @@ def auth_telegram_widget(request: HttpRequest) -> JsonResponse:
         )
     except (ValueError, TelegramAuthError) as exc:
         return json_error(str(exc), status=400)
-    telegram_id = int(verified["id"])
+    try:
+        telegram_id = int(verified["id"])
+    except (TypeError, ValueError):
+        return json_error("Telegram user was not provided.", status=400)
+    if telegram_id <= 0:
+        return json_error("Telegram user was not provided.", status=400)
     user = upsert_telegram_user(chat_id=telegram_id, username=verified.get("username"))
     return login(request, user)
 
@@ -68,7 +73,11 @@ def auth_telegram_webapp(request: HttpRequest) -> JsonResponse:
     if not isinstance(telegram_user, dict):
         return json_error("Telegram user was not provided.", status=400)
     telegram_id = telegram_user.get("id")
-    if isinstance(telegram_id, bool) or not isinstance(telegram_id, int):
+    if (
+        isinstance(telegram_id, bool)
+        or not isinstance(telegram_id, int)
+        or telegram_id <= 0
+    ):
         return json_error("Telegram user was not provided.", status=400)
     username = telegram_user.get("username")
     return login(

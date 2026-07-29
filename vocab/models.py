@@ -96,6 +96,16 @@ class TelegramUser(models.Model):
     speaking_correct = models.PositiveIntegerField(default=0)
     review_correct = models.PositiveIntegerField(default=0)
 
+    def save(self, *args, **kwargs):
+        """Keep Telegram identity IDs valid outside the HTTP auth adapters too."""
+        if (
+            isinstance(self.chat_id, bool)
+            or not isinstance(self.chat_id, int)
+            or self.chat_id <= 0
+        ):
+            raise ValueError("Telegram chat_id must be a positive integer.")
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.username or self.email or 'User'} ({self.chat_id})"
 
