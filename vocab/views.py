@@ -8,10 +8,10 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET
 
 from core.env import get_telegram_bot_username, get_webapp_url
+from .application.entitlements import EntitlementError
 from .models import TelegramUser
 from .services import (
     get_billing_payload,
-    EntitlementError,
 )
 from .telegram_auth import verify_webapp_init_data
 from .api.common import (

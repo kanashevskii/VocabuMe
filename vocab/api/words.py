@@ -11,9 +11,9 @@ from django.views.decorators.http import require_http_methods, require_POST
 from vocab.analytics import record_product_event
 from vocab.api.common import enforce_request_limit, json_body, json_error, require_user
 from vocab.api.errors import log_app_error
+from vocab.application.entitlements import EntitlementError
 from vocab.models import AddWordDraft, VocabularyItem
 from vocab.services import (
-    EntitlementError,
     add_words_from_text,
     build_user_progress,
     create_word_drafts_from_text,

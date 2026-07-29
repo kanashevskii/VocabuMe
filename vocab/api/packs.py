@@ -7,8 +7,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from vocab.analytics import record_product_event
 from vocab.api.common import enforce_request_limit, json_body, json_error, require_user
+from vocab.application.entitlements import EntitlementError
 from vocab.services import (
-    EntitlementError,
     add_pack_words_to_user,
     build_user_progress,
     ensure_pack_preparation,
