@@ -48,6 +48,7 @@ def generate_web_login_token() -> str:
 
 class TelegramUser(models.Model):
     chat_id = models.BigIntegerField(unique=True)
+    legacy_identity_quarantined = models.BooleanField(default=False)
     username = models.CharField(max_length=255, null=True, blank=True)
     custom_avatar_url = models.URLField(max_length=500, blank=True, default="")
     avatar_path = models.CharField(max_length=500, blank=True, default="")
@@ -108,6 +109,14 @@ class TelegramUser(models.Model):
 
     def __str__(self):
         return f"{self.username or self.email or 'User'} ({self.chat_id})"
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(chat_id__gt=0),
+                name="telegram_user_chat_id_positive",
+            )
+        ]
 
 
 class UserCourseProgress(models.Model):

@@ -91,7 +91,9 @@ def current_user(
             telegram_id = int(telegram_user["id"])
         except (KeyError, TypeError, ValueError, TelegramAuthError):
             return None
-        return TelegramUser.objects.filter(chat_id=telegram_id).first()
+        return TelegramUser.objects.filter(
+            chat_id=telegram_id, legacy_identity_quarantined=False
+        ).first()
 
     user_id = request.session.get(SESSION_USER_KEY)
     return get_telegram_user_by_id(user_id) if user_id else None

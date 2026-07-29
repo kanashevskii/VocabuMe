@@ -4,6 +4,7 @@ from datetime import timedelta
 from io import BytesIO
 
 import pytest
+from django.db import IntegrityError, transaction
 from PIL import Image
 from django.utils import timezone
 from vocab.models import (
@@ -41,6 +42,8 @@ from vocab.services import (
     get_active_course_code,
     get_completed_exercise_types,
     get_exercise_goal,
+    get_telegram_user_by_chat_id,
+    get_telegram_user_by_id,
     get_or_create_user_course_progress,
     get_temporary_practice_filters,
     list_word_packs,
@@ -97,6 +100,26 @@ def test_telegram_identity_rejects_non_positive_chat_ids():
         upsert_telegram_user(-1)
     with pytest.raises(ValueError, match="positive integer"):
         TelegramUser.objects.create(chat_id=0)
+
+
+@pytest.mark.django_db
+def test_database_constraint_rejects_invalid_telegram_chat_id_bypassing_model_save():
+    user = TelegramUser.objects.create(chat_id=70_003, username="integrity")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        TelegramUser.objects.filter(pk=user.pk).update(chat_id=0)
+
+
+@pytest.mark.django_db
+def test_quarantined_legacy_identity_cannot_be_resolved_for_authentication():
+    user = TelegramUser.objects.create(
+        chat_id=9_000_000_000_000_070_004,
+        username="legacy",
+        legacy_identity_quarantined=True,
+    )
+
+    assert get_telegram_user_by_id(user.id) is None
+    assert get_telegram_user_by_chat_id(user.chat_id) is None
 
 
 @pytest.mark.django_db

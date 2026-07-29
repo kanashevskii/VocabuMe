@@ -550,11 +550,15 @@ def upsert_telegram_user(chat_id: int, username: str | None = None) -> TelegramU
 
 
 def get_telegram_user_by_id(user_id: int) -> TelegramUser | None:
-    return TelegramUser.objects.filter(id=user_id).first()
+    return TelegramUser.objects.filter(
+        id=user_id, legacy_identity_quarantined=False
+    ).first()
 
 
 def get_telegram_user_by_chat_id(chat_id: int) -> TelegramUser | None:
-    return TelegramUser.objects.filter(chat_id=chat_id).first()
+    return TelegramUser.objects.filter(
+        chat_id=chat_id, legacy_identity_quarantined=False
+    ).first()
 
 
 def get_achievement_stats(user: TelegramUser, course_code: str | None = None) -> dict:
