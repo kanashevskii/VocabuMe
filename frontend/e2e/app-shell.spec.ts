@@ -46,10 +46,41 @@ const words = [
   },
 ];
 
+const packFixtures = [
+  {
+    id: "housing",
+    emoji: "🏠",
+    title: "Жилье",
+    description: "Аренда и общение с владельцем.",
+    difficulty: "Легкий",
+    premium_required: false,
+    has_added_words: false,
+    levels: [
+      {
+        id: "rent",
+        title: "Аренда",
+        description: "Ключевые слова для поиска жилья.",
+        difficulty: "Легкий",
+        size: 1,
+        has_added_words: false,
+        items: [
+          {
+            normalized_word: "lease",
+            word: "lease",
+            translation: "аренда",
+            already_added: false,
+          },
+        ],
+      },
+    ],
+  },
+];
+
 async function mockApi(
   page: Page,
   authenticatedUser = user,
   wordItems: object[] = [],
+  packItems: object[] = [],
 ) {
   await page.route("**/api/**", async (route: Route) => {
     const { pathname } = new URL(route.request().url());
@@ -69,7 +100,7 @@ async function mockApi(
       "/api/irregular/list": { ok: true, items: [], page: 1, total_pages: 1 },
       "/api/alphabet/list": { ok: true, items: [], page: 1, total_pages: 1 },
       "/api/study/cards": { ok: true, items: [] },
-      "/api/packs": { ok: true, packs: [] },
+      "/api/packs": { ok: true, packs: packItems },
       "/api/packs/prepare": { ok: true },
     };
     const body = responseByPath[pathname] || { ok: true, items: [] };
@@ -132,5 +163,21 @@ test.describe("VocabuMe mobile app shell", () => {
 
     await wordItem.getByRole("button", { name: "🖼 Фото" }).click();
     await expect(wordItem.getByRole("img", { name: "apartment" })).toBeVisible();
+  });
+
+  test("keeps a free relocation scenario expandable in the dictionary", async ({ page }) => {
+    await mockApi(page, user, [], packFixtures);
+    await page.setViewportSize({ width: 412, height: 640 });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Словарь" }).click();
+    await page.getByRole("button", { name: "Наборы", exact: true }).click();
+    await expect(page.getByText("Жилье", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Открыть", exact: true }).click();
+    await expect(page.getByText("lease", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Добавить 1 слов и фраз" }),
+    ).toBeVisible();
   });
 });
