@@ -3,7 +3,6 @@ import random
 import re
 import html
 import asyncio
-from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 import logging
 
 from core.env import get_telegram_token
@@ -64,6 +63,14 @@ from .integrations.telegram.messaging import (
     safe_telegram_request as _safe_telegram_request,
 )
 from .integrations.telegram.entry import _webapp_url_with_source, start  # noqa: F401
+from .integrations.telegram.irregular_handlers import (
+    get_praise,
+    handle_irregular_answer,  # noqa: F401
+    handle_irregular_list,  # noqa: F401
+    irregular_menu,  # noqa: F401
+    irregular_repeat,  # noqa: F401
+    irregular_train,  # noqa: F401
+)
 from .integrations.telegram.payments import (
     handle_pre_checkout_query,
     handle_successful_payment,
@@ -101,6 +108,7 @@ from .integrations.telegram.word_handlers import (
     update_word_translation,  # noqa: F401
 )
 from .integrations.telegram.users import get_or_create_user
+from .integrations.telegram.session_state import user_lessons
 from .utils import clean_word, translate_to_ru
 from .tts import generate_tts_audio, generate_temp_audio
 from django.db import IntegrityError
@@ -110,14 +118,8 @@ TELEGRAM_TOKEN = get_telegram_token()
 ADD_WORDS, WAIT_TRANSLATION, WAIT_PHOTO = range(3)
 MAX_WORDS_PER_SESSION = 10
 
+
 # Память сессии (временно)
-user_lessons: dict = {}
-
-MAX_IRREGULAR_PER_SESSION = 10
-IRREGULARS_PER_PAGE = 20
-IRREGULAR_MASTERY_THRESHOLD = 5
-
-
 async def finalize_add_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replies = context.user_data.pop("add_replies", [])
     context.user_data.pop("add_queue", None)
@@ -370,21 +372,6 @@ async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             attempts=1,
         )
-
-
-def get_praise(correct: int, total: int) -> str:
-    if total == 0:
-        return ""
-    ratio = correct / total
-    if ratio >= 0.9:
-        return "🌟 Великолепно! Ты мастер слова!"
-    if ratio >= 0.75:
-        return "👍 Отличный результат!"
-    if ratio >= 0.5:
-        return "🙂 Хорошая работа!"
-    if ratio >= 0.25:
-        return "😐 Продолжай практиковаться!"
-    return "💡 Не сдавайся и попробуй ещё раз!"
 
 
 async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1524,199 +1511,6 @@ async def listening_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def listening_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["aud_mode"] = "word"
     await listening(update, context)
-
-
-# --- IRREGULAR VERBS ---
-async def irregular_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show menu for irregular verbs."""
-    keyboard = [
-        [InlineKeyboardButton("🔁 Повторять", callback_data="irregular_repeat")],
-        [InlineKeyboardButton("🔥 Тренироваться", callback_data="irregular_train")],
-    ]
-    await safe_reply(
-        update,
-        "Выбери режим:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def irregular_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show list of all irregular verbs with pagination."""
-    context.user_data["irrlist_page"] = 0
-    await _show_irregular_page(update, context)
-
-
-async def handle_irregular_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await safe_answer(query)
-    page = context.user_data.get("irrlist_page", 0)
-    if query.data == "irrlist_prev":
-        page = max(0, page - 1)
-    elif query.data == "irrlist_next":
-        page += 1
-    context.user_data["irrlist_page"] = page
-    await _show_irregular_page(update, context)
-
-
-async def _show_irregular_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    page = context.user_data.get("irrlist_page", 0)
-    start = page * IRREGULARS_PER_PAGE
-    end = start + IRREGULARS_PER_PAGE
-    verbs = IRREGULAR_VERBS[start:end]
-
-    lines = [
-        f"🔹 *{v['base']}* — {v['past']} — {v['participle']} — {v['translation']}"
-        for v in verbs
-    ]
-
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton("◀️ Назад", callback_data="irrlist_prev"))
-    if end < len(IRREGULAR_VERBS):
-        nav.append(InlineKeyboardButton("Вперёд ▶️", callback_data="irrlist_next"))
-
-    keyboard = []
-    if nav:
-        keyboard.append(nav)
-    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="start_irregular")])
-
-    target = update.message or update.callback_query.message
-    await target.reply_text(
-        "\n".join(lines),
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def irregular_train(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Train user on irregular verbs using V2/V3 pairs."""
-    chat_id = update.effective_chat.id
-    key = f"irr_{chat_id}"
-    info_key = f"irr_info_{chat_id}"
-
-    lesson = user_lessons.get(key)
-    session_info = context.user_data.get(info_key)
-
-    if not lesson:
-        if session_info:
-            correct = session_info.get("correct", 0)
-            total = session_info.get("total", 0)
-            praise = get_praise(correct, total)
-            keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🏠 Главное меню", callback_data="start")]]
-            )
-            await safe_reply(
-                update,
-                f"📊 Результат: {correct} из {total} слов угадано.\n{praise}",
-                reply_markup=keyboard,
-            )
-            context.user_data.pop(info_key, None)
-            return
-
-        words = random.sample(
-            IRREGULAR_VERBS,
-            min(len(IRREGULAR_VERBS), MAX_IRREGULAR_PER_SESSION),
-        )
-        user_lessons[key] = words
-        context.user_data[info_key] = {
-            "correct": 0,
-            "total": len(words),
-            "answered": 0,
-        }
-        lesson = words
-
-    word = lesson.pop(0)
-    correct = f"{word['past']} {word['participle']}"
-    options = [correct] + list(word["wrong_pairs"])
-    unique_options = []
-    for opt in options:
-        if opt not in unique_options:
-            unique_options.append(opt)
-
-    while len(unique_options) < 4:
-        extra = get_random_pairs(word, 1, unique_options)
-        if not extra:
-            break
-        unique_options.extend(extra)
-
-    options = unique_options[:4]
-    random.shuffle(options)
-
-    keyboard = [
-        [InlineKeyboardButton(opt, callback_data=f"irrans|{word['base']}|{opt}")]
-        for opt in options
-    ]
-    keyboard.append(
-        [InlineKeyboardButton("⏭ Пропустить", callback_data=f"irrskip|{word['base']}")]
-        )
-    keyboard.append([InlineKeyboardButton("⏹ Завершить", callback_data="start")])
-
-    await safe_reply(
-        update,
-        f"🔤 *{word['base']}* — выбери правильную пару V2/V3:",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def handle_irregular_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await safe_answer(query)
-
-    data = query.data
-    if data.startswith("irrskip"):
-        _, base = data.split("|")
-        word = next((w for w in IRREGULAR_VERBS if w["base"] == base), None)
-        if not word:
-            return
-        correct = f"{word['past']} {word['participle']}"
-        await query.edit_message_text(f"⏭ Пропущено: {word['base']} → {correct}")
-        info_key = f"irr_info_{query.message.chat.id}"
-        session = context.user_data.get(info_key)
-        if session:
-            session["answered"] += 1
-            context.user_data[info_key] = session
-        await irregular_train(update, context)
-        return
-
-    if not data.startswith("irrans"):
-        return
-
-    _, base, chosen = data.split("|")
-    word = next((w for w in IRREGULAR_VERBS if w["base"] == base), None)
-    if not word:
-        return
-    correct = f"{word['past']} {word['participle']}"
-    is_correct = chosen == correct
-
-    response = (
-        f"✅ Верно! {word['base']} → {correct}"
-        if is_correct
-        else f"❌ Неверно. {word['base']} → {correct}"
-    )
-    await query.edit_message_text(response)
-
-    info_key = f"irr_info_{query.message.chat.id}"
-    session = context.user_data.get(info_key)
-    if session:
-        session["answered"] += 1
-        if is_correct:
-            session["correct"] += 1
-        context.user_data[info_key] = session
-
-    # update user's irregular verb progress
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-    if is_correct:
-        await update_irregular_progress(user, base, True)
-
-    # check for achievements
-    new_achievements = await get_new_achievements(user)
-    for a in new_achievements:
-        await safe_reply(update, f"🏆 {a}")
-
-    await irregular_train(update, context)
 
 
 async def listening_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
