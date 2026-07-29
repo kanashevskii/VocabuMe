@@ -23,6 +23,10 @@ import ProgressScreen from "./screens/ProgressScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import TodayScreen from "./screens/TodayScreen";
 import OnboardingGate from "./screens/OnboardingGate";
+import {
+  AlphabetPracticeScreen,
+  IrregularPracticeScreen,
+} from "./screens/PracticeSupplementScreens";
 
 function getSessionPraise(correct, total) {
   if (!total) {
@@ -2288,7 +2292,24 @@ function App() {
     if (supportsIrregularPractice && learnPanel === "irregular") {
       return (
         <div className="screen-stack">
-          {renderIrregular()}
+          <IrregularPracticeScreen
+            correctCount={irregularCorrectCount}
+            formatPointsLabel={formatPointsLabel}
+            getSessionPraise={getSessionPraise}
+            list={irregularList}
+            mode={irregularMode}
+            onAdvance={() => void advanceIrregularTest()}
+            onAnswer={(answer) => void handleIrregularAnswer(answer)}
+            onNextPage={() => setIrregularPage((value) => value + 1)}
+            onPreviousPage={() => setIrregularPage((value) => Math.max(0, value - 1))}
+            onSkip={skipIrregularQuestion}
+            onStartNewSession={() => void startIrregularTest()}
+            question={irregularQuestion}
+            questionCount={irregularQuestionCount}
+            result={irregularResult}
+            sessionDone={irregularSessionDone}
+            sessionLimit={irregularSessionLimit}
+          />
         </div>
       );
     }
@@ -2296,7 +2317,27 @@ function App() {
     if (learnPanel === "alphabet") {
       return (
         <div className="screen-stack">
-          {renderAlphabet()}
+          <AlphabetPracticeScreen
+            audioLoadingSymbol={alphabetAudioLoadingSymbol}
+            correctCount={alphabetCorrectCount}
+            formatDisplayAnswer={formatDisplayAnswer}
+            formatPointsLabel={formatPointsLabel}
+            getSessionPraise={getSessionPraise}
+            list={alphabetList}
+            mode={alphabetMode}
+            onAdvance={() => void advanceAlphabetTest()}
+            onAnswer={(answer) => void handleAlphabetAnswer(answer)}
+            onNextPage={() => setAlphabetPage((value) => value + 1)}
+            onPlayAudio={(symbol) => void playAlphabetAudio(symbol)}
+            onPreviousPage={() => setAlphabetPage((value) => Math.max(0, value - 1))}
+            onSkip={skipAlphabetQuestion}
+            onStartNewSession={() => void startAlphabetTest()}
+            question={alphabetQuestion}
+            questionCount={alphabetQuestionCount}
+            result={alphabetResult}
+            sessionDone={alphabetSessionDone}
+            sessionLimit={alphabetSessionLimit}
+          />
         </div>
       );
     }
@@ -2970,212 +3011,6 @@ function App() {
           </div>
         ) : null}
       </section>
-    );
-  }
-
-  function renderIrregular() {
-    return (
-      <div className="screen-stack">
-        {irregularMode === "review" ? (
-          <section className="glass-card compact-section">
-            <div className="section-head">
-              <div>
-                <p className="overline">Irregular</p>
-                <h3>Повторять глаголы 📘</h3>
-              </div>
-            </div>
-            <div className="simple-list">
-              {(irregularList?.items || []).map((item) => (
-                <div key={item.base} className="simple-row four-cols">
-                  <strong>{item.base}</strong>
-                  <span>{item.past}</span>
-                  <span>{item.participle}</span>
-                  <span>{item.translation}</span>
-                </div>
-              ))}
-            </div>
-            <div className="button-row card-nav-row">
-              <button className="secondary-button nav-arrow" type="button" onClick={() => setIrregularPage((value) => Math.max(0, value - 1))} disabled={!irregularList?.has_prev} aria-label="Предыдущая страница">
-                ←
-              </button>
-              <button className="secondary-button nav-arrow" type="button" onClick={() => setIrregularPage((value) => value + 1)} disabled={!irregularList?.has_next} aria-label="Следующая страница">
-                →
-              </button>
-            </div>
-          </section>
-        ) : null}
-        {irregularMode === "test" ? (
-          <section className="glass-card compact-section">
-            <div className="section-head">
-              <div>
-                <p className="overline">Train</p>
-                <h3>Тест по глаголам 🧩</h3>
-              </div>
-              <span className="status-tag">{Math.min(irregularQuestionCount + 1, irregularSessionLimit)} / {irregularSessionLimit}</span>
-            </div>
-            {irregularQuestion ? (
-              <div className="quiz-panel">
-                <div className="prompt-card">
-                  <strong>{irregularQuestion.verb.base}</strong>
-                  <span>Выбери правильную форму</span>
-                </div>
-                <div className="option-grid">
-                  {irregularQuestion.options.map((option) => (
-                    <button key={option} className="option-button" type="button" onClick={() => handleIrregularAnswer(option)}>
-                      {option}
-                    </button>
-                  ))}
-                </div>
-                {!irregularResult ? (
-                  <button className="secondary-button" type="button" onClick={skipIrregularQuestion}>
-                    Пропустить
-                  </button>
-                ) : null}
-                {irregularResult ? (
-                  <div className={irregularResult.correct ? "result-box good" : "result-box bad"}>
-                    <div className="result-copy">
-                      <span>{irregularResult.correct ? "Верно" : `Правильный ответ: ${irregularResult.correct_answer}`}</span>
-                      {irregularResult.points_earned ? (
-                        <span className="points-burst">
-                          🎉 +{irregularResult.points_earned} {formatPointsLabel(irregularResult.points_earned)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <button className="secondary-button" type="button" onClick={() => void advanceIrregularTest()}>
-                      Дальше
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-                <div className="stack-form">
-                  <div className="empty-state">
-                    {irregularSessionDone
-                    ? `Тест завершён. Верно ${irregularCorrectCount} из ${irregularQuestionCount || irregularSessionLimit}. ✨ +${irregularCorrectCount} ${formatPointsLabel(irregularCorrectCount)}. ${getSessionPraise(irregularCorrectCount, irregularQuestionCount || irregularSessionLimit)}`
-                    : "Сейчас нет вопроса по глаголам."}
-                  </div>
-                {irregularSessionDone ? (
-                  <button className="primary-button" type="button" onClick={() => void startIrregularTest()}>
-                    Начать новый тест
-                  </button>
-                ) : null}
-              </div>
-            )}
-          </section>
-        ) : null}
-      </div>
-    );
-  }
-
-  function renderAlphabet() {
-    return (
-      <div className="screen-stack">
-        {alphabetMode === "review" ? (
-          <section className="glass-card compact-section">
-            <div className="section-head">
-              <div>
-                <p className="overline">Alphabet</p>
-                <h3>Повторять алфавит 🔤</h3>
-              </div>
-            </div>
-            <div className="simple-list">
-              {(alphabetList?.items || []).map((item) => (
-                <div key={item.symbol} className="simple-row four-cols">
-                  <strong>{item.symbol}</strong>
-                  <span>{item.name}</span>
-                  <span>/{item.transcription}/</span>
-                  <div className="alphabet-audio-cell">
-                    <span>{item.hint}</span>
-                    <button
-                      className="secondary-button mini-audio-button"
-                      type="button"
-                      onClick={() => void playAlphabetAudio(item.symbol)}
-                      disabled={alphabetAudioLoadingSymbol === item.symbol}
-                      aria-label={`Слушать букву ${item.symbol}`}
-                    >
-                      {alphabetAudioLoadingSymbol === item.symbol ? "..." : "🔊"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="button-row card-nav-row">
-              <button className="secondary-button nav-arrow" type="button" onClick={() => setAlphabetPage((value) => Math.max(0, value - 1))} disabled={!alphabetList?.has_prev} aria-label="Предыдущая страница">
-                ←
-              </button>
-              <button className="secondary-button nav-arrow" type="button" onClick={() => setAlphabetPage((value) => value + 1)} disabled={!alphabetList?.has_next} aria-label="Следующая страница">
-                →
-              </button>
-            </div>
-          </section>
-        ) : null}
-        {alphabetMode === "test" ? (
-          <section className="glass-card compact-section">
-            <div className="section-head">
-              <div>
-                <p className="overline">Alphabet</p>
-                <h3>Тест по алфавиту 🧠</h3>
-              </div>
-              <span className="status-tag">{Math.min(alphabetQuestionCount + 1, alphabetSessionLimit)} / {alphabetSessionLimit}</span>
-            </div>
-            {alphabetQuestion ? (
-              <div className="quiz-panel">
-                <div className="prompt-card">
-                  <strong>/{alphabetQuestion.letter.transcription}/</strong>
-                  <span>{alphabetQuestion.letter.hint}</span>
-                </div>
-                <div className="option-grid">
-                  {alphabetQuestion.options.map((option) => (
-                    <button key={option} className="option-button" type="button" onClick={() => handleAlphabetAnswer(option)}>
-                      {formatDisplayAnswer(option, alphabetQuestion.course_code)}
-                    </button>
-                  ))}
-                </div>
-                {!alphabetResult ? (
-                  <button className="secondary-button" type="button" onClick={skipAlphabetQuestion}>
-                    Пропустить
-                  </button>
-                ) : null}
-                {alphabetResult ? (
-                  <div className={alphabetResult.correct ? "result-box good" : "result-box bad"}>
-                    <div className="result-copy">
-                      <span>
-                        {alphabetResult.correct
-                          ? "Верно"
-                          : `Правильный ответ: ${formatDisplayAnswer(
-                            alphabetResult.correct_answer,
-                            alphabetQuestion.course_code,
-                          )}`}
-                      </span>
-                      {alphabetResult.points_earned ? (
-                        <span className="points-burst">
-                          🌟 +{alphabetResult.points_earned} {formatPointsLabel(alphabetResult.points_earned)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <button className="secondary-button" type="button" onClick={() => void advanceAlphabetTest()}>
-                      Дальше
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="stack-form">
-                <div className="empty-state">
-                  {alphabetSessionDone
-                    ? `Тест завершён. Верно ${alphabetCorrectCount} из ${alphabetQuestionCount || alphabetSessionLimit}. 🌟 +${alphabetCorrectCount} ${formatPointsLabel(alphabetCorrectCount)}. ${getSessionPraise(alphabetCorrectCount, alphabetQuestionCount || alphabetSessionLimit)}`
-                    : "Сейчас нет вопроса по алфавиту."}
-                </div>
-                {alphabetSessionDone ? (
-                  <button className="primary-button" type="button" onClick={() => void startAlphabetTest()}>
-                    Начать новый тест
-                  </button>
-                ) : null}
-              </div>
-            )}
-          </section>
-        ) : null}
-      </div>
     );
   }
 
