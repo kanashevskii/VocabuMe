@@ -38,7 +38,13 @@ def test_views_keep_legacy_irregular_exports(client):
     assert views.irregular_list is irregular.irregular_list
     assert views.irregular_question is irregular.irregular_question
     assert views.irregular_answer is irregular.irregular_answer
-    assert client.get("/api/irregular/question").status_code == 401
+    assert (
+        client.post(
+            "/api/irregular/question", data="{}", content_type="application/json"
+        ).status_code
+        == 401
+    )
+    assert client.get("/api/irregular/question").status_code == 405
 
 
 def test_views_keep_legacy_learning_exports(client):

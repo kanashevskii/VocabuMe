@@ -432,7 +432,9 @@ def test_alphabet_question_returns_current_course_payload(client, monkeypatch):
         },
     )
 
-    response = client.get("/api/alphabet/question")
+    response = client.post(
+        "/api/alphabet/question", data="{}", content_type="application/json"
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -440,6 +442,7 @@ def test_alphabet_question_returns_current_course_payload(client, monkeypatch):
     assert "symbol" not in payload["question"]["letter"]
     assert payload["question"]["options"] == ["A", "B", "C", "D"]
     assert payload["question"]["question_token"]
+    assert client.get("/api/alphabet/question").status_code == 405
 
 
 @pytest.mark.django_db
@@ -482,7 +485,9 @@ def test_alphabet_answer_returns_result_payload(client, monkeypatch):
         },
     )
 
-    question_response = client.get("/api/alphabet/question")
+    question_response = client.post(
+        "/api/alphabet/question", data="{}", content_type="application/json"
+    )
     question_token = question_response.json()["question"]["question_token"]
     response = client.post(
         "/api/alphabet/answer",

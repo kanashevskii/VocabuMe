@@ -30,7 +30,7 @@ def irregular_list(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, **list_irregular_page(page)})
 
 
-@require_GET
+@require_POST
 def irregular_question(request: HttpRequest) -> JsonResponse:
     user = require_user(request)
     if isinstance(user, JsonResponse):

@@ -38,7 +38,7 @@ def alphabet_list(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, **list_alphabet_page(user, page)})
 
 
-@require_GET
+@require_POST
 def alphabet_question(request: HttpRequest) -> JsonResponse:
     user = require_user(request)
     if isinstance(user, JsonResponse):

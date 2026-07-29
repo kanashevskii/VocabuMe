@@ -922,14 +922,20 @@ function App() {
   }
 
   async function loadIrregularQuestion() {
-    const data = await api("/api/irregular/question");
+    const data = await api("/api/irregular/question", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
     setIrregularQuestion(data.question);
     setIrregularResult(null);
     setIrregularSessionLimit(settings?.session_question_limit || 12);
   }
 
   async function loadAlphabetQuestion() {
-    const data = await api("/api/alphabet/question");
+    const data = await api("/api/alphabet/question", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
     setAlphabetQuestion(data.question);
     setAlphabetResult(null);
     setAlphabetSessionLimit(settings?.session_question_limit || 12);
