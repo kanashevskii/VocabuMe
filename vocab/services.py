@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -25,6 +24,7 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     ImageOps = None
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
+from .domain.word_parsing import parse_word_batch
 from .application.streaks import (
     STREAK_QUALIFYING_CORRECT_ANSWERS as _STREAK_QUALIFYING_CORRECT_ANSWERS,
     active_streak_days as _active_streak_days,
@@ -243,12 +243,6 @@ def is_prepared_pack_item_ready(item: PackPreparedWord, course_code: str) -> boo
         and item.image_path
         and example_matches_course(course_code, item.example)
     )
-
-
-@dataclass
-class ParsedWordEntry:
-    word: str
-    translation_hint: str | None = None
 
 
 def normalize_course_code(course_code: str | None) -> str:
@@ -3148,58 +3142,6 @@ def update_irregular_progress(
         course_progress.total_points = (course_progress.total_points or 0) + 1
         course_progress.save(update_fields=["irregular_correct", "total_points"])
     return progress
-
-
-def parse_word_batch(text: str) -> list[ParsedWordEntry]:
-    entries: list[ParsedWordEntry] = []
-
-    def normalize_word_part(raw: str) -> str:
-        value = (raw or "").strip()
-        value = re.sub(r"^[•*·\-]+\s*", "", value)
-        value = re.sub(r"\s*:\s*$", "", value)
-        value = re.sub(
-            r"\s*\((?:v|adj|adv|n|noun|verb|adjective|adverb|phrase)\)\s*$",
-            "",
-            value,
-            flags=re.IGNORECASE,
-        )
-        value = re.sub(r"\s+(?:v|adj|adv|n)\s*$", "", value, flags=re.IGNORECASE)
-        return value.strip()
-
-    def split_word_and_translation(line: str) -> tuple[str, str | None]:
-        for separator in (" - ", " — ", " – "):
-            if separator in line:
-                word_part, translation_hint = line.split(separator, 1)
-                return normalize_word_part(word_part), translation_hint.strip() or None
-
-        if ":" in line:
-            word_part, translation_hint = line.split(":", 1)
-            normalized = normalize_word_part(word_part)
-            if normalized and translation_hint.strip():
-                return normalized, translation_hint.strip()
-
-        cyrillic_match = re.search(r"[А-Яа-яЁё]", line)
-        if cyrillic_match:
-            word_part = normalize_word_part(line[: cyrillic_match.start()])
-            translation_hint = line[cyrillic_match.start() :].strip()
-            if word_part and translation_hint:
-                return word_part, translation_hint
-
-        return normalize_word_part(line), None
-
-    for raw_line in (text or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        word_part, translation_hint = split_word_and_translation(line)
-        cleaned = clean_word(word_part)
-        if not cleaned:
-            continue
-        entries.append(
-            ParsedWordEntry(word=cleaned, translation_hint=translation_hint or None)
-        )
-    return entries
 
 
 def _learning_local_date(user: TelegramUser) -> date:
