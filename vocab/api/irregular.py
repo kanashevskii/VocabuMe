@@ -5,7 +5,13 @@ from __future__ import annotations
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
-from vocab.api.common import enforce_request_limit, json_body, json_error, require_user
+from vocab.api.common import (
+    enforce_request_limit,
+    get_bounded_query_int,
+    json_body,
+    json_error,
+    require_user,
+)
 from vocab.application.irregular_questions import (
     issue_irregular_question,
     submit_issued_irregular_answer,
@@ -15,7 +21,12 @@ from vocab.services import list_irregular_page
 
 @require_GET
 def irregular_list(request: HttpRequest) -> JsonResponse:
-    page = max(0, int(request.GET.get("page", 0)))
+    try:
+        page = get_bounded_query_int(
+            request, "page", default=0, minimum=0, maximum=10_000
+        )
+    except ValueError as exc:
+        return json_error(str(exc))
     return JsonResponse({"ok": True, **list_irregular_page(page)})
 
 

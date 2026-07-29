@@ -6,7 +6,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
 from vocab.analytics import record_product_event
-from vocab.api.common import json_body, json_error, require_user
+from vocab.api.common import get_bounded_query_int, json_body, json_error, require_user
 from vocab.services import (
     get_ordered_unlearned_words,
     get_word_image_file,
@@ -93,7 +93,12 @@ def study_cards(request: HttpRequest) -> JsonResponse:
         without_images = [item for item in items if get_word_image_file(item) is None]
         cards = [serialize_word(item) for item in with_images + without_images]
     else:
-        count = max(1, min(int(request.GET.get("count", 10)), 20))
+        try:
+            count = get_bounded_query_int(
+                request, "count", default=10, minimum=1, maximum=20
+            )
+        except ValueError as exc:
+            return json_error(str(exc))
         cards = [
             serialize_word(item)
             for item in get_ordered_unlearned_words(user, count=count)

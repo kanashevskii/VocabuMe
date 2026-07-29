@@ -54,6 +54,25 @@ def json_error(
     return JsonResponse(payload, status=status)
 
 
+def get_bounded_query_int(
+    request: HttpRequest,
+    name: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    """Read an integer query parameter without letting malformed input become a 500."""
+    raw_value = request.GET.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Query parameter '{name}' must be an integer.") from exc
+    return max(minimum, min(value, maximum))
+
+
 def current_user(
     request: HttpRequest,
     *,
