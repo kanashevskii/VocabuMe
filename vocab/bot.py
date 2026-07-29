@@ -50,10 +50,6 @@ from .services import (
     get_user_word_page as get_user_word_page_service,
     get_unlearned_words as get_unlearned_words_service,
     reset_word_progress as reset_word_progress_service,
-    save_user as save_user_service,
-    set_user_repeat_threshold as set_user_repeat_threshold_service,
-    update_user_reminder_time as update_user_reminder_time_service,
-    update_user_timezone as update_user_timezone_service,
     update_word_translation as update_word_translation_service,
     update_irregular_progress as update_irregular_progress_service,
     update_word_progress as update_word_progress_service,
@@ -82,26 +78,22 @@ from .integrations.telegram.payments import (
     subscribe,
     terms,
 )
-from .integrations.telegram.settings_ui import (
-    main_settings_keyboard as _main_settings_keyboard,
-    main_settings_text as _main_settings_text,
-    reminder_menu_text as _reminder_menu_text,
-    reminder_settings_keyboard as _reminder_settings_keyboard,
-    repeat_menu_text as _repeat_menu_text,
-    repeat_settings_keyboard as _repeat_settings_keyboard,
-    review_menu_text as _review_menu_text,
-    review_settings_keyboard as _review_settings_keyboard,
+from .integrations.telegram.settings_handlers import (
+    SET_REMINDER_TIME,  # noqa: F401
+    SET_REMINDER_TZ,  # noqa: F401
+    handle_settings_callback,  # noqa: F401
+    save_user,  # noqa: F401
+    set_reminder_time,  # noqa: F401
+    set_reminder_timezone,  # noqa: F401
+    settings,  # noqa: F401
+    update_user_reminder_time,  # noqa: F401
+    update_user_repeat_threshold,  # noqa: F401
+    update_user_timezone,  # noqa: F401
 )
 from .integrations.telegram.users import get_or_create_user
-from .utils import (
-    clean_word,
-    translate_to_ru,
-    normalize_timezone_value,
-    timezone_from_name,
-)
+from .utils import clean_word, translate_to_ru
 from .tts import generate_tts_audio, generate_temp_audio
 from django.db import IntegrityError
-from datetime import timedelta, datetime
 from types import SimpleNamespace
 
 TELEGRAM_TOKEN = get_telegram_token()
@@ -111,9 +103,6 @@ MAX_WORDS_PER_SESSION = 10
 
 # Память сессии (временно)
 user_lessons: dict = {}
-
-SET_REMINDER_TIME = 1
-SET_REMINDER_TZ = 2
 
 MAX_IRREGULAR_PER_SESSION = 10
 IRREGULARS_PER_PAGE = 20
@@ -1385,11 +1374,6 @@ def run_telegram_bot():
 
 
 @sync_to_async
-def save_user(user):
-    return save_user_service(user)
-
-
-@sync_to_async
 def get_user_word_list(user):
     return get_user_word_list_service(user)
 
@@ -1448,130 +1432,8 @@ async def mywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @sync_to_async
-def update_user_repeat_threshold(user, value: int):
-    return set_user_repeat_threshold_service(user, value)
-
-
-@sync_to_async
 def get_user_by_chat(chat_id):
     return get_telegram_user_by_chat_id(chat_id)
-
-
-async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-
-    text = _main_settings_text(user)
-    await safe_reply(
-        update,
-        text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(_main_settings_keyboard()),
-    )
-
-
-async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await safe_answer(query)
-    data = query.data
-
-    chat_id = update.effective_chat.id
-    username = update.effective_chat.username
-    user, _ = await get_or_create_user(chat_id, username)
-
-    if data == "settings_repeat":
-        await query.edit_message_text(
-            _repeat_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_repeat_settings_keyboard()),
-        )
-        return
-
-    if data == "settings_review":
-        await query.edit_message_text(
-            _review_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard(user)),
-        )
-        return
-
-    if data == "settings_reminders":
-        await query.edit_message_text(
-            _reminder_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard(user)),
-        )
-        return
-
-    if data == "back_to_settings":
-        await query.edit_message_text(
-            _main_settings_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_main_settings_keyboard()),
-        )
-        return
-
-    if data.startswith("set_repeat_"):
-        value = int(data.split("_")[-1])
-        await update_user_repeat_threshold(user, value)
-        await query.edit_message_text(
-            _repeat_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_repeat_settings_keyboard()),
-        )
-
-    elif data == "toggle_review":
-        user.enable_review_old_words = not user.enable_review_old_words
-        await save_user(user)
-        await query.edit_message_text(
-            _review_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard(user)),
-        )
-
-    elif data.startswith("set_review_days_"):
-        days = int(data.split("_")[-1])
-        user.days_before_review = days
-        await save_user(user)
-        await query.edit_message_text(
-            _review_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_review_settings_keyboard(user)),
-        )
-
-    elif data == "toggle_reminder":
-        user.reminder_enabled = not user.reminder_enabled
-        await save_user(user)
-        await query.edit_message_text(
-            _reminder_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard(user)),
-        )
-
-    elif data.startswith("set_reminder_interval_"):
-        interval = int(data.split("_")[-1])
-        user.reminder_interval_days = interval
-        await save_user(user)
-        await query.edit_message_text(
-            _reminder_menu_text(user),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(_reminder_settings_keyboard(user)),
-        )
-
-    elif data == "set_reminder_time":
-        await query.edit_message_text(
-            "🕒 Введите время в формате `HH:MM`, например: `08:30` или `21:00`",
-            parse_mode="Markdown",
-        )
-        return SET_REMINDER_TIME
-
-    elif data == "set_reminder_tz":
-        await query.edit_message_text(
-            "🌍 Введите часовой пояс. Примеры: `Europe/Moscow`, `UTC+03`, `-5`",
-            parse_mode="Markdown",
-        )
-        return SET_REMINDER_TZ
 
 
 @sync_to_async
@@ -1627,102 +1489,6 @@ def get_learned_words(user):
 @sync_to_async
 def mark_word_unlearned(item_id):
     return reset_word_progress_service(item_id)
-
-
-@sync_to_async
-def update_user_reminder_time(user, time_obj):
-    return update_user_reminder_time_service(user, time_obj)
-
-
-@sync_to_async
-def update_user_timezone(user, tz_value: str):
-    return update_user_timezone_service(user, tz_value)
-
-
-async def set_reminder_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (update.message.text or "").strip()
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-
-    def _parse_time(value: str):
-        clean = value.replace(" ", "")
-        clean = (
-            clean.replace(".", ":")
-            .replace("-", ":")
-            .replace("—", ":")
-            .replace("–", ":")
-        )
-        if ":" not in clean and len(clean) == 4 and clean.isdigit():
-            clean = f"{clean[:2]}:{clean[2:]}"
-        parts = clean.split(":")
-        if len(parts) != 2:
-            raise ValueError("Wrong format")
-        hours, minutes = parts
-        if not (hours.isdigit() and minutes.isdigit()):
-            raise ValueError("Not digits")
-        parsed = datetime.strptime(
-            f"{int(hours):02d}:{int(minutes):02d}", "%H:%M"
-        ).time()
-        return parsed
-
-    try:
-        parsed_time = _parse_time(text)
-        await update_user_reminder_time(user, parsed_time)
-        await safe_reply(
-            update,
-            f"✅ Напоминания будут приходить в *{parsed_time.strftime('%H:%M')}*.",
-            parse_mode="Markdown",
-        )
-        await settings(update, context)
-        return ConversationHandler.END
-    except Exception as exc:  # noqa: BLE001 broad to keep UX smooth
-        logging.exception("Failed to parse reminder time: %s", exc)
-        await safe_reply(
-            update,
-            "⚠️ Неверный формат. Попробуй ещё раз в формате `HH:MM`, например `09:00`",
-            parse_mode="Markdown",
-        )
-        return SET_REMINDER_TIME
-
-
-async def set_reminder_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (update.message.text or "").strip()
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
-
-    try:
-        normalized = normalize_timezone_value(text)
-        await update_user_timezone(user, normalized)
-
-        tzinfo = timezone_from_name(normalized)
-        offset = (
-            (datetime.now(tzinfo).utcoffset() or timedelta(0))
-            if tzinfo
-            else timedelta(0)
-        )
-        total_minutes = int(offset.total_seconds() // 60)
-        sign = "+" if total_minutes >= 0 else "-"
-        total_minutes = abs(total_minutes)
-        hours, minutes = divmod(total_minutes, 60)
-        offset_text = f"UTC{sign}{hours:02d}:{minutes:02d}"
-
-        await safe_reply(
-            update,
-            f"✅ Часовой пояс сохранён: *{normalized}* ({offset_text}).",
-            parse_mode="Markdown",
-        )
-        await settings(update, context)
-        return ConversationHandler.END
-    except Exception as exc:  # noqa: BLE001 broad catch to prompt retry
-        logging.exception("Failed to parse timezone: %s", exc)
-        await safe_reply(
-            update,
-            "⚠️ Не удалось распознать часовой пояс. Примеры: `Europe/Moscow`, `UTC+03`, `-5`",
-            parse_mode="Markdown",
-        )
-        return SET_REMINDER_TZ
 
 
 @sync_to_async
