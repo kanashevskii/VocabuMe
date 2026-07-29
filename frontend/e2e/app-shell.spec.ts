@@ -80,7 +80,7 @@ async function mockApi(
   page: Page,
   authenticatedUser = user,
   wordItems: object[] = [],
-  packItems: object[] = [],
+  packItems: object[] = []
 ) {
   await page.route("**/api/**", async (route: Route) => {
     const { pathname } = new URL(route.request().url());
@@ -92,8 +92,16 @@ async function mockApi(
       return;
     }
     const responseByPath: Record<string, object> = {
-      "/api/app-config": { bot_username: "VocabuMe_bot", webapp_url: "http://127.0.0.1:4173" },
-      "/api/auth/me": { ok: true, authenticated: true, user: authenticatedUser, progress },
+      "/api/app-config": {
+        bot_username: "VocabuMe_bot",
+        webapp_url: "http://127.0.0.1:4173",
+      },
+      "/api/auth/me": {
+        ok: true,
+        authenticated: true,
+        user: authenticatedUser,
+        progress,
+      },
       "/api/dashboard": { ok: true, user: authenticatedUser, progress },
       "/api/settings": { ok: true, settings },
       "/api/words": { ok: true, items: wordItems },
@@ -109,45 +117,73 @@ async function mockApi(
 }
 
 test.describe("VocabuMe mobile app shell", () => {
-  test("keeps all primary surfaces reachable on a short mobile viewport", async ({ page }) => {
+  test("keeps all primary surfaces reachable on a short mobile viewport", async ({
+    page,
+  }) => {
     await mockApi(page);
     await page.setViewportSize({ width: 412, height: 640 });
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Продолжай учить слова ✨" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Продолжай учить слова ✨" })
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Практика" }).click();
-    await expect(page.getByRole("heading", { name: "Учить слова 🎯" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Учить слова 🎯" })
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Словарь" }).click();
     await expect(page.getByRole("button", { name: "Карточки" })).toBeVisible();
 
     await page.getByRole("button", { name: "Прогресс" }).click();
-    await expect(page.getByRole("heading", { name: "К чему стремиться ✨" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "К чему стремиться ✨" })
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Ещё" }).click();
-    await expect(page.getByRole("heading", { name: "Настройки ⚙️" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Настройки ⚙️" })
+    ).toBeVisible();
 
     const nav = page.locator(".nav-grid-bottom");
     await expect(nav).toBeVisible();
-    await expect(nav.boundingBox()).resolves.toMatchObject({ y: expect.any(Number) });
+    await expect(nav.boundingBox()).resolves.toMatchObject({
+      y: expect.any(Number),
+    });
   });
 
-  test("keeps the onboarding premium step and back navigation reachable", async ({ page }) => {
+  test("keeps the onboarding premium step and back navigation reachable", async ({
+    page,
+  }) => {
     await mockApi(page, { ...user, has_completed_onboarding: false });
     await page.setViewportSize({ width: 412, height: 640 });
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "VocabuMe для жизни после переезда ✨" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "VocabuMe для жизни после переезда ✨",
+      })
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Дальше" }).click();
-    await expect(page.getByRole("heading", { name: "Полный доступ к сценариям для переезда 🚀" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "Полный доступ к сценариям для переезда 🚀",
+      })
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Назад" }).click();
-    await expect(page.getByRole("heading", { name: "VocabuMe для жизни после переезда ✨" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "VocabuMe для жизни после переезда ✨",
+      })
+    ).toBeVisible();
   });
 
-  test("keeps word details and image preview reachable from the dictionary", async ({ page }) => {
+  test("keeps word details and image preview reachable from the dictionary", async ({
+    page,
+  }) => {
     await mockApi(page, user, words);
     await page.setViewportSize({ width: 412, height: 640 });
     await page.goto("/");
@@ -155,17 +191,25 @@ test.describe("VocabuMe mobile app shell", () => {
     await page.getByRole("button", { name: "Словарь" }).click();
     await page.getByRole("button", { name: "Список", exact: true }).click();
     await expect(page.getByText("apartment", { exact: true })).toBeVisible();
-    const wordItem = page.locator(".word-item").filter({ hasText: "apartment" });
+    const wordItem = page
+      .locator(".word-item")
+      .filter({ hasText: "apartment" });
     await expect(wordItem).toHaveCount(1);
 
     await wordItem.getByRole("button", { name: "Ещё", exact: true }).click();
-    await expect(wordItem.getByRole("button", { name: "🖼 Фото" })).toBeVisible();
+    await expect(
+      wordItem.getByRole("button", { name: "🖼 Фото" })
+    ).toBeVisible();
 
     await wordItem.getByRole("button", { name: "🖼 Фото" }).click();
-    await expect(wordItem.getByRole("img", { name: "apartment" })).toBeVisible();
+    await expect(
+      wordItem.getByRole("img", { name: "apartment" })
+    ).toBeVisible();
   });
 
-  test("keeps a free relocation scenario expandable in the dictionary", async ({ page }) => {
+  test("keeps a free relocation scenario expandable in the dictionary", async ({
+    page,
+  }) => {
     await mockApi(page, user, [], packFixtures);
     await page.setViewportSize({ width: 412, height: 640 });
     await page.goto("/");
@@ -177,7 +221,29 @@ test.describe("VocabuMe mobile app shell", () => {
     await page.getByRole("button", { name: "Открыть", exact: true }).click();
     await expect(page.getByText("lease", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Добавить 1 слов и фраз" }),
+      page.getByRole("button", { name: "Добавить 1 слов и фраз" })
+    ).toBeVisible();
+  });
+
+  test("opens the manual word wizard from packs on a short mobile viewport", async ({
+    page,
+  }) => {
+    await mockApi(page, user, [], packFixtures);
+    await page.setViewportSize({ width: 412, height: 640 });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Словарь" }).click();
+    await page.getByRole("button", { name: "Наборы", exact: true }).click();
+    await page.getByRole("button", { name: "Свои слова и фразы" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "Добавить слово ✨" })
+    ).toBeVisible();
+    await expect(
+      page.getByPlaceholder("stare\nfigure out\ntravel - путешествие")
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Открыть наборы" })
     ).toBeVisible();
   });
 });

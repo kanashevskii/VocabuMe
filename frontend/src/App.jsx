@@ -26,6 +26,7 @@ import OnboardingGate from "./screens/OnboardingGate";
 import CardsScreen from "./screens/CardsScreen";
 import PacksScreen from "./screens/PacksScreen";
 import WordsListScreen from "./screens/WordsListScreen";
+import AddWordsScreen from "./screens/AddWordsScreen";
 import {
   AlphabetPracticeScreen,
   IrregularPracticeScreen,
@@ -78,7 +79,10 @@ function formatLearnCorrectAnswer(learnQuestion, learnResult) {
   if (!learnQuestion || !learnResult) {
     return answer;
   }
-  if (learnQuestion.exercise_type === "listening_translate" && learnQuestion.item?.word) {
+  if (
+    learnQuestion.exercise_type === "listening_translate" &&
+    learnQuestion.item?.word
+  ) {
     return `${answer} (${learnQuestion.item.word})`;
   }
   return answer;
@@ -123,39 +127,39 @@ async function preloadImage(src, attempts = 4) {
 }
 
 const GEORGIAN_TO_LATIN = {
-  "ა": "a",
-  "ბ": "b",
-  "გ": "g",
-  "დ": "d",
-  "ე": "e",
-  "ვ": "v",
-  "ზ": "z",
-  "თ": "t",
-  "ი": "i",
-  "კ": "k'",
-  "ლ": "l",
-  "მ": "m",
-  "ნ": "n",
-  "ო": "o",
-  "პ": "p'",
-  "ჟ": "zh",
-  "რ": "r",
-  "ს": "s",
-  "ტ": "t'",
-  "უ": "u",
-  "ფ": "p",
-  "ქ": "k",
-  "ღ": "gh",
-  "ყ": "q'",
-  "შ": "sh",
-  "ჩ": "ch",
-  "ც": "ts",
-  "ძ": "dz",
-  "წ": "ts'",
-  "ჭ": "ch'",
-  "ხ": "kh",
-  "ჯ": "j",
-  "ჰ": "h",
+  ა: "a",
+  ბ: "b",
+  გ: "g",
+  დ: "d",
+  ე: "e",
+  ვ: "v",
+  ზ: "z",
+  თ: "t",
+  ი: "i",
+  კ: "k'",
+  ლ: "l",
+  მ: "m",
+  ნ: "n",
+  ო: "o",
+  პ: "p'",
+  ჟ: "zh",
+  რ: "r",
+  ს: "s",
+  ტ: "t'",
+  უ: "u",
+  ფ: "p",
+  ქ: "k",
+  ღ: "gh",
+  ყ: "q'",
+  შ: "sh",
+  ჩ: "ch",
+  ც: "ts",
+  ძ: "dz",
+  წ: "ts'",
+  ჭ: "ch'",
+  ხ: "kh",
+  ჯ: "j",
+  ჰ: "h",
 };
 
 function transliterateGeorgian(text) {
@@ -178,7 +182,12 @@ function waitForAudioPreparation(milliseconds) {
 
 function App() {
   const [config, setConfig] = useState({ bot_username: "", webapp_url: "" });
-  const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null, progress: null });
+  const [auth, setAuth] = useState({
+    loading: true,
+    authenticated: false,
+    user: null,
+    progress: null,
+  });
   const [notice, setNoticeState] = useState(null);
   const [achievementToast, setAchievementToast] = useState(null);
   const [achievementQueue, setAchievementQueue] = useState([]);
@@ -247,8 +256,10 @@ function App() {
   const [alphabetCorrectCount, setAlphabetCorrectCount] = useState(0);
   const [alphabetSessionLimit, setAlphabetSessionLimit] = useState(12);
   const [alphabetSessionDone, setAlphabetSessionDone] = useState(false);
-  const [alphabetAudioLoadingSymbol, setAlphabetAudioLoadingSymbol] = useState("");
-  const [georgianDisplayModePrompt, setGeorgianDisplayModePrompt] = useState(null);
+  const [alphabetAudioLoadingSymbol, setAlphabetAudioLoadingSymbol] =
+    useState("");
+  const [georgianDisplayModePrompt, setGeorgianDisplayModePrompt] =
+    useState(null);
   const [onboardingStep, setOnboardingStep] = useState("intro");
   const [loginLink, setLoginLink] = useState("");
   const [loginToken, setLoginToken] = useState("");
@@ -268,21 +279,25 @@ function App() {
   const needsStudiedLanguageSelection =
     auth.authenticated && auth.user && !auth.user.has_selected_studied_language;
   const needsOnboarding =
-    auth.authenticated
-    && auth.user
-    && auth.user.has_selected_studied_language
-    && !auth.user.has_completed_onboarding;
+    auth.authenticated &&
+    auth.user &&
+    auth.user.has_selected_studied_language &&
+    !auth.user.has_completed_onboarding;
   const isMiniApp = Boolean(webApp?.initData);
-  const canRecordSpeech = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
-  const activeStudiedLanguage = settings?.active_studied_language || auth.progress?.course_code || "en";
+  const canRecordSpeech = Boolean(
+    navigator.mediaDevices?.getUserMedia && window.MediaRecorder
+  );
+  const activeStudiedLanguage =
+    settings?.active_studied_language || auth.progress?.course_code || "en";
   const supportsIrregularPractice = activeStudiedLanguage === "en";
   const georgianDisplayMode =
-    settings?.georgian_display_mode || auth.user?.georgian_display_mode || "both";
-  const showGeorgianLatin = activeStudiedLanguage === "ka" && georgianDisplayMode === "both";
-  const georgianDisplayModeOptions =
-    settings?.georgian_display_mode_options
-    || auth.user?.georgian_display_mode_options
-    || [
+    settings?.georgian_display_mode ||
+    auth.user?.georgian_display_mode ||
+    "both";
+  const showGeorgianLatin =
+    activeStudiedLanguage === "ka" && georgianDisplayMode === "both";
+  const georgianDisplayModeOptions = settings?.georgian_display_mode_options ||
+    auth.user?.georgian_display_mode_options || [
       { code: "both", label: "Грузинский + латиница", recommended: true },
       { code: "native", label: "Только грузинский", recommended: false },
     ];
@@ -302,14 +317,27 @@ function App() {
     plans: [],
   };
   const activeLanguageLabel =
-    settings?.available_studied_languages?.find((item) => item.code === activeStudiedLanguage)?.label
-    || auth.user?.available_studied_languages?.find((item) => item.code === activeStudiedLanguage)?.label
-    || (activeStudiedLanguage === "ka" ? "Грузинский" : "Английский");
-  const temporaryPracticeFilters = settings || auth.user?.temporary_practice_filters || {};
-  const listeningTemporarilyDisabled = Boolean(temporaryPracticeFilters.listening_temporarily_disabled);
-  const speakingTemporarilyDisabled = Boolean(temporaryPracticeFilters.speaking_temporarily_disabled);
-  const listeningPauseLabel = formatPauseRemaining(temporaryPracticeFilters.listening_paused_until);
-  const speakingPauseLabel = formatPauseRemaining(temporaryPracticeFilters.speaking_paused_until);
+    settings?.available_studied_languages?.find(
+      (item) => item.code === activeStudiedLanguage
+    )?.label ||
+    auth.user?.available_studied_languages?.find(
+      (item) => item.code === activeStudiedLanguage
+    )?.label ||
+    (activeStudiedLanguage === "ka" ? "Грузинский" : "Английский");
+  const temporaryPracticeFilters =
+    settings || auth.user?.temporary_practice_filters || {};
+  const listeningTemporarilyDisabled = Boolean(
+    temporaryPracticeFilters.listening_temporarily_disabled
+  );
+  const speakingTemporarilyDisabled = Boolean(
+    temporaryPracticeFilters.speaking_temporarily_disabled
+  );
+  const listeningPauseLabel = formatPauseRemaining(
+    temporaryPracticeFilters.listening_paused_until
+  );
+  const speakingPauseLabel = formatPauseRemaining(
+    temporaryPracticeFilters.speaking_paused_until
+  );
 
   useEffect(() => {
     const handleWindowError = (event) => {
@@ -318,8 +346,10 @@ function App() {
         level: "error",
         message: event.message || "Unhandled window error",
         url: window.location.pathname,
-        detail: event.error?.stack || `${event.filename || ""}:${event.lineno || ""}:${event.colno || ""}`,
-        meta: { source: "window.error" }
+        detail:
+          event.error?.stack ||
+          `${event.filename || ""}:${event.lineno || ""}:${event.colno || ""}`,
+        meta: { source: "window.error" },
       });
     };
 
@@ -331,7 +361,7 @@ function App() {
         message: reason?.message || "Unhandled promise rejection",
         url: window.location.pathname,
         detail: reason?.stack || String(reason),
-        meta: { source: "unhandledrejection" }
+        meta: { source: "unhandledrejection" },
       });
     };
 
@@ -339,19 +369,25 @@ function App() {
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
     return () => {
       window.removeEventListener("error", handleWindowError);
-      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      window.removeEventListener(
+        "unhandledrejection",
+        handleUnhandledRejection
+      );
     };
   }, []);
 
-  useEffect(() => () => {
-    if (alphabetAudioRef.current) {
-      alphabetAudioRef.current.pause();
-      alphabetAudioRef.current = null;
-    }
-    if (noticeTimerRef.current) {
-      window.clearTimeout(noticeTimerRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (alphabetAudioRef.current) {
+        alphabetAudioRef.current.pause();
+        alphabetAudioRef.current = null;
+      }
+      if (noticeTimerRef.current) {
+        window.clearTimeout(noticeTimerRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const html = document.documentElement;
@@ -409,7 +445,10 @@ function App() {
 
     const handleFocusIn = (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLElement) || !target.matches("input, textarea")) {
+      if (
+        !(target instanceof HTMLElement) ||
+        !target.matches("input, textarea")
+      ) {
         return;
       }
       window.setTimeout(() => {
@@ -445,16 +484,26 @@ function App() {
     ];
   }, [auth.progress, dashboard]);
 
-  const todayStreakStat = useMemo(() => progressStats[3] || null, [progressStats]);
-  const progressTopStats = useMemo(() => progressStats.slice(0, 3), [progressStats]);
-  const progressSecondaryStats = useMemo(() => progressStats.slice(3), [progressStats]);
+  const todayStreakStat = useMemo(
+    () => progressStats[3] || null,
+    [progressStats]
+  );
+  const progressTopStats = useMemo(
+    () => progressStats.slice(0, 3),
+    [progressStats]
+  );
+  const progressSecondaryStats = useMemo(
+    () => progressStats.slice(3),
+    [progressStats]
+  );
   const todayAchievements = useMemo(() => {
-    const list = dashboard?.progress?.achievements || auth.progress?.achievements || [];
+    const list =
+      dashboard?.progress?.achievements || auth.progress?.achievements || [];
     return list.slice(-3);
   }, [auth.progress, dashboard]);
   const hasMoreAchievements =
-    (dashboard?.progress?.achievements || auth.progress?.achievements || []).length >
-    todayAchievements.length;
+    (dashboard?.progress?.achievements || auth.progress?.achievements || [])
+      .length > todayAchievements.length;
   const currentProgress = dashboard?.progress || auth.progress;
 
   const currentTitle = useMemo(() => {
@@ -497,7 +546,9 @@ function App() {
 
   useEffect(() => {
     if (learnQuestion?.item?.id) {
-      prepareAudio(`/api/audio/${learnQuestion.item.id}/prepare`, {}).catch(() => {});
+      prepareAudio(`/api/audio/${learnQuestion.item.id}/prepare`, {}).catch(
+        () => {}
+      );
     }
   }, [learnQuestion?.item?.id, prepareAudio]);
 
@@ -512,16 +563,26 @@ function App() {
       showLibraryAdd ? "add" : "main",
       addDraftStep,
     ].join(":");
-  }, [auth.authenticated, primaryTab, libraryMode, learnPanel, showLibraryAdd, addDraftStep]);
+  }, [
+    auth.authenticated,
+    primaryTab,
+    libraryMode,
+    learnPanel,
+    showLibraryAdd,
+    addDraftStep,
+  ]);
   const showHeaderBack =
-    primaryTab === "learn"
-    && (
-      (learnPanel === "irregular" && irregularMode === "review")
-      || (learnPanel === "alphabet" && alphabetMode === "review")
-    );
-  const showHeaderClose = (primaryTab === "learn" && Boolean(learnQuestion))
-    || (primaryTab === "learn" && learnPanel === "irregular" && irregularMode === "test")
-    || (primaryTab === "learn" && learnPanel === "alphabet" && alphabetMode === "test");
+    primaryTab === "learn" &&
+    ((learnPanel === "irregular" && irregularMode === "review") ||
+      (learnPanel === "alphabet" && alphabetMode === "review"));
+  const showHeaderClose =
+    (primaryTab === "learn" && Boolean(learnQuestion)) ||
+    (primaryTab === "learn" &&
+      learnPanel === "irregular" &&
+      irregularMode === "test") ||
+    (primaryTab === "learn" &&
+      learnPanel === "alphabet" &&
+      alphabetMode === "test");
 
   useEffect(() => {
     setNoticeState((current) => {
@@ -589,38 +650,52 @@ function App() {
 
   function formatDisplayAnswer(text, courseCode = activeStudiedLanguage) {
     const value = text || "";
-    if (courseCode !== "ka" || !showGeorgianLatin || !hasGeorgianScript(value)) {
+    if (
+      courseCode !== "ka" ||
+      !showGeorgianLatin ||
+      !hasGeorgianScript(value)
+    ) {
       return value;
     }
     return value.replace(
       /[\u10A0-\u10FF]+(?:\s+[\u10A0-\u10FF]+)*/g,
-      (match) => `${match}/${transliterateGeorgian(match)}`,
+      (match) => `${match}/${transliterateGeorgian(match)}`
     );
   }
 
   useEffect(() => {
     const draftIds = [
       ...(addDraft?.id ? [addDraft.id] : []),
-      ...addDrafts.map((item) => item.id)
+      ...addDrafts.map((item) => item.id),
     ];
     if (!draftIds.length) {
       return;
     }
 
-    const shouldPoll = Boolean(addDraft?.image_generation_in_progress) || addDrafts.some((item) => item.image_generation_in_progress);
+    const shouldPoll =
+      Boolean(addDraft?.image_generation_in_progress) ||
+      addDrafts.some((item) => item.image_generation_in_progress);
     if (!shouldPoll) {
       return;
     }
 
     const intervalId = window.setInterval(async () => {
       try {
-        const responses = await Promise.all(draftIds.map((draftId) => api(`/api/words/draft/${draftId}`)));
-        const byId = new Map(responses.map((entry) => [entry.draft.id, entry.draft]));
+        const responses = await Promise.all(
+          draftIds.map((draftId) => api(`/api/words/draft/${draftId}`))
+        );
+        const byId = new Map(
+          responses.map((entry) => [entry.draft.id, entry.draft])
+        );
         if (addDraft?.id) {
-          setAddDraft((current) => (current ? byId.get(current.id) || current : current));
+          setAddDraft((current) =>
+            current ? byId.get(current.id) || current : current
+          );
         }
         if (addDrafts.length) {
-          setAddDrafts((current) => current.map((item) => byId.get(item.id) || item));
+          setAddDrafts((current) =>
+            current.map((item) => byId.get(item.id) || item)
+          );
         }
       } catch {
         // best-effort polling only
@@ -632,10 +707,11 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const draftsToSync = [
-      ...(addDraft ? [addDraft] : []),
-      ...addDrafts,
-    ].filter((draft, index, all) => draft?.has_image && all.findIndex((item) => item.id === draft.id) === index);
+    const draftsToSync = [...(addDraft ? [addDraft] : []), ...addDrafts].filter(
+      (draft, index, all) =>
+        draft?.has_image &&
+        all.findIndex((item) => item.id === draft.id) === index
+    );
 
     async function syncDraftImages() {
       for (const draft of draftsToSync) {
@@ -666,13 +742,16 @@ function App() {
   }, [addDraft, addDrafts, draftImageVersions]);
 
   async function bootstrap() {
-    const [cfg, me] = await Promise.all([api("/api/app-config"), api("/api/auth/me")]);
+    const [cfg, me] = await Promise.all([
+      api("/api/app-config"),
+      api("/api/auth/me"),
+    ]);
     setConfig(cfg);
     setAuth({
       loading: false,
       authenticated: me.authenticated,
       user: me.user,
-      progress: me.progress
+      progress: me.progress,
     });
   }
 
@@ -686,7 +765,7 @@ function App() {
       user: me.user || current.user,
       progress: me.progress || current.progress,
     }));
-    setDashboard((current) => (
+    setDashboard((current) =>
       current
         ? {
             ...current,
@@ -694,16 +773,24 @@ function App() {
             progress: me.progress || current.progress,
           }
         : current
-    ));
+    );
   }, []);
 
   async function loadDashboard() {
-    const [dashboardData, settingsData, wordsData, irregularData, alphabetData] = await Promise.all([
+    const [
+      dashboardData,
+      settingsData,
+      wordsData,
+      irregularData,
+      alphabetData,
+    ] = await Promise.all([
       api("/api/dashboard"),
       api("/api/settings"),
-      api(`/api/words?status=${statusFilter}&search=${encodeURIComponent(deferredSearch)}`),
+      api(
+        `/api/words?status=${statusFilter}&search=${encodeURIComponent(deferredSearch)}`
+      ),
       api(`/api/irregular/list?page=${irregularPage}`),
-      api(`/api/alphabet/list?page=${alphabetPage}`)
+      api(`/api/alphabet/list?page=${alphabetPage}`),
     ]);
     setDashboard(dashboardData);
     setAuth((current) => ({
@@ -731,17 +818,20 @@ function App() {
 
       if (window.Telegram?.WebApp?.openInvoice) {
         await new Promise((resolve) => {
-          window.Telegram.WebApp.openInvoice(data.invoice_link, async (status) => {
-            if (status === "paid") {
-              await loadDashboard();
-              setNotice("Premium активирован.");
-            } else if (status === "cancelled") {
-              setNotice("Оплата отменена.");
-            } else if (status === "failed") {
-              setNotice("Оплата не прошла.");
+          window.Telegram.WebApp.openInvoice(
+            data.invoice_link,
+            async (status) => {
+              if (status === "paid") {
+                await loadDashboard();
+                setNotice("Premium активирован.");
+              } else if (status === "cancelled") {
+                setNotice("Оплата отменена.");
+              } else if (status === "failed") {
+                setNotice("Оплата не прошла.");
+              }
+              resolve();
             }
-            resolve();
-          });
+          );
         });
         return;
       }
@@ -768,7 +858,9 @@ function App() {
       if (!currentItemId) {
         return 0;
       }
-      const nextIndex = data.items.findIndex((item) => item.id === currentItemId);
+      const nextIndex = data.items.findIndex(
+        (item) => item.id === currentItemId
+      );
       return nextIndex >= 0 ? nextIndex : 0;
     });
   }
@@ -812,7 +904,10 @@ function App() {
     setLearnTextAnswer("");
     setLearnResult(null);
     setIsRecording(false);
-    if (questionCount >= (data.session_limit || 12) || (data.empty && questionCount > 0)) {
+    if (
+      questionCount >= (data.session_limit || 12) ||
+      (data.empty && questionCount > 0)
+    ) {
       setLearnQuestion(null);
       setLearnSessionDone(true);
       return;
@@ -847,14 +942,20 @@ function App() {
     }
   }
 
-  useEffect(() => () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state !== "inactive"
+      ) {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     return () => {
@@ -868,7 +969,12 @@ function App() {
   useEffect(() => {
     bootstrap().catch((error) => {
       setNotice(error.message);
-      setAuth({ loading: false, authenticated: false, user: null, progress: null });
+      setAuth({
+        loading: false,
+        authenticated: false,
+        user: null,
+        progress: null,
+      });
     });
     return () => stopPolling();
     // App bootstrap is intentionally a once-per-shell request.
@@ -902,10 +1008,15 @@ function App() {
     webApp.expand();
     api("/api/auth/telegram/webapp", {
       method: "POST",
-      body: JSON.stringify({ init_data: webApp.initData })
+      body: JSON.stringify({ init_data: webApp.initData }),
     })
       .then((data) => {
-        setAuth({ loading: false, authenticated: true, user: data.user, progress: data.progress });
+        setAuth({
+          loading: false,
+          authenticated: true,
+          user: data.user,
+          progress: data.progress,
+        });
         setNotice("");
       })
       .catch((error) => {
@@ -923,18 +1034,25 @@ function App() {
       setAchievementQueue([]);
       return;
     }
-    Promise.all([loadDashboard(), loadStudyCardsOnly(), loadPacks()])
-      .catch((error) => setNotice(error.message));
+    Promise.all([loadDashboard(), loadStudyCardsOnly(), loadPacks()]).catch(
+      (error) => setNotice(error.message)
+    );
     // These callbacks intentionally refresh only for the explicit data filters below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.authenticated, deferredSearch, statusFilter, irregularPage, alphabetPage]);
+  }, [
+    auth.authenticated,
+    deferredSearch,
+    statusFilter,
+    irregularPage,
+    alphabetPage,
+  ]);
 
   useEffect(() => {
     if (!auth.authenticated || !currentProgress) {
       return;
     }
     const currentKeys = (currentProgress.achievements || []).map((item) =>
-      makeAchievementKey(item, currentProgress.course_code),
+      makeAchievementKey(item, currentProgress.course_code)
     );
     if (!knownAchievementKeysRef.current) {
       knownAchievementKeysRef.current = currentKeys;
@@ -942,7 +1060,8 @@ function App() {
     }
     const previous = new Set(knownAchievementKeysRef.current);
     const newAchievements = (currentProgress.achievements || []).filter(
-      (item) => !previous.has(makeAchievementKey(item, currentProgress.course_code)),
+      (item) =>
+        !previous.has(makeAchievementKey(item, currentProgress.course_code))
     );
     knownAchievementKeysRef.current = currentKeys;
     if (!newAchievements.length) {
@@ -992,15 +1111,14 @@ function App() {
     if (!auth.authenticated) {
       return;
     }
-    const hasPendingWordImages = words.some((item) => item.image_generation_in_progress) || cardQueue.some((item) => item.image_generation_in_progress);
+    const hasPendingWordImages =
+      words.some((item) => item.image_generation_in_progress) ||
+      cardQueue.some((item) => item.image_generation_in_progress);
     if (!hasPendingWordImages) {
       return;
     }
     const intervalId = window.setInterval(() => {
-      void Promise.all([
-        loadDashboard(),
-        loadCards({ reset: false }),
-      ]);
+      void Promise.all([loadDashboard(), loadCards({ reset: false })]);
     }, 4000);
     return () => window.clearInterval(intervalId);
     // Polling lifecycle is governed by the pending-image collections.
@@ -1040,7 +1158,12 @@ function App() {
         });
         if (data.authenticated) {
           stopPolling();
-          setAuth({ loading: false, authenticated: true, user: data.user, progress: data.progress });
+          setAuth({
+            loading: false,
+            authenticated: true,
+            user: data.user,
+            progress: data.progress,
+          });
           setLoginToken("");
           setLoginLink("");
           setNotice("");
@@ -1074,7 +1197,7 @@ function App() {
     try {
       const data = await api("/api/auth/telegram/request-link", {
         method: "POST",
-        body: JSON.stringify({})
+        body: JSON.stringify({}),
       });
       setLoginLink(data.deep_link);
       setLoginToken(data.token);
@@ -1096,7 +1219,7 @@ function App() {
     try {
       await api("/api/auth/logout", {
         method: "POST",
-        body: JSON.stringify({})
+        body: JSON.stringify({}),
       });
       stopPolling();
       setLoginLink("");
@@ -1110,7 +1233,12 @@ function App() {
       setIrregularQuestion(null);
       setAlphabetQuestion(null);
       setShowLibraryAdd(false);
-      setAuth({ loading: false, authenticated: false, user: null, progress: null });
+      setAuth({
+        loading: false,
+        authenticated: false,
+        user: null,
+        progress: null,
+      });
       setNotice("Выход выполнен.");
     } catch (error) {
       handleActionError(error);
@@ -1146,8 +1274,11 @@ function App() {
       if (!nextPacks.length) {
         return;
       }
-      const nextPack = nextPacks.find((pack) => pack.id === selectedPackId) || nextPacks[0];
-      const nextLevel = nextPack.levels.find((level) => level.id === selectedPackLevelId) || nextPack.levels[0];
+      const nextPack =
+        nextPacks.find((pack) => pack.id === selectedPackId) || nextPacks[0];
+      const nextLevel =
+        nextPack.levels.find((level) => level.id === selectedPackLevelId) ||
+        nextPack.levels[0];
       setSelectedPackId(nextPack.id);
       setSelectedPackLevelId(nextLevel?.id || "");
     } finally {
@@ -1166,7 +1297,9 @@ function App() {
       .map((line) => line.trim())
       .filter(Boolean);
     if (filledLines.length > MAX_ADD_BATCH_WORDS) {
-      setNotice(`За один раз можно добавить максимум ${MAX_ADD_BATCH_WORDS} слов или фраз.`);
+      setNotice(
+        `За один раз можно добавить максимум ${MAX_ADD_BATCH_WORDS} слов или фраз.`
+      );
       return;
     }
     setAddBusy(true);
@@ -1174,13 +1307,19 @@ function App() {
     try {
       const data = await api("/api/words/draft", {
         method: "POST",
-        body: JSON.stringify({ text: addText })
+        body: JSON.stringify({ text: addText }),
       });
       if (data.batch_review) {
         setAddDrafts(data.drafts);
         setAddDraftStep("batch_review");
-        setBatchTranslations(Object.fromEntries(data.drafts.map((draft) => [draft.id, draft.translation || ""])));
-        setNotice(`Проверь ${data.drafts.length} слов. Фото загрузятся автоматически, можно не ждать.`);
+        setBatchTranslations(
+          Object.fromEntries(
+            data.drafts.map((draft) => [draft.id, draft.translation || ""])
+          )
+        );
+        setNotice(
+          `Проверь ${data.drafts.length} слов. Фото загрузятся автоматически, можно не ждать.`
+        );
         return;
       }
       if (data.auto_saved) {
@@ -1195,7 +1334,11 @@ function App() {
       setAddDraft(data.draft);
       setAddDraftStep(data.step);
       setAddTranslationInput(data.draft.translation || "");
-      setNotice(data.step === "confirm_translation" ? "Подтверди перевод. Фото загрузится автоматически." : "Фото загружается автоматически. Можно сохранить слово сразу.");
+      setNotice(
+        data.step === "confirm_translation"
+          ? "Подтверди перевод. Фото загрузится автоматически."
+          : "Фото загружается автоматически. Можно сохранить слово сразу."
+      );
     } catch (error) {
       handleActionError(error);
     } finally {
@@ -1208,7 +1351,7 @@ function App() {
     try {
       await api("/api/packs/prepare", {
         method: "POST",
-        body: JSON.stringify({})
+        body: JSON.stringify({}),
       });
     } catch {
       // best effort only
@@ -1216,12 +1359,19 @@ function App() {
   }
 
   async function addSelectedPack() {
-    const selectedPack = packs.find((pack) => pack.id === selectedPackId) || packs[0] || null;
-    const selectedLevel = selectedPack?.levels.find((level) => level.id === selectedPackLevelId) || selectedPack?.levels?.[0] || null;
+    const selectedPack =
+      packs.find((pack) => pack.id === selectedPackId) || packs[0] || null;
+    const selectedLevel =
+      selectedPack?.levels.find((level) => level.id === selectedPackLevelId) ||
+      selectedPack?.levels?.[0] ||
+      null;
     const selected = selectedLevel
       ? selectedLevel.items
-        .filter((item) => selectedPackWords[item.normalized_word] ?? !item.already_added)
-        .map((item) => item.normalized_word)
+          .filter(
+            (item) =>
+              selectedPackWords[item.normalized_word] ?? !item.already_added
+          )
+          .map((item) => item.normalized_word)
       : [];
     if (!selected.length) {
       setNotice("Отметь слова для добавления.");
@@ -1265,11 +1415,13 @@ function App() {
     try {
       const data = await api(`/api/words/draft/${addDraft.id}/translation`, {
         method: "POST",
-        body: JSON.stringify({ translation: addTranslationInput.trim() })
+        body: JSON.stringify({ translation: addTranslationInput.trim() }),
       });
       setAddDraft(data.draft);
       setAddDraftStep(data.step);
-      setNotice("Фото загружается автоматически. Можно сохранить слово и не ждать.");
+      setNotice(
+        "Фото загружается автоматически. Можно сохранить слово и не ждать."
+      );
     } catch (error) {
       handleActionError(error);
     } finally {
@@ -1283,16 +1435,24 @@ function App() {
       return;
     }
     setAddBusy(true);
-    setAddBusyLabel(addDraft.has_image ? "Готовим другую картинку..." : "Генерируем фото...");
+    setAddBusyLabel(
+      addDraft.has_image ? "Готовим другую картинку..." : "Генерируем фото..."
+    );
     try {
-      const data = await api(`/api/words/draft/${addDraft.id}/image/regenerate`, {
-        method: "POST",
-        body: JSON.stringify({})
-      });
+      const data = await api(
+        `/api/words/draft/${addDraft.id}/image/regenerate`,
+        {
+          method: "POST",
+          body: JSON.stringify({}),
+        }
+      );
       const version = `${data.draft.updated_at}-${Date.now()}`;
       await preloadDraftImage(addDraft.id, version);
       setAddDraft(data.draft);
-      setDraftImageVersions((current) => ({ ...current, [addDraft.id]: version }));
+      setDraftImageVersions((current) => ({
+        ...current,
+        [addDraft.id]: version,
+      }));
       setAddDraftStep(data.step);
       setNotice("Показали новый вариант.");
     } catch (error) {
@@ -1312,7 +1472,7 @@ function App() {
     try {
       const data = await api(`/api/words/draft/${addDraft.id}/save`, {
         method: "POST",
-        body: JSON.stringify({ use_image: useImage })
+        body: JSON.stringify({ use_image: useImage }),
       });
       setAuth((previous) => ({ ...previous, progress: data.progress }));
       setShowLibraryAdd(false);
@@ -1329,11 +1489,13 @@ function App() {
   }
 
   async function closeAddWords() {
-    const draftIds = [addDraft?.id, ...addDrafts.map((item) => item.id)].filter(Boolean);
+    const draftIds = [addDraft?.id, ...addDrafts.map((item) => item.id)].filter(
+      Boolean
+    );
     for (const draftId of draftIds) {
       try {
         await api(`/api/words/draft/${draftId}`, {
-          method: "DELETE"
+          method: "DELETE",
         });
       } catch (error) {
         setNotice(error.message);
@@ -1346,15 +1508,21 @@ function App() {
   async function regenerateBatchDraftImage(draftId) {
     const currentDraft = addDrafts.find((item) => item.id === draftId);
     setAddBusy(true);
-    setAddBusyLabel(currentDraft?.has_image ? "Готовим другую картинку..." : "Генерируем фото...");
+    setAddBusyLabel(
+      currentDraft?.has_image
+        ? "Готовим другую картинку..."
+        : "Генерируем фото..."
+    );
     try {
       const data = await api(`/api/words/draft/${draftId}/image/regenerate`, {
         method: "POST",
-        body: JSON.stringify({})
+        body: JSON.stringify({}),
       });
       const version = `${data.draft.updated_at}-${Date.now()}`;
       await preloadDraftImage(draftId, version);
-      setAddDrafts((current) => current.map((item) => (item.id === draftId ? data.draft : item)));
+      setAddDrafts((current) =>
+        current.map((item) => (item.id === draftId ? data.draft : item))
+      );
       setDraftImageVersions((current) => ({ ...current, [draftId]: version }));
       setNotice("Картинка обновлена.");
     } catch (error) {
@@ -1373,21 +1541,28 @@ function App() {
     setAddBusyLabel("Сохраняем слова...");
     try {
       for (const draft of addDrafts) {
-        const translation = (batchTranslations[draft.id] || draft.translation || "").trim();
+        const translation = (
+          batchTranslations[draft.id] ||
+          draft.translation ||
+          ""
+        ).trim();
         if (!translation) {
           throw new Error(`Заполни перевод для ${draft.word}.`);
         }
         let currentDraft = draft;
         if (translation !== (draft.translation || "").trim()) {
-          const confirmed = await api(`/api/words/draft/${draft.id}/translation`, {
-            method: "POST",
-            body: JSON.stringify({ translation })
-          });
+          const confirmed = await api(
+            `/api/words/draft/${draft.id}/translation`,
+            {
+              method: "POST",
+              body: JSON.stringify({ translation }),
+            }
+          );
           currentDraft = confirmed.draft;
         }
         await api(`/api/words/draft/${currentDraft.id}/save`, {
           method: "POST",
-          body: JSON.stringify({ use_image: true })
+          body: JSON.stringify({ use_image: true }),
         });
       }
       setShowLibraryAdd(false);
@@ -1420,7 +1595,10 @@ function App() {
     if (!question) {
       return "";
     }
-    if (question.exercise_type === "practice_en_ru" || question.exercise_type === "listening_translate") {
+    if (
+      question.exercise_type === "practice_en_ru" ||
+      question.exercise_type === "listening_translate"
+    ) {
       return question.item.translation;
     }
     return question.item.word;
@@ -1431,7 +1609,10 @@ function App() {
     if (!correctAnswer || !learnQuestion) {
       return;
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== "inactive"
+    ) {
       mediaRecorderRef.current.onstop = null;
       mediaRecorderRef.current.stop();
     }
@@ -1441,7 +1622,12 @@ function App() {
     }
     setIsRecording(false);
     setLearnSelection("");
-    setLearnResult({ correct: false, correct_answer: correctAnswer, skipped: true, exercise_type: learnQuestion.exercise_type });
+    setLearnResult({
+      correct: false,
+      correct_answer: correctAnswer,
+      skipped: true,
+      exercise_type: learnQuestion.exercise_type,
+    });
   }
 
   async function advanceLearnSession() {
@@ -1466,8 +1652,8 @@ function App() {
         method: "POST",
         body: JSON.stringify({
           answer,
-          question_id: learnQuestion.question_id
-        })
+          question_id: learnQuestion.question_id,
+        }),
       });
       setLearnResult(data);
       if (data.correct) {
@@ -1493,8 +1679,8 @@ function App() {
         method: "POST",
         body: JSON.stringify({
           answer: learnTextAnswer,
-          question_id: learnQuestion.question_id
-        })
+          question_id: learnQuestion.question_id,
+        }),
       });
       setLearnResult(data);
       if (data.correct) {
@@ -1518,10 +1704,15 @@ function App() {
       const extension = blob.type.includes("mp4") ? "mp4" : "webm";
       const formData = new FormData();
       formData.append("question_id", learnQuestion.question_id);
-      formData.append("audio", new File([blob], `speech.${extension}`, { type: blob.type || "audio/webm" }));
+      formData.append(
+        "audio",
+        new File([blob], `speech.${extension}`, {
+          type: blob.type || "audio/webm",
+        })
+      );
       const data = await api("/api/speaking/answer", {
         method: "POST",
-        body: formData
+        body: formData,
       });
       setLearnResult(data);
       if (data.status === "correct") {
@@ -1551,7 +1742,9 @@ function App() {
         }
       };
       recorder.onstop = async () => {
-        const blob = new Blob(speakingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const blob = new Blob(speakingChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
         stream.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
         if (blob.size > 0) {
@@ -1568,7 +1761,10 @@ function App() {
   }
 
   function stopSpeakingRecording() {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+    if (
+      !mediaRecorderRef.current ||
+      mediaRecorderRef.current.state === "inactive"
+    ) {
       return;
     }
     mediaRecorderRef.current.stop();
@@ -1585,8 +1781,8 @@ function App() {
         method: "POST",
         body: JSON.stringify({
           question_id: irregularQuestion.question_id,
-          answer
-        })
+          answer,
+        }),
       });
       setIrregularResult(data);
       if (data.correct) {
@@ -1612,7 +1808,7 @@ function App() {
         body: JSON.stringify({
           question_token: alphabetQuestion.question_token,
           answer,
-        })
+        }),
       });
       setAlphabetResult(data);
       if (data.correct) {
@@ -1637,16 +1833,17 @@ function App() {
     }
     setAlphabetAudioLoadingSymbol(symbol);
     try {
-      const ready = await prepareAudio(
-        "/api/alphabet/audio/prepare",
-        { symbol },
-      );
+      const ready = await prepareAudio("/api/alphabet/audio/prepare", {
+        symbol,
+      });
       if (!ready) {
-        setNotice("Аудио ещё готовится. Попробуй снова через несколько секунд.");
+        setNotice(
+          "Аудио ещё готовится. Попробуй снова через несколько секунд."
+        );
         return;
       }
       const audio = new Audio(
-        `/api/alphabet/audio?symbol=${encodeURIComponent(symbol)}&v=${audioRevision}`,
+        `/api/alphabet/audio?symbol=${encodeURIComponent(symbol)}&v=${audioRevision}`
       );
       alphabetAudioRef.current = audio;
       audio.onended = () => {
@@ -1675,7 +1872,10 @@ function App() {
     try {
       const data = await api("/api/alphabet/answer", {
         method: "POST",
-        body: JSON.stringify({ question_token: alphabetQuestion.question_token, answer: "" })
+        body: JSON.stringify({
+          question_token: alphabetQuestion.question_token,
+          answer: "",
+        }),
       });
       setAlphabetResult({ ...data, skipped: true });
     } catch (error) {
@@ -1690,7 +1890,10 @@ function App() {
     try {
       const data = await api("/api/irregular/answer", {
         method: "POST",
-        body: JSON.stringify({ question_id: irregularQuestion.question_id, answer: "" })
+        body: JSON.stringify({
+          question_id: irregularQuestion.question_id,
+          answer: "",
+        }),
       });
       setIrregularResult({ ...data, skipped: true });
     } catch (error) {
@@ -1707,7 +1910,7 @@ function App() {
     try {
       await api(`/api/words/${wordId}`, {
         method: "PATCH",
-        body: JSON.stringify({ translation })
+        body: JSON.stringify({ translation }),
       });
       setNotice("Сохранено.");
       await loadDashboard();
@@ -1721,7 +1924,10 @@ function App() {
   async function deleteWord(wordId) {
     setBusy(true);
     try {
-      await api(`/api/words/${wordId}`, { method: "DELETE", body: JSON.stringify({}) });
+      await api(`/api/words/${wordId}`, {
+        method: "DELETE",
+        body: JSON.stringify({}),
+      });
       await refreshAfterWordMutation();
     } catch (error) {
       setNotice(error.message);
@@ -1753,12 +1959,18 @@ function App() {
     try {
       const data = await api(`/api/words/${wordId}/image/regenerate`, {
         method: "POST",
-        body: JSON.stringify({})
+        body: JSON.stringify({}),
       });
-      setWords((current) => current.map((item) => (item.id === wordId ? data.item : item)));
-      setCardQueue((current) => current.map((item) => (item.id === wordId ? data.item : item)));
+      setWords((current) =>
+        current.map((item) => (item.id === wordId ? data.item : item))
+      );
+      setCardQueue((current) =>
+        current.map((item) => (item.id === wordId ? data.item : item))
+      );
       setPreviewWordId(wordId);
-      setNotice("Генерируем новое фото. Можно не ждать: оно появится автоматически.");
+      setNotice(
+        "Генерируем новое фото. Можно не ждать: оно появится автоматически."
+      );
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -1769,8 +1981,8 @@ function App() {
   async function saveSettings(event) {
     event.preventDefault();
     if (
-      settings?.active_studied_language === "ka"
-      && !settings?.has_selected_georgian_display_mode
+      settings?.active_studied_language === "ka" &&
+      !settings?.has_selected_georgian_display_mode
     ) {
       setGeorgianDisplayModePrompt({
         source: "settings",
@@ -1782,7 +1994,7 @@ function App() {
     try {
       await api("/api/settings", {
         method: "POST",
-        body: JSON.stringify(settings)
+        body: JSON.stringify(settings),
       });
       setNotice("Настройки сохранены.");
       await Promise.all([loadDashboard(), loadLearningData()]);
@@ -1812,7 +2024,7 @@ function App() {
             : "Аудирование снова включено."
           : enabled
             ? "Следующие 15 минут без говорения."
-            : "Говорение снова включено.",
+            : "Говорение снова включено."
       );
     } catch (error) {
       setNotice(error.message);
@@ -1833,11 +2045,12 @@ function App() {
       const nextUser = data.user ? withFreshAvatarUrl(data.user) : data.user;
       const nextSettings = data.settings
         ? {
-          ...data.settings,
-          avatar_url: data.settings.avatar_url
-            ? withFreshAvatarUrl({ avatar_url: data.settings.avatar_url }).avatar_url
-            : data.settings.avatar_url,
-        }
+            ...data.settings,
+            avatar_url: data.settings.avatar_url
+              ? withFreshAvatarUrl({ avatar_url: data.settings.avatar_url })
+                  .avatar_url
+              : data.settings.avatar_url,
+          }
         : data.settings;
       if (nextUser?.avatar_url) {
         await preloadImage(nextUser.avatar_url);
@@ -1883,20 +2096,20 @@ function App() {
 
   async function selectStudiedLanguage(courseCode, options = {}) {
     const hasSelectedGeorgianDisplayMode =
-      settings?.has_selected_georgian_display_mode
-      ?? auth.user?.has_selected_georgian_display_mode
-      ?? false;
+      settings?.has_selected_georgian_display_mode ??
+      auth.user?.has_selected_georgian_display_mode ??
+      false;
     if (
-      courseCode === "ka"
-      && !hasSelectedGeorgianDisplayMode
-      && !options.georgianDisplayMode
+      courseCode === "ka" &&
+      !hasSelectedGeorgianDisplayMode &&
+      !options.georgianDisplayMode
     ) {
       setGeorgianDisplayModePrompt({
         source: options.source || "onboarding",
         previousCourseCode:
-          settings?.active_studied_language
-          || auth.user?.active_studied_language
-          || "en",
+          settings?.active_studied_language ||
+          auth.user?.active_studied_language ||
+          "en",
       });
       return;
     }
@@ -1939,7 +2152,9 @@ function App() {
         has_selected_georgian_display_mode: true,
       }));
       setGeorgianDisplayModePrompt(null);
-      setNotice("Режим отображения сохранится после нажатия «Сохранить настройки».");
+      setNotice(
+        "Режим отображения сохранится после нажатия «Сохранить настройки»."
+      );
       return;
     }
     await selectStudiedLanguage("ka", {
@@ -1961,9 +2176,9 @@ function App() {
           ? { ...current.user, has_completed_onboarding: true }
           : current.user,
       }));
-      setSettings((current) => (
+      setSettings((current) =>
         current ? { ...current, has_completed_onboarding: true } : current
-      ));
+      );
       setOnboardingStep("intro");
       if (options.openPacks) {
         openPacks();
@@ -2018,8 +2233,15 @@ function App() {
   }
 
   function closeLearnSession() {
-    const hasProgress = Boolean(learnQuestion || learnResult || learnQuestionCount > 0 || learnSessionDone);
-    if (hasProgress && !window.confirm("Закрыть практику? Текущий прогресс в этой сессии сбросится.")) {
+    const hasProgress = Boolean(
+      learnQuestion || learnResult || learnQuestionCount > 0 || learnSessionDone
+    );
+    if (
+      hasProgress &&
+      !window.confirm(
+        "Закрыть практику? Текущий прогресс в этой сессии сбросится."
+      )
+    ) {
       return;
     }
     if (isRecording) {
@@ -2048,7 +2270,12 @@ function App() {
 
   function closeIrregularTest() {
     const hasProgress = Boolean(irregularQuestion || irregularResult);
-    if (hasProgress && !window.confirm("Закрыть тест по глаголам? Текущий прогресс в этом экране сбросится.")) {
+    if (
+      hasProgress &&
+      !window.confirm(
+        "Закрыть тест по глаголам? Текущий прогресс в этом экране сбросится."
+      )
+    ) {
       return;
     }
     setIrregularQuestion(null);
@@ -2136,9 +2363,17 @@ function App() {
 
   function renderLearn() {
     const hasWordsToLearn = (auth.progress?.learning ?? 0) > 0;
-    const hasActiveIrregularTest = supportsIrregularPractice && learnPanel === "irregular" && irregularMode === "test";
-    const hasActiveAlphabetTest = learnPanel === "alphabet" && alphabetMode === "test";
-    const showLearnOverview = !["irregular", "alphabet"].includes(learnPanel) && !learnQuestion && !hasActiveIrregularTest && !hasActiveAlphabetTest;
+    const hasActiveIrregularTest =
+      supportsIrregularPractice &&
+      learnPanel === "irregular" &&
+      irregularMode === "test";
+    const hasActiveAlphabetTest =
+      learnPanel === "alphabet" && alphabetMode === "test";
+    const showLearnOverview =
+      !["irregular", "alphabet"].includes(learnPanel) &&
+      !learnQuestion &&
+      !hasActiveIrregularTest &&
+      !hasActiveAlphabetTest;
 
     if (showLearnOverview) {
       return (
@@ -2152,23 +2387,32 @@ function App() {
                   {learnSessionDone
                     ? getSessionPraise(learnCorrectCount, learnQuestionCount)
                     : hasWordsToLearn
-                    ? "Случайные задания по словам, которые ты сейчас изучаешь."
-                    : "Сейчас нет подходящих заданий, потому что у тебя пока нет новых слов для изучения."}
+                      ? "Случайные задания по словам, которые ты сейчас изучаешь."
+                      : "Сейчас нет подходящих заданий, потому что у тебя пока нет новых слов для изучения."}
                 </p>
               </div>
             </div>
             {learnSessionDone ? (
               <div className="inline-note status-note">
-                <strong>Сессия завершена.</strong> Верно: {learnCorrectCount} из {learnQuestionCount || learnSessionLimit}.
+                <strong>Сессия завершена.</strong> Верно: {learnCorrectCount} из{" "}
+                {learnQuestionCount || learnSessionLimit}.
               </div>
             ) : null}
             <div className="button-row">
               {hasWordsToLearn ? (
-                <button className="primary-button" type="button" onClick={() => void loadLearningData()}>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => void loadLearningData()}
+                >
                   {learnSessionDone ? "Начать новую сессию" : "Начать сессию"}
                 </button>
               ) : null}
-              <button className="secondary-button" type="button" onClick={openPacks}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={openPacks}
+              >
                 ＋ Добавить слова
               </button>
             </div>
@@ -2180,14 +2424,20 @@ function App() {
                 <div>
                   <p className="overline">Irregular</p>
                   <h3>Неправильные глаголы 📘</h3>
-                  <p className="lead compact">Можно быстро повторять формы или пройти отдельный тест.</p>
+                  <p className="lead compact">
+                    Можно быстро повторять формы или пройти отдельный тест.
+                  </p>
                 </div>
               </div>
               <div className="segment-wrap main-segment">
                 {IRREGULAR_MODES.map((item) => (
                   <button
                     key={item.id}
-                    className={irregularMode === item.id ? "segment-button active" : "segment-button"}
+                    className={
+                      irregularMode === item.id
+                        ? "segment-button active"
+                        : "segment-button"
+                    }
                     type="button"
                     onClick={() => {
                       setLearnPanel("irregular");
@@ -2209,14 +2459,20 @@ function App() {
               <div>
                 <p className="overline">Alphabet</p>
                 <h3>Алфавит 🔤</h3>
-                <p className="lead compact">Буквы, названия и транскрипция для текущего языка обучения.</p>
+                <p className="lead compact">
+                  Буквы, названия и транскрипция для текущего языка обучения.
+                </p>
               </div>
             </div>
             <div className="segment-wrap main-segment">
               {ALPHABET_MODES.map((item) => (
                 <button
                   key={item.id}
-                  className={alphabetMode === item.id ? "segment-button active" : "segment-button"}
+                  className={
+                    alphabetMode === item.id
+                      ? "segment-button active"
+                      : "segment-button"
+                  }
                   type="button"
                   onClick={() => {
                     setLearnPanel("alphabet");
@@ -2247,7 +2503,9 @@ function App() {
             onAdvance={() => void advanceIrregularTest()}
             onAnswer={(answer) => void handleIrregularAnswer(answer)}
             onNextPage={() => setIrregularPage((value) => value + 1)}
-            onPreviousPage={() => setIrregularPage((value) => Math.max(0, value - 1))}
+            onPreviousPage={() =>
+              setIrregularPage((value) => Math.max(0, value - 1))
+            }
             onSkip={skipIrregularQuestion}
             onStartNewSession={() => void startIrregularTest()}
             question={irregularQuestion}
@@ -2275,7 +2533,9 @@ function App() {
             onAnswer={(answer) => void handleAlphabetAnswer(answer)}
             onNextPage={() => setAlphabetPage((value) => value + 1)}
             onPlayAudio={(symbol) => void playAlphabetAudio(symbol)}
-            onPreviousPage={() => setAlphabetPage((value) => Math.max(0, value - 1))}
+            onPreviousPage={() =>
+              setAlphabetPage((value) => Math.max(0, value - 1))
+            }
             onSkip={skipAlphabetQuestion}
             onStartNewSession={() => void startAlphabetTest()}
             question={alphabetQuestion}
@@ -2288,42 +2548,47 @@ function App() {
       );
     }
 
-    const statusClass = learnResult?.status === "correct"
-      ? "result-box good"
-      : learnResult?.status === "close"
-        ? "result-box"
-        : "result-box bad";
+    const statusClass =
+      learnResult?.status === "correct"
+        ? "result-box good"
+        : learnResult?.status === "close"
+          ? "result-box"
+          : "result-box bad";
 
     const isChoice = learnQuestion.kind === "choice";
     const isListening = learnQuestion.kind === "listening";
     const isSpeaking = learnQuestion.kind === "speaking";
     const promptTitle = isChoice
-      ? (learnQuestion.exercise_type === "practice_ru_en" ? learnQuestion.item.translation : learnQuestion.item.word)
+      ? learnQuestion.exercise_type === "practice_ru_en"
+        ? learnQuestion.item.translation
+        : learnQuestion.item.word
       : isListening
-        ? (learnQuestion.exercise_type === "listening_word" ? "Введите слово 🎧" : "Введите перевод 🎧")
+        ? learnQuestion.exercise_type === "listening_word"
+          ? "Введите слово 🎧"
+          : "Введите перевод 🎧"
         : learnQuestion.item.word;
     const promptTitleDisplay = formatDisplayAnswer(
       promptTitle,
-      learnQuestion.item?.course_code,
+      learnQuestion.item?.course_code
     );
     const learnCorrectAnswerText = formatDisplayAnswer(
       formatLearnCorrectAnswer(learnQuestion, learnResult),
-      learnQuestion.item?.course_code,
+      learnQuestion.item?.course_code
     );
     const learnPointsEarned = learnResult?.points_earned || 0;
     const learnResultText = learnResult
       ? (() => {
-        if (learnResult.skipped) {
+          if (learnResult.skipped) {
+            return `Правильный ответ: ${learnCorrectAnswerText}`;
+          }
+          if (learnResult.correct && learnResult.accepted_with_typo) {
+            return `Верно, засчитано с опечаткой. Правильно пишется: ${learnCorrectAnswerText}`;
+          }
+          if (learnResult.correct) {
+            return "Верно";
+          }
           return `Правильный ответ: ${learnCorrectAnswerText}`;
-        }
-        if (learnResult.correct && learnResult.accepted_with_typo) {
-          return `Верно, засчитано с опечаткой. Правильно пишется: ${learnCorrectAnswerText}`;
-        }
-        if (learnResult.correct) {
-          return "Верно";
-        }
-        return `Правильный ответ: ${learnCorrectAnswerText}`;
-      })()
+        })()
       : "";
 
     return (
@@ -2334,12 +2599,16 @@ function App() {
               <p className="overline">Practice</p>
               <h3>Учить слова 🎯</h3>
             </div>
-            <span className="status-tag">{learnQuestionCount + 1} / {learnSessionLimit}</span>
+            <span className="status-tag">
+              {learnQuestionCount + 1} / {learnSessionLimit}
+            </span>
           </div>
           <div className="prompt-card">
             <strong>{promptTitleDisplay}</strong>
             {isSpeaking && learnQuestion.item?.transcription ? (
-              <p className="transcription">/{learnQuestion.item.transcription}/</p>
+              <p className="transcription">
+                /{learnQuestion.item.transcription}/
+              </p>
             ) : null}
             <span>{learnQuestion.prompt}</span>
             <span className="study-hint">{learnQuestion.exercise_label}</span>
@@ -2355,33 +2624,68 @@ function App() {
                     disabled={Boolean(learnResult)}
                     onClick={() => void handleLearnChoiceAnswer(option)}
                   >
-                    {formatDisplayAnswer(option, learnQuestion.item?.course_code)}
+                    {formatDisplayAnswer(
+                      option,
+                      learnQuestion.item?.course_code
+                    )}
                   </button>
                 ))}
               </div>
-              <button className="secondary-button" type="button" onClick={revealLearnAnswer} disabled={Boolean(learnResult)}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={revealLearnAnswer}
+                disabled={Boolean(learnResult)}
+              >
                 Пропустить
               </button>
             </div>
           ) : null}
           {isListening ? (
-            <form className="stack-form quiz-panel-tight" onSubmit={handleLearnListeningSubmit}>
-              <audio controls src={`/api/audio/${learnQuestion.item.id}?v=${audioRevision}`} className="audio-player" />
+            <form
+              className="stack-form quiz-panel-tight"
+              onSubmit={handleLearnListeningSubmit}
+            >
+              <audio
+                controls
+                src={`/api/audio/${learnQuestion.item.id}?v=${audioRevision}`}
+                className="audio-player"
+              />
               <div className="button-row practice-filter-row">
                 <button
-                  className={listeningTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
+                  className={
+                    listeningTemporarilyDisabled
+                      ? "secondary-button active-toggle-button"
+                      : "secondary-button"
+                  }
                   type="button"
-                  onClick={() => void setTemporaryPracticePause("listening", !listeningTemporarilyDisabled)}
+                  onClick={() =>
+                    void setTemporaryPracticePause(
+                      "listening",
+                      !listeningTemporarilyDisabled
+                    )
+                  }
                 >
                   {listeningTemporarilyDisabled
                     ? `Слушать снова${listeningPauseLabel ? ` · ${listeningPauseLabel}` : ""}`
                     : "Не могу слушать · 15 мин"}
                 </button>
               </div>
-              <input value={learnTextAnswer} onChange={(event) => setLearnTextAnswer(event.target.value)} placeholder="Твой ответ" />
+              <input
+                value={learnTextAnswer}
+                onChange={(event) => setLearnTextAnswer(event.target.value)}
+                placeholder="Твой ответ"
+              />
               <div className="button-row">
-                <button className="primary-button" type="submit">Проверить</button>
-                <button className="secondary-button" type="button" onClick={revealLearnAnswer} disabled={Boolean(learnResult)}>
+                <button className="primary-button" type="submit">
+                  Проверить
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={revealLearnAnswer}
+                  disabled={Boolean(learnResult)}
+                >
                   Пропустить
                 </button>
               </div>
@@ -2389,12 +2693,25 @@ function App() {
           ) : null}
           {isSpeaking ? (
             <div className="quiz-panel quiz-panel-tight">
-              <audio controls src={`/api/audio/${learnQuestion.item.id}?v=${audioRevision}`} className="audio-player" />
+              <audio
+                controls
+                src={`/api/audio/${learnQuestion.item.id}?v=${audioRevision}`}
+                className="audio-player"
+              />
               <div className="button-row practice-filter-row">
                 <button
-                  className={speakingTemporarilyDisabled ? "secondary-button active-toggle-button" : "secondary-button"}
+                  className={
+                    speakingTemporarilyDisabled
+                      ? "secondary-button active-toggle-button"
+                      : "secondary-button"
+                  }
                   type="button"
-                  onClick={() => void setTemporaryPracticePause("speaking", !speakingTemporarilyDisabled)}
+                  onClick={() =>
+                    void setTemporaryPracticePause(
+                      "speaking",
+                      !speakingTemporarilyDisabled
+                    )
+                  }
                 >
                   {speakingTemporarilyDisabled
                     ? `Говорить снова${speakingPauseLabel ? ` · ${speakingPauseLabel}` : ""}`
@@ -2403,14 +2720,23 @@ function App() {
               </div>
               <div className="button-row">
                 <button
-                  className={isRecording ? "secondary-button" : "primary-button"}
+                  className={
+                    isRecording ? "secondary-button" : "primary-button"
+                  }
                   type="button"
-                  onClick={isRecording ? stopSpeakingRecording : startSpeakingRecording}
+                  onClick={
+                    isRecording ? stopSpeakingRecording : startSpeakingRecording
+                  }
                   disabled={busy || !canRecordSpeech}
                 >
                   {isRecording ? "⏹️ Остановить запись" : "🎙️ Начать запись"}
                 </button>
-                <button className="secondary-button" type="button" onClick={revealLearnAnswer} disabled={Boolean(learnResult)}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={revealLearnAnswer}
+                  disabled={Boolean(learnResult)}
+                >
                   Пропустить
                 </button>
               </div>
@@ -2426,7 +2752,15 @@ function App() {
             </div>
           ) : null}
           {learnResult ? (
-            <div className={isSpeaking ? statusClass : learnResult.correct ? "result-box good" : "result-box bad"}>
+            <div
+              className={
+                isSpeaking
+                  ? statusClass
+                  : learnResult.correct
+                    ? "result-box good"
+                    : "result-box bad"
+              }
+            >
               <div className="result-copy">
                 <span>
                   {isSpeaking
@@ -2437,11 +2771,16 @@ function App() {
                 </span>
                 {learnPointsEarned ? (
                   <span className="points-burst">
-                    ✨ +{learnPointsEarned} {formatPointsLabel(learnPointsEarned)}
+                    ✨ +{learnPointsEarned}{" "}
+                    {formatPointsLabel(learnPointsEarned)}
                   </span>
                 ) : null}
               </div>
-              <button className="secondary-button" type="button" onClick={() => void advanceLearnSession()}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void advanceLearnSession()}
+              >
                 Дальше
               </button>
             </div>
@@ -2455,14 +2794,41 @@ function App() {
     return (
       <section className="screen-stack">
         {showLibraryAdd ? (
-          renderAddWords()
+          <AddWordsScreen
+            activeStudiedLanguage={activeStudiedLanguage}
+            addBusy={addBusy}
+            addBusyLabel={addBusyLabel}
+            addDraft={addDraft}
+            addDraftStep={addDraftStep}
+            addDrafts={addDrafts}
+            addText={addText}
+            addTranslationInput={addTranslationInput}
+            batchTranslations={batchTranslations}
+            closeAddWords={closeAddWords}
+            confirmDraftTranslation={confirmDraftTranslation}
+            draftImageVersions={draftImageVersions}
+            formatDisplayLine={formatDisplayLine}
+            handleAddWords={handleAddWords}
+            openPacks={openPacks}
+            regenerateBatchDraftImage={regenerateBatchDraftImage}
+            regenerateDraftImage={regenerateDraftImage}
+            saveBatchDrafts={saveBatchDrafts}
+            saveDraft={saveDraft}
+            setAddText={setAddText}
+            setAddTranslationInput={setAddTranslationInput}
+            setBatchTranslations={setBatchTranslations}
+          />
         ) : (
           <>
             <div className="segment-wrap main-segment">
               {LIBRARY_MODES.map((item) => (
                 <button
                   key={item.id}
-                  className={libraryMode === item.id ? "segment-button active" : "segment-button"}
+                  className={
+                    libraryMode === item.id
+                      ? "segment-button active"
+                      : "segment-button"
+                  }
                   type="button"
                   onClick={() => setLibraryMode(item.id)}
                 >
@@ -2527,205 +2893,6 @@ function App() {
     );
   }
 
-  function renderAddWords() {
-    const isTranslationStep = addDraftStep === "confirm_translation";
-    const isImageStep = addDraftStep === "confirm_image";
-    const isBatchReview = addDraftStep === "batch_review";
-    const addWordPlaceholder =
-      activeStudiedLanguage === "ka"
-        ? "გამარჯობა\nმადლობა\nგზა - дорога"
-        : "stare\nfigure out\ntravel - путешествие";
-    const addWordHint =
-      activeStudiedLanguage === "ka"
-        ? "По одному слову или фразе на строку. Перевод можно указать через дефис."
-        : "По одному слову или фразе на строку. Перевод можно указать через дефис.";
-
-    return (
-      <section className="glass-card compact-section add-wizard">
-        <div className="section-head">
-          <div>
-            <p className="overline">Добавление</p>
-            <h3>{isBatchReview ? "Проверить слова ✨" : "Добавить слово ✨"}</h3>
-            <p className="lead compact">
-              {isBatchReview
-                ? "Проверь переводы. Фото загружаются автоматически и не тормозят добавление."
-                : `До ${MAX_ADD_BATCH_WORDS} слов или фраз за раз.`}
-            </p>
-          </div>
-          <button className="secondary-button" type="button" onClick={closeAddWords} disabled={addBusy}>
-            Закрыть
-          </button>
-        </div>
-        <div className="wizard-steps">
-          <span className={addDraftStep === "input" ? "mode-pill active-pill" : "mode-pill"}>1. Слово</span>
-          <span className={isTranslationStep || isBatchReview ? "mode-pill active-pill" : "mode-pill"}>2. Перевод</span>
-          <span className={isImageStep || isBatchReview ? "mode-pill active-pill" : "mode-pill"}>3. Картинка</span>
-        </div>
-
-        {addBusyLabel ? <div className="inline-note status-note"><strong>{addBusyLabel}</strong></div> : null}
-
-        {!addDraft && !isBatchReview ? (
-          <div className="stack-form">
-            <form className="stack-form" onSubmit={handleAddWords}>
-              <div className="inline-note">
-                {addWordHint}
-              </div>
-              <textarea
-                rows={4}
-                value={addText}
-                onChange={(event) => setAddText(event.target.value)}
-                placeholder={addWordPlaceholder}
-              />
-              <button className="primary-button" type="submit" disabled={addBusy}>
-                {addBusy ? "Обрабатываем..." : "Добавить слово"}
-              </button>
-            </form>
-            <button className="secondary-button" type="button" onClick={openPacks} disabled={addBusy}>
-              Открыть наборы
-            </button>
-          </div>
-        ) : null}
-
-        {isBatchReview && addDrafts.length ? (
-          <div className="word-list batch-draft-list">
-            <div className="inline-note status-note">
-              <strong>Можно сохранять слова сразу.</strong> Если часть фото ещё не появилась, они догрузятся автоматически позже и подтянутся в карточках.
-            </div>
-            {addDrafts.map((draft) => (
-              <article className="glass-card word-item" key={draft.id}>
-                <div className="word-item-head">
-                  <div>
-                    <strong>{draft.word}</strong>
-                    {formatDisplayLine(draft.word, draft.course_code).secondary ? (
-                      <p className="word-item-romanization">
-                        {formatDisplayLine(draft.word, draft.course_code).secondary}
-                      </p>
-                    ) : null}
-                    <p>{draft.example}</p>
-                  </div>
-                  <span className="status-tag">{draft.part_of_speech || "word"}</span>
-                </div>
-                <input
-                  value={batchTranslations[draft.id] ?? draft.translation}
-                  onChange={(event) => setBatchTranslations((current) => ({ ...current, [draft.id]: event.target.value }))}
-                />
-                {draft.has_image && draftImageVersions[draft.id] === draft.updated_at ? (
-                  <div className="word-image-preview">
-                    <img
-                      key={draftImageVersions[draft.id]}
-                      src={`/api/draft-image/${draft.id}?v=${draftImageVersions[draft.id]}`}
-                      alt={draft.word}
-                    />
-                  </div>
-                ) : (
-                  <div className="empty-card">
-                    {draft.image_generation_in_progress
-                      ? "Фото готовится автоматически. Можно не ждать и сохранить слова сразу."
-                      : draft.has_image
-                        ? "Фото уже почти готово к показу..."
-                        : "Фото появится автоматически позже."}
-                  </div>
-                )}
-                <div className="button-row">
-                  {draft.has_image ? (
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => regenerateBatchDraftImage(draft.id)}
-                      disabled={addBusy}
-                    >
-                      ♻️ Другое фото
-                    </button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-            <div className="button-row batch-save-row">
-              <button className="primary-button" type="button" onClick={saveBatchDrafts} disabled={addBusy}>
-                {addBusy ? "Сохраняем..." : "Сохранить всё"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {addDraft && isTranslationStep ? (
-          <div className="draft-card">
-            <div className="prompt-card">
-              <strong>{addDraft.word}</strong>
-              {formatDisplayLine(addDraft.word, addDraft.course_code).secondary ? (
-                <span className="word-romanization inline-romanization">
-                  {formatDisplayLine(addDraft.word, addDraft.course_code).secondary}
-                </span>
-              ) : null}
-              <span>{addDraft.part_of_speech || "word"}</span>
-            </div>
-            <div className="stack-form">
-              <label className="stack-label">
-                <span>Подтверди перевод</span>
-                <input value={addTranslationInput} onChange={(event) => setAddTranslationInput(event.target.value)} placeholder="Перевод" />
-              </label>
-              <div className="button-row">
-                <button className="primary-button" type="button" onClick={confirmDraftTranslation} disabled={addBusy}>
-                  {addBusy ? "Проверяем..." : "Подтвердить перевод"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {addDraft && isImageStep ? (
-          <div className="draft-card">
-            <div className="draft-preview-grid">
-              <div className="study-main">
-                {addDraft.has_image && draftImageVersions[addDraft.id] === addDraft.updated_at ? (
-                  <div className="card-visual">
-                    <img
-                      key={draftImageVersions[addDraft.id]}
-                      src={`/api/draft-image/${addDraft.id}?v=${draftImageVersions[addDraft.id]}`}
-                      alt={addDraft.word}
-                    />
-                  </div>
-                ) : (
-                  <div className="empty-card">
-                    {addDraft.image_generation_in_progress
-                      ? "Фото готовится автоматически. Можно сохранить слово, оно появится позже."
-                      : addDraft.has_image
-                        ? "Фото уже почти готово к показу..."
-                      : "Фото появится автоматически позже."}
-                  </div>
-                )}
-              </div>
-              <div className="study-side">
-                <strong>{addDraft.word}</strong>
-                {formatDisplayLine(addDraft.word, addDraft.course_code).secondary ? (
-                  <span className="word-romanization inline-romanization">
-                    {formatDisplayLine(addDraft.word, addDraft.course_code).secondary}
-                  </span>
-                ) : null}
-                <span>{addTranslationInput || addDraft.translation}</span>
-                <span>{addDraft.part_of_speech || "word"}</span>
-                {addDraft.example ? <span>{addDraft.example}</span> : null}
-                <div className="button-row draft-action-row">
-                  <button className="primary-button" type="button" onClick={() => saveDraft(true)} disabled={addBusy}>
-                    {addBusy ? "Сохраняем..." : "Сохранить"}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={regenerateDraftImage}
-                    disabled={addBusy}
-                  >
-                    Другое изображение
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </section>
-    );
-  }
-
   function renderMore() {
     return (
       <SettingsScreen
@@ -2733,15 +2900,17 @@ function App() {
         settings={settings}
         uploadingAvatar={uploadingAvatar}
         onDeleteAvatar={() => void deleteAvatar()}
-        onStartCheckout={(period) => void startPremiumCheckout(period, "settings")}
+        onStartCheckout={(period) =>
+          void startPremiumCheckout(period, "settings")
+        }
         onSave={saveSettings}
         onUploadAvatar={(file) => void uploadAvatar(file)}
         onChange={(field, value) =>
           setSettings((current) => {
             if (
-              field === "active_studied_language"
-              && value === "ka"
-              && !current.has_selected_georgian_display_mode
+              field === "active_studied_language" &&
+              value === "ka" &&
+              !current.has_selected_georgian_display_mode
             ) {
               setGeorgianDisplayModePrompt({
                 source: "settings",
@@ -2802,7 +2971,9 @@ function App() {
 
   if (!auth.authenticated) {
     return (
-      <div className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}>
+      <div
+        className={`app-shell auth-layout${isKeyboardOpen ? " keyboard-open" : ""}`}
+      >
         <main className="auth-stage">
           {notice ? <div className="notice">{notice.message}</div> : null}
           <AuthPanel
@@ -2816,7 +2987,11 @@ function App() {
     );
   }
 
-  if (georgianDisplayModePrompt || needsStudiedLanguageSelection || needsOnboarding) {
+  if (
+    georgianDisplayModePrompt ||
+    needsStudiedLanguageSelection ||
+    needsOnboarding
+  ) {
     return (
       <OnboardingGate
         activeLanguageLabel={activeLanguageLabel}
@@ -2834,12 +3009,16 @@ function App() {
         onboardingStep={onboardingStep}
         onCancelGeorgianDisplayMode={cancelGeorgianDisplayModePrompt}
         onCompleteOnboarding={(options) => void completeOnboarding(options)}
-        onConfirmGeorgianDisplayMode={(mode) => void confirmGeorgianDisplayMode(mode)}
+        onConfirmGeorgianDisplayMode={(mode) =>
+          void confirmGeorgianDisplayMode(mode)
+        }
         onSelectLanguage={(courseCode) =>
           void selectStudiedLanguage(courseCode, { source: "onboarding" })
         }
         onSetOnboardingStep={setOnboardingStep}
-        onStartCheckout={(period) => void startPremiumCheckout(period, "onboarding")}
+        onStartCheckout={(period) =>
+          void startPremiumCheckout(period, "onboarding")
+        }
       />
     );
   }
@@ -2850,13 +3029,17 @@ function App() {
         busy={busy}
         currentTitle={currentTitle}
         isMiniApp={isMiniApp}
-        onBack={learnPanel === "alphabet" ? backFromAlphabetReview : backFromIrregularReview}
+        onBack={
+          learnPanel === "alphabet"
+            ? backFromAlphabetReview
+            : backFromIrregularReview
+        }
         onClose={
           learnPanel === "irregular" && irregularMode === "test"
             ? closeIrregularTest
             : learnPanel === "alphabet" && alphabetMode === "test"
               ? closeAlphabetTest
-            : closeLearnSession
+              : closeLearnSession
         }
         onLogout={logoutWeb}
         onOpenProfile={() => setPrimaryTab("more")}
@@ -2891,13 +3074,17 @@ function App() {
           currentTitle={currentTitle}
           extraClass="desktop-scroll-topbar"
           isMiniApp={isMiniApp}
-          onBack={learnPanel === "alphabet" ? backFromAlphabetReview : backFromIrregularReview}
+          onBack={
+            learnPanel === "alphabet"
+              ? backFromAlphabetReview
+              : backFromIrregularReview
+          }
           onClose={
             learnPanel === "irregular" && irregularMode === "test"
               ? closeIrregularTest
               : learnPanel === "alphabet" && alphabetMode === "test"
                 ? closeAlphabetTest
-              : closeLearnSession
+                : closeLearnSession
           }
           onLogout={logoutWeb}
           onOpenProfile={() => setPrimaryTab("more")}
