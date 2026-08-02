@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
+from .domain.course_settings import normalize_course_code, normalize_word_priority
 from .domain.word_parsing import parse_word_batch
 from .application.streaks import (
     STREAK_QUALIFYING_CORRECT_ANSWERS as _STREAK_QUALIFYING_CORRECT_ANSWERS,
@@ -34,8 +35,6 @@ from .jobs import enqueue_job
 from .alphabets import get_alphabet, get_random_alphabet_options
 from .models import (
     AddWordDraft,
-    DEFAULT_STUDIED_LANGUAGE,
-    DEFAULT_WORD_PRIORITY,
     IrregularVerbProgress,
     IssuedLearningQuestion,
     PackPreparedWord,
@@ -43,7 +42,6 @@ from .models import (
     TelegramUser,
     UserCourseProgress,
     VocabularyItem,
-    WORD_PRIORITY_CHOICES,
 )
 from .monetization import get_monetization_payload
 from .application.billing import (
@@ -104,6 +102,14 @@ from .integrations.card_media import (
     optimize_image_to_webp as _optimize_image_to_webp,  # noqa: F401
     preferred_served_image as _preferred_served_image,  # noqa: F401
     schedule_image_optimization as _schedule_image_optimization,  # noqa: F401
+)
+from .selectors.learning import (
+    get_learned_words,
+    get_ordered_unlearned_words,  # noqa: F401
+    get_priority_study_words,  # noqa: F401
+    get_unlearned_words,
+    ordered_new_words_queryset as _ordered_new_words_queryset,
+    ordered_review_words_queryset as _ordered_review_words_queryset,  # noqa: F401
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -190,18 +196,6 @@ def is_prepared_pack_item_ready(item: PackPreparedWord, course_code: str) -> boo
         and item.image_path
         and example_matches_course(course_code, item.example)
     )
-
-
-def normalize_course_code(course_code: str | None) -> str:
-    value = (course_code or DEFAULT_STUDIED_LANGUAGE).strip().lower()
-    supported = {code for code, _ in STUDIED_LANGUAGE_CHOICES}
-    return value if value in supported else DEFAULT_STUDIED_LANGUAGE
-
-
-def normalize_word_priority(value: str | None) -> str:
-    allowed = {code for code, _ in WORD_PRIORITY_CHOICES}
-    normalized = (value or DEFAULT_WORD_PRIORITY).strip().lower()
-    return normalized if normalized in allowed else DEFAULT_WORD_PRIORITY
 
 
 def _normalize_pause_until(value: datetime | None) -> datetime | None:
@@ -2099,113 +2093,6 @@ def regenerate_word_image(item: VocabularyItem) -> VocabularyItem:
     item.image_path = generate_card_image(visual_prompt, slug)
     item.save(update_fields=["image_path", "image_regeneration_count", "updated_at"])
     return item
-
-
-def get_ordered_unlearned_words(
-    user: TelegramUser,
-    count: int = 10,
-    exclude_ids: Iterable[int] | None = None,
-) -> list[VocabularyItem]:
-    return get_priority_study_words(user, count=count, exclude_ids=exclude_ids)
-
-
-def _ordered_new_words_queryset(
-    user: TelegramUser,
-    *,
-    exclude_ids: Iterable[int] | None = None,
-    part_of_speech: str | None = None,
-):
-    active_course = get_active_course_code(user)
-    qs = VocabularyItem.objects.filter(
-        user=user, course_code=active_course, is_learned=False
-    ).exclude(id__in=list(exclude_ids or []))
-    if part_of_speech:
-        qs = qs.filter(part_of_speech=part_of_speech)
-    if normalize_word_priority(getattr(user, "word_priority", None)) == "new_first":
-        return qs.order_by("-created_at", "-id")
-    return qs.order_by("created_at", "id")
-
-
-def _ordered_review_words_queryset(
-    user: TelegramUser,
-    *,
-    exclude_ids: Iterable[int] | None = None,
-    part_of_speech: str | None = None,
-):
-    if not user.enable_review_old_words:
-        return VocabularyItem.objects.none()
-    active_course = get_active_course_code(user)
-    threshold = now() - timedelta(days=user.days_before_review)
-    qs = VocabularyItem.objects.filter(
-        user=user,
-        course_code=active_course,
-        is_learned=True,
-        updated_at__lt=threshold,
-    ).exclude(id__in=list(exclude_ids or []))
-    if part_of_speech:
-        qs = qs.filter(part_of_speech=part_of_speech)
-    return qs.order_by("updated_at", "id")
-
-
-def get_priority_study_words(
-    user: TelegramUser,
-    *,
-    count: int = 10,
-    exclude_ids: Iterable[int] | None = None,
-    part_of_speech: str | None = None,
-) -> list[VocabularyItem]:
-    exclude_ids = list(exclude_ids or [])
-    word_priority = normalize_word_priority(getattr(user, "word_priority", None))
-    new_words = list(
-        _ordered_new_words_queryset(
-            user, exclude_ids=exclude_ids, part_of_speech=part_of_speech
-        )[:count]
-    )
-    if word_priority == "new_first":
-        if len(new_words) >= count:
-            return new_words[:count]
-        seen = {item.id for item in new_words}
-        review_words = [
-            item
-            for item in _ordered_review_words_queryset(
-                user,
-                exclude_ids=[*exclude_ids, *seen],
-                part_of_speech=part_of_speech,
-            )[: max(0, count - len(new_words))]
-        ]
-        return [*new_words, *review_words][:count]
-
-    review_words = list(
-        _ordered_review_words_queryset(
-            user, exclude_ids=exclude_ids, part_of_speech=part_of_speech
-        )[:count]
-    )
-    if len(review_words) >= count:
-        return review_words[:count]
-    seen = {item.id for item in review_words}
-    new_tail = [
-        item
-        for item in _ordered_new_words_queryset(
-            user,
-            exclude_ids=[*exclude_ids, *seen],
-            part_of_speech=part_of_speech,
-        )[: max(0, count - len(review_words))]
-    ]
-    return [*review_words, *new_tail][:count]
-
-
-def get_unlearned_words(
-    user: TelegramUser, count: int = 10, part_of_speech: str | None = None
-) -> list[VocabularyItem]:
-    return get_priority_study_words(user, count=count, part_of_speech=part_of_speech)
-
-
-def get_learned_words(user: TelegramUser) -> list[VocabularyItem]:
-    return list(
-        VocabularyItem.objects.filter(
-            user=user, course_code=get_active_course_code(user), is_learned=True
-        ).order_by("updated_at", "id")
-    )
 
 
 def update_word_progress(
