@@ -12,12 +12,7 @@ import {
 import AuthPanel from "./components/AuthPanel";
 import AppTopbar from "./components/AppTopbar";
 import BottomNav from "./components/BottomNav";
-import {
-  ALPHABET_MODES,
-  IRREGULAR_MODES,
-  LIBRARY_MODES,
-  MAX_ADD_BATCH_WORDS,
-} from "./constants";
+import { LIBRARY_MODES, MAX_ADD_BATCH_WORDS } from "./constants";
 import { api, reportClientError } from "./lib/api";
 import {
   formatLearnCorrectAnswer,
@@ -39,11 +34,11 @@ import CardsScreen from "./screens/CardsScreen";
 import PacksScreen from "./screens/PacksScreen";
 import WordsListScreen from "./screens/WordsListScreen";
 import AddWordsScreen from "./screens/AddWordsScreen";
+import LearningOverviewScreen from "./screens/LearningOverviewScreen";
 import {
   AlphabetPracticeScreen,
   IrregularPracticeScreen,
 } from "./screens/PracticeSupplementScreens";
-
 
 async function preloadImage(src, attempts = 4) {
   if (!src) {
@@ -2267,117 +2262,33 @@ function App() {
 
     if (showLearnOverview) {
       return (
-        <div className="screen-stack">
-          <section className="glass-card compact-section practice-overview-card">
-            <div className="section-head">
-              <div>
-                <p className="overline">Practice</p>
-                <h3>Учить слова 🎯</h3>
-                <p className="lead compact">
-                  {learnSessionDone
-                    ? getSessionPraise(learnCorrectCount, learnQuestionCount)
-                    : hasWordsToLearn
-                      ? "Случайные задания по словам, которые ты сейчас изучаешь."
-                      : "Сейчас нет подходящих заданий, потому что у тебя пока нет новых слов для изучения."}
-                </p>
-              </div>
-            </div>
-            {learnSessionDone ? (
-              <div className="inline-note status-note">
-                <strong>Сессия завершена.</strong> Верно: {learnCorrectCount} из{" "}
-                {learnQuestionCount || learnSessionLimit}.
-              </div>
-            ) : null}
-            <div className="button-row">
-              {hasWordsToLearn ? (
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={() => void loadLearningData()}
-                >
-                  {learnSessionDone ? "Начать новую сессию" : "Начать сессию"}
-                </button>
-              ) : null}
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={openPacks}
-              >
-                ＋ Добавить слова
-              </button>
-            </div>
-          </section>
-
-          {supportsIrregularPractice ? (
-            <section className="glass-card compact-section practice-overview-card">
-              <div className="section-head">
-                <div>
-                  <p className="overline">Irregular</p>
-                  <h3>Неправильные глаголы 📘</h3>
-                  <p className="lead compact">
-                    Можно быстро повторять формы или пройти отдельный тест.
-                  </p>
-                </div>
-              </div>
-              <div className="segment-wrap main-segment">
-                {IRREGULAR_MODES.map((item) => (
-                  <button
-                    key={item.id}
-                    className={
-                      irregularMode === item.id
-                        ? "segment-button active"
-                        : "segment-button"
-                    }
-                    type="button"
-                    onClick={() => {
-                      setLearnPanel("irregular");
-                      setIrregularMode(item.id);
-                      if (item.id === "test" && !irregularQuestion) {
-                        void startIrregularTest();
-                      }
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <section className="glass-card compact-section practice-overview-card">
-            <div className="section-head">
-              <div>
-                <p className="overline">Alphabet</p>
-                <h3>Алфавит 🔤</h3>
-                <p className="lead compact">
-                  Буквы, названия и транскрипция для текущего языка обучения.
-                </p>
-              </div>
-            </div>
-            <div className="segment-wrap main-segment">
-              {ALPHABET_MODES.map((item) => (
-                <button
-                  key={item.id}
-                  className={
-                    alphabetMode === item.id
-                      ? "segment-button active"
-                      : "segment-button"
-                  }
-                  type="button"
-                  onClick={() => {
-                    setLearnPanel("alphabet");
-                    setAlphabetMode(item.id);
-                    if (item.id === "test" && !alphabetQuestion) {
-                      void startAlphabetTest();
-                    }
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </section>
-        </div>
+        <LearningOverviewScreen
+          alphabetMode={alphabetMode}
+          getSessionPraise={getSessionPraise}
+          hasWordsToLearn={hasWordsToLearn}
+          irregularMode={irregularMode}
+          learnCorrectCount={learnCorrectCount}
+          learnQuestionCount={learnQuestionCount}
+          learnSessionDone={learnSessionDone}
+          learnSessionLimit={learnSessionLimit}
+          onOpenPacks={openPacks}
+          onSelectAlphabetMode={(mode) => {
+            setLearnPanel("alphabet");
+            setAlphabetMode(mode);
+            if (mode === "test" && !alphabetQuestion) {
+              void startAlphabetTest();
+            }
+          }}
+          onSelectIrregularMode={(mode) => {
+            setLearnPanel("irregular");
+            setIrregularMode(mode);
+            if (mode === "test" && !irregularQuestion) {
+              void startIrregularTest();
+            }
+          }}
+          onStartLearning={() => void loadLearningData()}
+          supportsIrregularPractice={supportsIrregularPractice}
+        />
       );
     }
 
