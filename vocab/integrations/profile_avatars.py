@@ -16,11 +16,10 @@ except ImportError:  # pragma: no cover - Pillow may be absent in some envs
     ImageOps = None
 
 from vocab.models import TelegramUser
+from vocab.media_storage import media_storage
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PROFILE_AVATAR_DIR = PROJECT_ROOT / "media" / "profile_avatars"
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
 ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
@@ -43,13 +42,10 @@ def get_profile_avatar_file(user: TelegramUser) -> Path | None:
     """Return a verified avatar path or ``None`` for a stale or unsafe value."""
     if not user.avatar_path:
         return None
-    raw_path = Path(user.avatar_path)
-    candidate = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
-    try:
-        resolved = candidate.resolve(strict=True)
-    except (FileNotFoundError, OSError):
-        return None
-    if not resolved.is_relative_to(PROFILE_AVATAR_DIR.resolve()):
+    resolved = media_storage.resolve_existing(
+        user.avatar_path, allowed_kinds={"profile_avatars"}
+    )
+    if resolved is None:
         return None
     return _preferred_served_image(resolved)
 
@@ -73,10 +69,10 @@ def save_user_avatar(user: TelegramUser, uploaded_file) -> TelegramUser:
     if Image is None:
         raise ValueError("Обработка изображений временно недоступна.")
 
-    PROFILE_AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    avatar_dir = media_storage.directory("profile_avatars", create=True)
     previous_avatar_file = get_profile_avatar_file(user)
-    output_path = PROFILE_AVATAR_DIR / f"user_{user.id}.webp"
-    temporary_path = PROFILE_AVATAR_DIR / f".{output_path.name}.{uuid4().hex}.tmp"
+    output_path = avatar_dir / f"user_{user.id}.webp"
+    temporary_path = avatar_dir / f".{output_path.name}.{uuid4().hex}.tmp"
     try:
         uploaded_file.seek(0)
         with Image.open(uploaded_file) as image:
@@ -90,7 +86,7 @@ def save_user_avatar(user: TelegramUser, uploaded_file) -> TelegramUser:
         temporary_path.unlink(missing_ok=True)
         raise ValueError("Не удалось обработать изображение.") from exc
 
-    user.avatar_path = str(output_path.relative_to(PROJECT_ROOT))
+    user.avatar_path = media_storage.to_project_relative(output_path)
     user.avatar_updated_at = timezone.now()
     user.custom_avatar_url = ""
     user.save(update_fields=["avatar_path", "avatar_updated_at", "custom_avatar_url"])

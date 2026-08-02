@@ -17,11 +17,8 @@ def _png_upload() -> SimpleUploadedFile:
 
 @pytest.mark.django_db
 def test_invalid_avatar_replacement_preserves_existing_file(monkeypatch, tmp_path):
-    avatar_dir = tmp_path / "profile_avatars"
-    monkeypatch.setattr("vocab.integrations.profile_avatars.PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(
-        "vocab.integrations.profile_avatars.PROFILE_AVATAR_DIR", avatar_dir
-    )
+    monkeypatch.setattr("vocab.media_storage.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("vocab.media_storage.MEDIA_ROOT", tmp_path)
     user = TelegramUser.objects.create(chat_id=9042, username="avatar-test")
     save_user_avatar(user, _png_upload())
     user.refresh_from_db()
