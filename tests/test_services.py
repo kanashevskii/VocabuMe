@@ -53,6 +53,7 @@ from vocab.services import (
     get_pending_exercise_types,
     get_required_exercise_types,
     get_session_question_limit,
+    get_user_word,
     get_user_settings_payload,
     is_single_typo_match,
     is_translation_answer_correct,
@@ -98,6 +99,43 @@ def test_create_and_consume_web_login_token_is_single_use():
 def test_telegram_identity_rejects_non_positive_chat_ids():
     with pytest.raises(ValueError, match="positive integer"):
         upsert_telegram_user(-1)
+
+
+@pytest.mark.django_db
+def test_get_user_word_rejects_another_user_and_another_course():
+    owner = TelegramUser.objects.create(chat_id=1002, username="owner")
+    other = TelegramUser.objects.create(chat_id=1003, username="other")
+    own_english = VocabularyItem.objects.create(
+        user=owner,
+        course_code="en",
+        word="apple",
+        normalized_word="apple",
+        translation="яблоко",
+        transcription="",
+        example="An apple is red.",
+    )
+    own_georgian = VocabularyItem.objects.create(
+        user=owner,
+        course_code="ka",
+        word="ვაშლი",
+        normalized_word="ვაშლი",
+        translation="яблоко",
+        transcription="",
+        example="ვაშლი წითელია.",
+    )
+    other_word = VocabularyItem.objects.create(
+        user=other,
+        course_code="en",
+        word="pear",
+        normalized_word="pear",
+        translation="груша",
+        transcription="",
+        example="A pear is sweet.",
+    )
+
+    assert get_user_word(owner, own_english.id) == own_english
+    assert get_user_word(owner, own_georgian.id) is None
+    assert get_user_word(owner, other_word.id) is None
     with pytest.raises(ValueError, match="positive integer"):
         TelegramUser.objects.create(chat_id=0)
 

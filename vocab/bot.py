@@ -38,7 +38,7 @@ from .services import (
     get_learned_words as get_learned_words_service,
     get_available_parts as get_available_parts_service,
     get_ordered_unlearned_words as get_ordered_unlearned_words_service,
-    get_word_by_id as get_word_by_id_service,
+    get_user_word as get_user_word_service,
     get_new_achievements as get_new_achievements_service,
     get_telegram_user_by_chat_id,
     get_user_word_list as get_user_word_list_service,
@@ -347,8 +347,20 @@ def update_correct_count(item_id, correct: bool):
 
 
 @sync_to_async
-def get_word_by_id(item_id):
-    return get_word_by_id_service(item_id)
+def get_word_by_id(user, item_id):
+    """Resolve a bot callback word only inside the caller's active course."""
+    return get_user_word_service(user, item_id)
+
+
+async def get_session_word(update, user, item_id):
+    """Return an owned word or end a stale/cross-user Telegram interaction."""
+    item = await get_word_by_id(user, item_id)
+    if item is None:
+        await safe_reply(
+            update,
+            "Эта учебная сессия уже устарела. Начни упражнение заново.",
+        )
+    return item
 
 
 async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -442,7 +454,7 @@ async def learn_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         word_list = []
         for wid in last_ids:
-            word = await get_word_by_id(wid)
+            word = await get_word_by_id(user, wid)
             if word:
                 word_list.append(word)
 
@@ -1124,10 +1136,15 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_answer(query)
 
     logging.info("handle_answer from %s: %s", query.from_user.id, query.data)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
 
     if query.data.startswith("oldskip|"):
         _, item_id = query.data.split("|")
-        item = await get_word_by_id(item_id)
+        item = await get_session_word(update, user, item_id)
+        if item is None:
+            return
         logging.info("review skip word %s for user %s", item.word, query.from_user.id)
         await query.edit_message_text(
             f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
@@ -1145,7 +1162,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         options = context.user_data.get("review_options", {}).get(item_id, [])
         chosen = options[int(idx)] if int(idx) < len(options) else ""
         context.user_data.get("review_options", {}).pop(item_id, None)
-        item = await get_word_by_id(item_id)
+        item = await get_session_word(update, user, item_id)
+        if item is None:
+            return
         logging.info(
             "review answer from %s: chosen=%s correct=%s",
             query.from_user.id,
@@ -1176,7 +1195,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data.startswith("skip|"):
         _, item_id = query.data.split("|")
-        item = await get_word_by_id(item_id)
+        item = await get_session_word(update, user, item_id)
+        if item is None:
+            return
         logging.info("skip word %s for user %s", item.word, query.from_user.id)
         await query.edit_message_text(
             f"⏭ Пропущено: *{esc(item.word)}* — {esc(item.translation)}",
@@ -1191,7 +1212,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data.startswith("revskip|"):
         _, item_id = query.data.split("|")
-        item = await get_word_by_id(item_id)
+        item = await get_session_word(update, user, item_id)
+        if item is None:
+            return
         logging.info("reverse skip word %s for user %s", item.word, query.from_user.id)
         await query.edit_message_text(
             f"⏭ Пропущено: *{esc(item.translation)}* — {esc(item.word)}",
@@ -1226,7 +1249,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         options = context.user_data.get("rev_options", {}).get(item_id, [])
         chosen = options[int(idx)] if int(idx) < len(options) else ""
         context.user_data.get("rev_options", {}).pop(item_id, None)
-        item = await get_word_by_id(item_id)
+        item = await get_session_word(update, user, item_id)
+        if item is None:
+            return
         logging.info(
             "rev answer from %s: chosen=%s correct=%s",
             query.from_user.id,
@@ -1275,7 +1300,9 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.get("options", {}).pop(item_id, None)
     else:
         item_id, chosen = query.data.split("|")
-    item = await get_word_by_id(item_id)
+    item = await get_session_word(update, user, item_id)
+    if item is None:
+        return
     logging.info(
         "answer from %s: chosen=%s correct=%s",
         query.from_user.id,
@@ -1301,9 +1328,6 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await learn(update, context)
 
     # 🎖️ Проверка новых достижений
-    user, _ = await get_or_create_user(
-        update.effective_chat.id, update.effective_chat.username
-    )
     new_achievements = await get_new_achievements(user)
     for a in new_achievements:
         await safe_reply(update, f"🏆 {a}")
@@ -1624,7 +1648,12 @@ async def handle_listening_answer(update: Update, context: ContextTypes.DEFAULT_
 
     user_answer = update.message.text.strip().lower()
     item_id = context.user_data.pop("aud_current_word")
-    item = await get_word_by_id(item_id)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
+    item = await get_session_word(update, user, item_id)
+    if item is None:
+        return
     mode = context.user_data.get("aud_mode", "word")
 
     logging.info(
@@ -1676,7 +1705,12 @@ async def handle_listening_skip(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     item_id = context.user_data.pop("aud_current_word")
-    item = await get_word_by_id(item_id)
+    user, _ = await get_or_create_user(
+        update.effective_chat.id, update.effective_chat.username
+    )
+    item = await get_session_word(update, user, item_id)
+    if item is None:
+        return
     logging.info("skipped in listening by %s: %s", query.from_user.id, item.word)
 
     await query.edit_message_text(
