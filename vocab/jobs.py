@@ -84,7 +84,9 @@ def _execute(job: BackgroundJob) -> None:
             course_code=job.payload["course_code"],
         )
     elif job.kind == "image_optimize":
-        services._optimize_image_to_webp(Path(job.payload["source_path"]))
+        from .integrations.card_media import optimize_image_to_webp
+
+        optimize_image_to_webp(Path(job.payload["source_path"]))
     elif job.kind == "tts_audio":
         from .tts import generate_tts_audio
 

@@ -16,12 +16,6 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.timezone import now
 
-try:
-    from PIL import Image, ImageOps
-except ImportError:  # pragma: no cover - Pillow may be absent in some envs
-    Image = None
-    ImageOps = None
-
 from .irregular_verbs import IRREGULAR_VERBS, get_random_pairs
 from .domain.word_parsing import parse_word_batch
 from .application.streaks import (
@@ -101,12 +95,18 @@ from .integrations.profile_avatars import (
     get_profile_avatar_file,
     save_user_avatar,  # noqa: F401
 )
+from .integrations.card_media import (
+    DRAFT_IMAGE_DIR,  # noqa: F401
+    IMAGE_CACHE_DIR,  # noqa: F401
+    USER_IMAGE_DIR,  # noqa: F401
+    get_draft_image_file,
+    get_word_image_file,
+    optimize_image_to_webp as _optimize_image_to_webp,  # noqa: F401
+    preferred_served_image as _preferred_served_image,  # noqa: F401
+    schedule_image_optimization as _schedule_image_optimization,  # noqa: F401
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MEDIA_ROOT = PROJECT_ROOT / "media"
-IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
-USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
-DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
 logger = logging.getLogger(__name__)
 IMAGE_GENERATION_STALE_MINUTES = 20
 PACK_PREPARATION_FAILURE_COOLDOWN_MINUTES = 180
@@ -612,88 +612,6 @@ def build_user_progress(user: TelegramUser) -> dict:
         day_start=day_start,
         day_end=day_end,
     )
-
-
-def _webp_variant_path(source: Path) -> Path:
-    return source.with_suffix(".webp")
-
-
-def _optimize_image_to_webp(source: Path) -> Path | None:
-    if Image is None or source.suffix.lower() == ".webp":
-        return source if source.exists() else None
-
-    target = _webp_variant_path(source)
-    try:
-        if target.exists() and target.stat().st_mtime >= source.stat().st_mtime:
-            return target
-    except OSError:
-        pass
-
-    try:
-        with Image.open(source) as img:
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
-            img.save(target, format="WEBP", quality=82, method=6)
-        return target
-    except Exception:
-        return None
-
-
-def _schedule_image_optimization(source: Path) -> None:
-    if Image is None or source.suffix.lower() == ".webp" or not source.exists():
-        return
-    enqueue_job(
-        kind="image_optimize",
-        deduplication_key=f"image-optimize:{source}:{int(source.stat().st_mtime)}",
-        payload={"source_path": str(source)},
-        priority=200,
-    )
-
-
-def _preferred_served_image(source: Path) -> Path:
-    if source.suffix.lower() == ".webp":
-        return source
-    webp = _webp_variant_path(source)
-    if webp.exists() and webp.stat().st_size > 0:
-        return webp
-    if webp.exists():
-        try:
-            webp.unlink()
-        except OSError:
-            pass
-    return source
-
-
-def get_word_image_file(item: VocabularyItem) -> Path | None:
-    candidates: list[Path] = []
-
-    if item.image_path:
-        raw_path = Path(item.image_path)
-        candidates.append(
-            raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
-        )
-
-    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", item.word or "").strip("_") or "word"
-    candidates.extend(
-        [
-            IMAGE_CACHE_DIR / f"{item.id}_{slug}.jpg",
-            IMAGE_CACHE_DIR / f"_{slug}.jpg",
-        ]
-    )
-
-    allowed_roots = (
-        IMAGE_CACHE_DIR.resolve(),
-        USER_IMAGE_DIR.resolve(),
-        DRAFT_IMAGE_DIR.resolve(),
-    )
-    for candidate in candidates:
-        try:
-            resolved = candidate.resolve(strict=True)
-        except (FileNotFoundError, OSError):
-            continue
-        if any(resolved.is_relative_to(root) for root in allowed_roots):
-            return _preferred_served_image(resolved)
-    return None
 
 
 def serialize_user(user: TelegramUser) -> dict:
@@ -1850,26 +1768,6 @@ def serialize_draft(draft: AddWordDraft) -> dict:
         "created_at": draft.created_at.isoformat(),
         "updated_at": draft.updated_at.isoformat(),
     }
-
-
-def get_draft_image_file(draft: AddWordDraft) -> Path | None:
-    if not draft.image_path:
-        return None
-    raw_path = Path(draft.image_path)
-    candidate = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
-    try:
-        resolved = candidate.resolve(strict=True)
-    except (FileNotFoundError, OSError):
-        return None
-    draft_root = (PROJECT_ROOT / "media" / "draft_images").resolve()
-    allowed_roots = (
-        draft_root,
-        IMAGE_CACHE_DIR.resolve(),
-        USER_IMAGE_DIR.resolve(),
-    )
-    if any(resolved.is_relative_to(root) for root in allowed_roots):
-        return _preferred_served_image(resolved)
-    return None
 
 
 def create_word_draft(

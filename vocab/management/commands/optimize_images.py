@@ -2,7 +2,12 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand
 
-from vocab.services import DRAFT_IMAGE_DIR, IMAGE_CACHE_DIR, USER_IMAGE_DIR, _optimize_image_to_webp
+from vocab.integrations.card_media import (
+    DRAFT_IMAGE_DIR,
+    IMAGE_CACHE_DIR,
+    USER_IMAGE_DIR,
+    optimize_image_to_webp,
+)
 
 
 class Command(BaseCommand):
@@ -28,8 +33,12 @@ class Command(BaseCommand):
                 if target.exists() and target.stat().st_mtime >= path.stat().st_mtime:
                     skipped += 1
                     continue
-                result = _optimize_image_to_webp(path)
-                if isinstance(result, Path) and result.exists() and result.suffix.lower() == ".webp":
+                result = optimize_image_to_webp(path)
+                if (
+                    isinstance(result, Path)
+                    and result.exists()
+                    and result.suffix.lower() == ".webp"
+                ):
                     created += 1
 
         self.stdout.write(
