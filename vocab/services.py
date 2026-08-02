@@ -5,9 +5,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlparse
-from uuid import UUID, uuid4
+from uuid import UUID
 import logging
-import os
 import random
 import re
 import time
@@ -97,16 +96,18 @@ from .utils import (
     translate_to_ru,
 )
 from .word_packs import get_pack_definitions, get_pack_level
+from .integrations.profile_avatars import (
+    delete_user_avatar,  # noqa: F401
+    get_profile_avatar_file,
+    save_user_avatar,  # noqa: F401
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEDIA_ROOT = PROJECT_ROOT / "media"
 IMAGE_CACHE_DIR = MEDIA_ROOT / "card_images"
 USER_IMAGE_DIR = MEDIA_ROOT / "user_images"
 DRAFT_IMAGE_DIR = MEDIA_ROOT / "draft_images"
-PROFILE_AVATAR_DIR = MEDIA_ROOT / "profile_avatars"
 logger = logging.getLogger(__name__)
-MAX_AVATAR_BYTES = 5 * 1024 * 1024
-ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 IMAGE_GENERATION_STALE_MINUTES = 20
 PACK_PREPARATION_FAILURE_COOLDOWN_MINUTES = 180
 WORD_PRIORITY_OPTIONS = [
@@ -661,20 +662,6 @@ def _preferred_served_image(source: Path) -> Path:
         except OSError:
             pass
     return source
-
-
-def get_profile_avatar_file(user: TelegramUser) -> Path | None:
-    if not user.avatar_path:
-        return None
-    raw_path = Path(user.avatar_path)
-    candidate = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
-    try:
-        resolved = candidate.resolve(strict=True)
-    except (FileNotFoundError, OSError):
-        return None
-    if not resolved.is_relative_to(PROFILE_AVATAR_DIR.resolve()):
-        return None
-    return _preferred_served_image(resolved)
 
 
 def get_word_image_file(item: VocabularyItem) -> Path | None:
@@ -1287,65 +1274,6 @@ def set_user_repeat_threshold(user: TelegramUser, value: int) -> TelegramUser:
 
 def save_user(user: TelegramUser) -> TelegramUser:
     user.save()
-    return user
-
-
-def _remove_user_avatar_file(user: TelegramUser) -> None:
-    avatar_file = get_profile_avatar_file(user)
-    if avatar_file is None:
-        return
-    try:
-        avatar_file.unlink(missing_ok=True)
-    except OSError:
-        logger.warning("Failed to delete avatar file %s", avatar_file)
-
-
-def save_user_avatar(user: TelegramUser, uploaded_file) -> TelegramUser:
-    content_type = (getattr(uploaded_file, "content_type", "") or "").lower()
-    if content_type not in ALLOWED_AVATAR_CONTENT_TYPES:
-        raise ValueError("Разрешены только JPG, PNG или WEBP.")
-    if getattr(uploaded_file, "size", 0) > MAX_AVATAR_BYTES:
-        raise ValueError("Файл слишком большой. Максимум 5 MB.")
-
-    if Image is None:
-        raise ValueError("Обработка изображений временно недоступна.")
-
-    PROFILE_AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    previous_avatar_file = get_profile_avatar_file(user)
-    output_path = PROFILE_AVATAR_DIR / f"user_{user.id}.webp"
-    temporary_path = PROFILE_AVATAR_DIR / f".{output_path.name}.{uuid4().hex}.tmp"
-    try:
-        uploaded_file.seek(0)
-        with Image.open(uploaded_file) as img:
-            img = ImageOps.exif_transpose(img)
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
-            img.thumbnail((512, 512))
-            img.save(temporary_path, format="WEBP", quality=84, method=6)
-        os.replace(temporary_path, output_path)
-    except Exception as exc:
-        temporary_path.unlink(missing_ok=True)
-        raise ValueError("Не удалось обработать изображение.") from exc
-
-    user.avatar_path = str(output_path.relative_to(PROJECT_ROOT))
-    user.avatar_updated_at = timezone.now()
-    user.custom_avatar_url = ""
-    user.save(update_fields=["avatar_path", "avatar_updated_at", "custom_avatar_url"])
-    if previous_avatar_file and previous_avatar_file != output_path:
-        try:
-            previous_avatar_file.unlink(missing_ok=True)
-        except OSError:
-            logger.warning(
-                "Failed to delete replaced avatar file %s", previous_avatar_file
-            )
-    return user
-
-
-def delete_user_avatar(user: TelegramUser) -> TelegramUser:
-    _remove_user_avatar_file(user)
-    user.avatar_path = ""
-    user.avatar_updated_at = None
-    user.save(update_fields=["avatar_path", "avatar_updated_at"])
     return user
 
 
